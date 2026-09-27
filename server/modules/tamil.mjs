@@ -17,7 +17,10 @@ Avoid these: ${JSON.stringify(used)}. Reply as JSON:
 {"tamil": "Tamil script", "transliteration": "easy English-letter pronunciation", "meaning": "English meaning",
  "when": "one sentence on when to use it", "reply": "a likely reply with transliteration and meaning"}` }],
   { json: true, maxTokens: 700, temperature: 0.8 });
-  const phrase = { date: istDate(), theme, ...p };
+  // The model sometimes returns the reply as an object; store plain text either way.
+  const r = p.reply;
+  const reply = r && typeof r === 'object' ? [r.transliteration, r.tamil && `(${r.tamil})`, r.meaning && `= ${r.meaning}`].filter(Boolean).join(' ') : String(r || '');
+  const phrase = { date: istDate(), theme, ...p, reply };
   data.phrases.push(phrase); persist();
   await push(`Tamil: ${phrase.transliteration}`, `${phrase.tamil}\n= ${phrase.meaning}\n${phrase.when}`, { tags: 'speech_balloon' });
   return phrase;

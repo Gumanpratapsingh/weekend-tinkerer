@@ -185,7 +185,9 @@ const pages = {
     const b = h('button', { class: 'btn ghost', type: 'button' }, d.today ? 'Another phrase' : "Get today's phrase");
     b.addEventListener('click', busy(b, async () => { await api('/tamil/new', { method: 'POST' }); render(); }));
     const card = (p) => h('div', { class: 'box' }, h('b', { style: 'font-size:1.4rem' }, p.tamil), '\n', h('b', {}, p.transliteration), ` = ${p.meaning}\n`,
-      h('span', { class: 'muted' }, p.when), p.reply ? `\nReply: ${p.reply}` : '');
+      h('span', { class: 'muted' }, p.when), p.reply ? `\nReply: ${typeof p.reply === 'object'
+        ? [p.reply.transliteration, p.reply.tamil && `(${p.reply.tamil})`, p.reply.meaning && `= ${p.reply.meaning}`].filter(Boolean).join(' ')
+        : p.reply}` : '');
     return [h('h1', {}, 'Tamil phrase'), h('p', { class: 'lede' }, `This week: ${d.theme}. A new phrase every morning at 8; quiz on Sundays.`),
       d.today ? card(d.today) : null, h('p', {}, b),
       h('h2', {}, 'Earlier'), h('table', {}, h('tbody', {}, d.phrases.filter((p) => p !== d.today && p.date !== d.today?.date).map((p) =>
