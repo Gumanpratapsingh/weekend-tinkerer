@@ -19,11 +19,19 @@ const rupees = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
 const today = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
 
 async function api(path, { method = 'GET', body } = {}) {
-  const r = await fetch('/api' + path, {
+  const opts = {
     method, credentials: 'same-origin',
     headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-Hub': '1' },
     body: body ? JSON.stringify(body) : undefined,
-  });
+  };
+  let r;
+  try { r = await fetch('/api' + path, opts); }
+  catch {
+    // A dropped connection (Wi-Fi blip at home or on the phone): wait a moment and retry once.
+    await new Promise((ok) => setTimeout(ok, 1500));
+    try { r = await fetch('/api' + path, opts); }
+    catch { throw new Error('Could not reach the phone. Check your connection, or the phone may be offline.'); }
+  }
   const data = await r.json().catch(() => ({}));
   if (r.status === 401 && path !== '/login') { go('/login'); throw new Error('Log in first.'); }
   if (!r.ok || data.error) throw new Error(data.error || `Error ${r.status}`);
@@ -211,10 +219,12 @@ async function render() {
   const page = pages[path] || (async () => [h('h1', {}, 'Not found'), h('p', {}, h('a', { href: '/', 'data-link': true }, 'Back to the hub'))]);
   try {
     const nodes = await page();
-    if (nodes) view.replaceChildren(...[nodes].flat());
+    if (nodes) view.replaceChildren(...[nodes].flat().filter((n) => n != null && n !== false));
     const me = path === '/login' ? { loggedIn: false } : { loggedIn: true };
     logoutBtn.hidden = !me.loggedIn;
-    document.title = `${path === '/' ? 'Tinker hub' : path.slice(1)[0].toUpperCase() + path.slice(2)} · Tinker hub`;
+    const TITLES = { '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Expenses', '/interview': 'Interview coach',
+      '/linkedin': 'LinkedIn drafts', '/tamil': 'Tamil phrase', '/room': 'Room' };
+    document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
   } catch (e) {
     if (location.pathname !== '/login') view.replaceChildren(h('p', { class: 'err' }, e.message));
   }
