@@ -96,7 +96,7 @@ async function onMessage(text) {
   const note = text.replace(/spent|rs\.?|inr|rupees|₹|on/gi, ' ').replace(m[1], ' ').replace(/\s+/g, ' ').trim() || 'expense';
   const item = add({ amount: m[1], note, category: await categorise(note) });
   log(`expense ${item.amount} ${item.category}`);
-  await push(`Logged ${rupees(item.amount)} · ${item.category}`, `${item.note}. This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'white_check_mark' });
+  await push(`Logged Rs ${Math.round(item.amount)} - ${item.category}`, `${item.note}. This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'white_check_mark' });
   budgetCheck(item.category);
 }
 
