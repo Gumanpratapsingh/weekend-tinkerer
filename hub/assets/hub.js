@@ -1,7 +1,10 @@
-// Tinker hub: one static page; the URL path picks which tool renders. All data is inserted as
-// text (never as HTML), because notes and AI output come from outside.
+// Tinker hub (Swiss Pro): one static page; the URL path picks which tool renders. All data is inserted
+// as text (never as HTML), because notes and AI output come from outside. Styles are set through the
+// CSSOM (el.style), which the strict Content-Security-Policy allows.
 const view = document.getElementById('view');
 const logoutBtn = document.querySelector('.logout');
+const tabs = document.querySelector('.tabs');
+const statusEl = document.getElementById('status');
 
 // ---------- tiny helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -10,13 +13,26 @@ function h(tag, attrs = {}, ...kids) {
     if (v == null || v === false) continue;
     if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'class') el.className = v;
+    else if (k === 'style') el.style.cssText = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
   return el;
 }
 const rupees = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
-const today = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+const ist = () => new Date(Date.now() + 5.5 * 3600e3);
+const today = () => ist().toISOString().slice(0, 10);
+const monthName = (m) => new Date(m + '-01T00:00:00Z').toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const shortMonth = (m) => new Date(m + '-01T00:00:00Z').toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
+const clip = (s, n) => (s && s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s || '');
+const ago = (t) => { const d = (Date.now() - t) / 1000; return d < 90 ? 'just now' : d < 3600 ? `${Math.round(d / 60)} min ago` : d < 86400 ? `${Math.round(d / 3600)} h ago` : `${Math.round(d / 86400)} d ago`; };
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2800);
+}
 
 async function api(path, { method = 'GET', body } = {}) {
   const opts = {
@@ -42,23 +58,103 @@ function busy(btn, fn) {
   return async (e) => {
     e?.preventDefault();
     if (btn) btn.disabled = true;
-    try { await fn(); } catch (err) { alert(err.message); } finally { if (btn) btn.disabled = false; }
+    try { await fn(); } catch (err) { toast(err.message, true); } finally { if (btn) btn.disabled = false; }
   };
 }
+
+// "250 swiggy dinner" -> { amount: 250, note: 'swiggy dinner' }
+const parseQuick = (s) => { const m = /^\s*₹?\s*(\d+(?:\.\d+)?)\s*(.*)$/.exec(s || ''); return m ? { amount: Number(m[1]), note: m[2].trim() } : null; };
+function quickAdd(placeholder, extra = () => ({})) {
+  const input = h('input', { placeholder, 'aria-label': 'Amount and note', autocomplete: 'off', enterkeyhint: 'done' });
+  const btn = h('button', { type: 'submit' }, 'Add');
+  const form = h('form', { class: 'quick' }, input, btn);
+  form.addEventListener('submit', busy(btn, async () => {
+    const q = parseQuick(input.value);
+    if (!q || !(q.amount > 0)) throw new Error('Start with the amount, e.g. "250 swiggy dinner".');
+    const item = await api('/expenses', { method: 'POST', body: { ...q, ...extra() } });
+    toast(`Logged ${rupees(item.amount)} · ${item.category}`);
+    render();
+  }));
+  return form;
+}
+
+// ---------- live room updates (Server-Sent Events) ----------
+let roomStream = null;
+function liveRoom(onState) {
+  roomStream?.close();
+  roomStream = new EventSource('/api/room/stream');
+  roomStream.addEventListener('room', (e) => { try { onState(JSON.parse(e.data)); } catch { /* ignore a bad frame */ } });
+  // EventSource reconnects by itself; nothing else to do on error.
+}
+
+// ---------- phone status chip ----------
+async function refreshStatus() {
+  try {
+    const s = await api('/status');
+    const stale = s.updated && Date.now() - s.updated > 5 * 60e3;
+    statusEl.classList.toggle('stale', !!stale);
+    statusEl.querySelector('span').textContent =
+      `S20 ${stale ? 'quiet' : 'online'}` + (s.battery != null ? ` · ${s.charging ? '⚡' : ''}${s.battery}%` : '') + (s.tempC != null ? ` · ${Math.round(s.tempC)}°C` : '');
+    statusEl.hidden = false;
+    return s;
+  } catch { statusEl.hidden = true; return null; }
+}
+setInterval(() => { if (!statusEl.hidden) refreshStatus(); }, 60e3);
 
 // ---------- pages ----------
 const pages = {
   async '/'() {
+    const month = today().slice(0, 7);
+    const [exp, iv, ta, room, li, st] = await Promise.allSettled([
+      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(),
+    ]).then((r) => r.map((x) => (x.status === 'fulfilled' ? x.value : null)));
+    const hr = ist().getUTCHours();
+    const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+    const dateLine = ist().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const up = st?.upSince ? ` · served from a cupboard for ${ago(st.upSince).replace(' ago', '')}` : '';
+
+    // Money
+    const todaySpend = exp ? exp.items.filter((i) => i.date === today()).reduce((s, i) => s + i.amount, 0) : 0;
+    const cats = exp ? Object.entries(exp.byCategory) : [];
+    const money = h('a', { class: 'w', href: '/expenses', 'data-link': true },
+      h('div', { class: 'label' }, h('span', {}, `Spent · ${shortMonth(month)}`)),
+      h('div', { class: 'big' }, exp ? rupees(exp.total) : '—'),
+      h('div', { class: 'sub' }, exp ? `today ${rupees(todaySpend)}${cats[0] ? ` · ${cats[0][0]} leads` : ''}` : 'unavailable'),
+      cats.length ? h('div', { class: 'minibar' }, cats.slice(0, 6).map(([, v], i) => h('i', { class: 'k' + i, style: `width:${(v / exp.total) * 100}%` }))) : null);
+
+    // Room (live)
+    const roomBig = h('div', { class: 'big' }), roomSub = h('div', { class: 'sub' });
+    const roomW = h('a', { class: 'w', href: '/room', 'data-link': true }, h('div', { class: 'label' }, h('span', {}, 'Room'), h('span', { class: 'live' }, 'live')), roomBig, roomSub);
+    const paintRoom = (s, flash) => {
+      roomBig.textContent = s?.lights ? s.lights.toUpperCase() : '—';
+      roomSub.replaceChildren(s?.lux != null ? `${Math.round(s.lux)} lux · ` : '', s?.armed ? h('span', { class: 'accent' }, 'armed') : 'alerts off');
+      if (flash) { roomW.classList.remove('flash'); void roomW.offsetWidth; roomW.classList.add('flash'); }
+    };
+    paintRoom(room?.state);
+    liveRoom((s) => { const changed = s.lights !== room?.state?.lights; paintRoom(s, changed); if (room) room.state = s; });
+
+    // Interview
+    const q = iv?.today;
+    const interview = h('div', { class: 'w wide' },
+      h('div', { class: 'label' }, h('span', {}, 'Interview · today'), q ? h('span', {}, q.topic) : null),
+      q ? h('div', { class: 'q' }, clip(q.question, 150)) : h('div', { class: 'q muted' }, 'No question yet today.'),
+      h('div', { class: 'sub' }, q ? (q.score ? `Answered · ${q.score}/5` : 'Not answered yet') : 'A new one arrives at 9 AM'),
+      h('a', { class: 'btn small', href: '/interview', 'data-link': true }, q ? (q.score ? 'See feedback' : 'Answer now') : "Get today's question"));
+
+    // Tamil
+    const p = ta?.today;
+    const tamil = h('a', { class: 'w', href: '/tamil', 'data-link': true }, h('div', { class: 'label' }, h('span', {}, 'Tamil')),
+      h('div', { class: 'q' }, p ? p.transliteration : 'Tap for today'), h('div', { class: 'sub' }, p ? clip(p.meaning, 60) : ta?.theme || ''));
+
+    // LinkedIn
+    const draft = li?.drafts?.find((d) => d.status === 'draft');
+    const linkedin = h('a', { class: 'w', href: '/linkedin', 'data-link': true }, h('div', { class: 'label' }, h('span', {}, 'LinkedIn')),
+      h('div', { class: 'big s' }, draft ? 'Draft ready' : 'Fri 7 PM'), h('div', { class: 'sub' }, draft ? `from ${draft.commits} commits` : 'next draft'));
+
     return [
-      h('h1', {}, 'Tinker hub'),
-      h('p', { class: 'lede' }, 'Weekend-tinkerer tools, served from a Galaxy S20 FE in a cupboard.'),
-      h('div', { class: 'grid' },
-        [['/expenses', 'Expenses', 'Spending by category, budgets, CSV export'],
-          ['/interview', 'Interview coach', "Today's question, graded answers, weak topics"],
-          ['/linkedin', 'LinkedIn drafts', "Friday drafts from the week's commits"],
-          ['/tamil', 'Tamil phrase', 'Phrase of the day for Chennai life'],
-          ['/room', 'Room', 'Lights on/off log, arm and disarm']]
-          .map(([href, t, d]) => h('a', { class: 'card', href, 'data-link': true }, h('b', {}, t), h('span', {}, d)))),
+      h('div', { class: 'hello' }, h('h1', {}, `${greet}, Guman`), h('p', { class: 'lede' }, dateLine + up)),
+      h('div', { class: 'grid' }, money, roomW, interview, tamil, linkedin),
+      quickAdd('250 swiggy dinner'),
     ];
   },
 
@@ -74,167 +170,195 @@ const pages = {
       try { await api('/login', { method: 'POST', body: { password: pw.value } }); go('/'); }
       catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
     });
-    return [h('h1', {}, 'Log in'), me.passwordSet ? h('p', { class: 'lede' }, 'Private tools. Owner only.')
-      : h('p', { class: 'lede' }, 'No password set yet. Run set-password.sh from the Mac.'), form];
+    return [h('h1', {}, 'Log in'), h('p', { class: 'lede' }, me.passwordSet ? 'Private tools. Owner only.' : 'No password set yet. Run set-password.sh from the Mac.'), form];
   },
 
   async '/expenses'() {
     const month = new URLSearchParams(location.search).get('month') || today().slice(0, 7);
     const d = await api(`/expenses?month=${month}`);
-    const amount = h('input', { type: 'number', min: '1', step: '0.01', placeholder: 'Amount', required: true, style: 'width:8rem' });
-    const note = h('input', { placeholder: 'What for? (e.g. swiggy dinner)', style: 'flex:1 1 14rem' });
-    const cat = h('select', {}, h('option', { value: '' }, 'Auto category'), d.categories.map((c) => h('option', { value: c }, c)));
-    const date = h('input', { type: 'date', value: today() });
-    const add = h('button', { class: 'btn', type: 'submit' }, 'Add');
-    const form = h('form', { class: 'row' }, amount, note, cat, date, add);
-    form.addEventListener('submit', busy(add, async () => {
-      await api('/expenses', { method: 'POST', body: { amount: amount.value, note: note.value, category: cat.value, date: date.value } });
-      render();
-    }));
-    const shift = (n) => { const [y, m] = month.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + n, 1)); return t.toISOString().slice(0, 7); };
-    const csv = h('button', { class: 'btn ghost', type: 'button' }, 'Export CSV');
+    const shift = (n) => { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); };
+    const isNow = month === today().slice(0, 7);
+    const days = isNow ? Number(today().slice(8, 10)) : new Date(Date.UTC(...month.split('-').map(Number), 0)).getUTCDate();
+
+    const csv = h('button', { class: 'btn ghost small', type: 'button', style: 'margin:0' }, 'CSV ↓');
     csv.addEventListener('click', busy(csv, async () => {
       const r = await api(`/expenses/csv?month=${month}`);
-      const a = h('a', { href: URL.createObjectURL(new Blob([r.csv], { type: 'text/csv' })), download: r.filename });
-      a.click();
+      h('a', { href: URL.createObjectURL(new Blob([r.csv], { type: 'text/csv' })), download: r.filename }).click();
     }));
-    const budgets = d.categories.map((c) => {
+
+    const warn = d.categories.map((c) => [c, d.byCategory[c] || 0, d.budgets[c]]).filter(([, s, b]) => b && s >= b * 0.8)
+      .sort((a, b) => b[1] / b[2] - a[1] / a[2])[0];
+    const cat = h('select', { 'aria-label': 'Category' }, h('option', { value: '' }, 'Auto category'), d.categories.map((c) => h('option', { value: c }, c)));
+    const date = h('input', { type: 'date', value: isNow ? today() : `${month}-01`, 'aria-label': 'Date' });
+
+    const bars = d.categories.map((c) => {
       const spent = d.byCategory[c] || 0, b = d.budgets[c];
       if (!spent && !b) return null;
-      return h('div', {}, h('div', {}, h('b', {}, c), ' ', rupees(spent), b ? h('span', { class: 'muted' }, ` of ${rupees(b)}`) : ''),
-        h('div', { class: 'bar' }, h('i', { class: b && spent > b ? 'over' : '', style: `width:${Math.min(100, b ? spent / b * 100 : spent / (d.total || 1) * 100)}%` })));
+      const pct = Math.min(100, b ? (spent / b) * 100 : (spent / (d.total || 1)) * 100);
+      return h('div', { class: 'cat' }, h('div', { class: 'l' }, h('span', {}, c), h('span', {}, b ? `${rupees(spent)} / ${rupees(b).slice(1)}` : rupees(spent))),
+        h('div', { class: 't' }, h('i', { class: b && spent > b ? 'over' : '', style: `width:${pct}%` })));
     });
     const budgetForm = (() => {
-      const c = h('select', {}, d.categories.map((x) => h('option', { value: x }, x)));
-      const v = h('input', { type: 'number', min: '0', placeholder: 'Monthly budget (0 = none)', style: 'width:14rem' });
-      const b = h('button', { class: 'btn ghost', type: 'submit' }, 'Set budget');
+      const c = h('select', { 'aria-label': 'Category' }, d.categories.map((x) => h('option', { value: x }, x)));
+      const v = h('input', { type: 'number', min: '0', placeholder: 'Monthly budget (0 = none)', 'aria-label': 'Budget' });
+      const b = h('button', { class: 'btn ghost', type: 'submit' }, 'Set');
       const f = h('form', { class: 'row' }, c, v, b);
-      f.addEventListener('submit', busy(b, async () => { await api('/expenses/budget', { method: 'POST', body: { category: c.value, amount: v.value } }); render(); }));
-      return f;
+      f.addEventListener('submit', busy(b, async () => { await api('/expenses/budget', { method: 'POST', body: { category: c.value, amount: v.value } }); toast('Budget saved'); render(); }));
+      return h('details', {}, h('summary', {}, 'Set a budget'), f);
     })();
+
     const rows = d.items.map((i) => {
-      const del = h('button', { class: 'x', title: 'Delete', type: 'button' }, '✕');
-      del.addEventListener('click', busy(del, async () => { if (confirm(`Delete ${rupees(i.amount)} ${i.note}?`)) { await api(`/expenses/${i.id}`, { method: 'DELETE' }); render(); } }));
-      return h('tr', {}, h('td', { class: 'hide' }, i.date.slice(5)), h('td', {}, i.note || '—'), h('td', {}, h('span', { class: 'tag' }, i.category)), h('td', { class: 'num' }, rupees(i.amount)), h('td', {}, del));
+      const del = h('button', { class: 'x', title: 'Delete', type: 'button', 'aria-label': `Delete ${i.note}` }, '✕');
+      del.addEventListener('click', busy(del, async () => {
+        if (!confirm(`Delete ${rupees(i.amount)} ${i.note}?`)) return;
+        await api(`/expenses/${i.id}`, { method: 'DELETE' }); toast('Deleted'); render();
+      }));
+      return h('div', { class: 'item' },
+        h('div', { class: 'main' }, i.note || '—', h('span', { class: 'tag' }, i.category), h('small', {}, new Date(i.date + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' }))),
+        h('span', { class: 'num' }, rupees(i.amount)), del);
     });
+
     return [
-      h('h1', {}, 'Expenses'),
-      h('p', { class: 'lede' }, 'Log by Siri ("Log expense") or send "250 swiggy dinner" to your ntfy expense topic.'),
-      h('div', { class: 'row', style: 'display:flex;gap:1rem;align-items:center;margin-bottom:1rem' },
-        h('a', { href: `/expenses?month=${shift(-1)}`, 'data-link': true }, '← ' + shift(-1)), h('b', {}, month),
-        month < today().slice(0, 7) ? h('a', { href: `/expenses?month=${shift(1)}`, 'data-link': true }, shift(1) + ' →') : null, csv),
-      h('div', { class: 'stats' }, h('div', { class: 'stat' }, h('b', {}, rupees(d.total)), h('span', {}, `Total · ${d.items.length} entries`)),
-        ...Object.entries(d.byCategory).slice(0, 3).map(([c, v]) => h('div', { class: 'stat' }, h('b', {}, rupees(v)), h('span', {}, c)))),
-      form,
-      h('h2', {}, 'By category'), ...budgets, budgetForm,
-      h('h2', {}, 'Entries'), rows.length ? h('table', {}, h('tbody', {}, rows)) : h('p', { class: 'muted' }, 'Nothing logged this month.'),
+      h('div', { class: 'month' }, h('a', { href: `/expenses?month=${shift(-1)}`, 'data-link': true }, '‹ ' + shortMonth(shift(-1))),
+        h('span', {}, monthName(month)), isNow ? null : h('a', { href: `/expenses?month=${shift(1)}`, 'data-link': true }, shortMonth(shift(1)) + ' ›'),
+        h('span', { class: 'sp' }), csv),
+      h('div', { class: 'hello' }, h('h1', {}, rupees(d.total)),
+        h('p', { class: 'lede' }, `${d.items.length} entries · ${rupees(d.total / Math.max(1, days))} a day`,
+          warn ? h('span', { class: 'accent' }, ` · ${warn[0]} at ${Math.round((warn[1] / warn[2]) * 100)}% of budget`) : '')),
+      quickAdd('Amount and note, e.g. 180 uber', () => ({ category: cat.value, date: date.value })),
+      h('details', {}, h('summary', {}, 'Category or date'), h('div', { class: 'row', style: 'display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap' }, cat, date)),
+      h('div', { class: 'sec' }, 'By category'), ...(bars.some(Boolean) ? bars : [h('p', { class: 'muted' }, 'Nothing yet.')]), budgetForm,
+      h('div', { class: 'sec' }, 'Entries'), rows.length ? h('div', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'Nothing logged this month.'),
+      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, 'Also by Siri ("Log expense") or a text like "250 swiggy dinner" to your ntfy expense topic.'),
     ];
   },
 
   async '/interview'() {
     const d = await api('/interview');
     const q = d.today;
-    const out = [h('h1', {}, 'Interview coach'), h('p', { class: 'lede' }, 'A question every morning at 9. Weak topics come back sooner.')];
+    const out = [h('div', { class: 'hello' }, h('h1', {}, 'Interview'), h('p', { class: 'lede' }, 'A question every morning at 9. Weak topics come back sooner.'))];
     if (!q) {
       const b = h('button', { class: 'btn', type: 'button' }, "Get today's question");
       b.addEventListener('click', busy(b, async () => { await api('/interview/new', { method: 'POST' }); render(); }));
       out.push(b);
     } else {
-      out.push(h('p', {}, h('span', { class: 'tag' }, q.topic)), h('div', { class: 'box' }, q.question));
+      out.push(h('div', { class: 'label' }, h('span', {}, q.topic)), h('div', { class: 'box q' }, q.question));
       if (q.score) {
-        out.push(h('p', {}, 'Score ', h('span', { class: 'score' }, `${q.score}/5`)),
-          h('h2', {}, 'What was good'), h('p', {}, q.good), h('h2', {}, 'Missing'), h('p', {}, q.missing),
-          h('h2', {}, 'Model answer'), h('div', { class: 'box' }, q.model));
+        out.push(h('div', { class: 'score' }, `${q.score}/5`),
+          h('div', { class: 'sec' }, 'What was good'), h('p', {}, q.good), h('div', { class: 'sec' }, 'Missing'), h('p', {}, q.missing),
+          h('div', { class: 'sec' }, 'Model answer'), h('div', { class: 'box' }, q.model));
       } else {
         const ta = h('textarea', { placeholder: 'Type your answer as you would say it in the interview…' });
         const b = h('button', { class: 'btn', type: 'submit' }, 'Grade my answer');
-        const f = h('form', {}, ta, h('p', {}, b));
+        const f = h('form', {}, ta, h('div', { class: 'btns' }, b));
         f.addEventListener('submit', busy(b, async () => { await api('/interview/answer', { method: 'POST', body: { id: q.id, answer: ta.value } }); render(); }));
         out.push(f);
       }
     }
-    if (d.topics.length) out.push(h('h2', {}, 'Topics (weakest first)'),
-      h('table', {}, h('tbody', {}, d.topics.map((t) => h('tr', {}, h('td', {}, t.topic), h('td', { class: 'num' }, `${t.avg.toFixed(1)}/5`), h('td', { class: 'num muted' }, `${t.n}×`))))));
+    if (d.topics.length) out.push(h('div', { class: 'sec' }, 'Topics · weakest first'),
+      ...d.topics.map((t) => h('div', { class: 'cat' }, h('div', { class: 'l' }, h('span', {}, t.topic), h('span', {}, `${t.avg.toFixed(1)}/5 · ${t.n}×`)),
+        h('div', { class: 't' }, h('i', { class: t.avg < 3 ? 'over' : '', style: `width:${(t.avg / 5) * 100}%` })))));
     const past = d.history.filter((x) => x.score && x.id !== q?.id);
-    if (past.length) out.push(h('h2', {}, 'History'), h('table', {}, h('tbody', {}, past.map((x) =>
-      h('tr', {}, h('td', { class: 'hide' }, x.date.slice(5)), h('td', {}, x.question), h('td', { class: 'num score' }, `${x.score}/5`))))));
+    if (past.length) out.push(h('div', { class: 'sec' }, 'History'), h('div', { class: 'list' }, past.map((x) =>
+      h('div', { class: 'item' }, h('div', { class: 'main' }, clip(x.question, 120), h('small', {}, `${x.date} · ${x.topic}`)), h('span', { class: 'num accent' }, `${x.score}/5`)))));
     return out;
   },
 
   async '/linkedin'() {
     const d = await api('/linkedin');
     const gen = h('button', { class: 'btn', type: 'button' }, 'Draft from this week');
-    gen.addEventListener('click', busy(gen, async () => { const r = await api('/linkedin/draft', { method: 'POST' }); if (r.error) alert(r.error); render(); }));
+    gen.addEventListener('click', busy(gen, async () => { await api('/linkedin/draft', { method: 'POST' }); toast('Draft ready'); render(); }));
     const drafts = d.drafts.map((x) => {
       const ta = h('textarea', {}, x.post);
-      const set = (status) => busy(null, async () => { await api('/linkedin/status', { method: 'POST', body: { id: x.id, status, post: ta.value } }); render(); });
+      const set = (status, msg) => busy(null, async () => { await api('/linkedin/status', { method: 'POST', body: { id: x.id, status, post: ta.value } }); toast(msg); render(); });
       const copy = h('button', { class: 'btn', type: 'button' }, 'Approve & copy');
-      copy.addEventListener('click', async () => { await navigator.clipboard.writeText(ta.value); await set('approved')(); });
+      copy.addEventListener('click', async () => { await navigator.clipboard.writeText(ta.value); await set('approved', 'Copied. Paste it into LinkedIn')(); });
       const skip = h('button', { class: 'btn ghost', type: 'button' }, 'Skip');
-      skip.addEventListener('click', set('skipped'));
-      return h('div', { style: 'margin-bottom:2rem' }, h('p', {}, h('span', { class: 'tag' }, x.status), h('span', { class: 'muted' }, `${x.date} · from ${x.commits} commits`)),
-        ta, x.status === 'draft' ? h('p', { style: 'display:flex;gap:.5rem' }, copy, skip) : null);
+      skip.addEventListener('click', set('skipped', 'Skipped'));
+      return h('div', { style: 'margin-bottom:2rem' },
+        h('div', { class: 'label' }, h('span', {}, `${x.date} · ${x.commits} commits`), h('span', { class: x.status === 'draft' ? 'accent' : '' }, x.status)),
+        h('div', { style: 'margin-top:.5rem' }, ta), x.status === 'draft' ? h('div', { class: 'btns' }, copy, skip) : null);
     });
-    return [h('h1', {}, 'LinkedIn drafts'),
-      h('p', { class: 'lede' }, 'A draft every Friday at 7 PM from your commits. Nothing is posted automatically: approve, copy, paste into LinkedIn.'),
-      h('p', {}, gen), ...(drafts.length ? drafts : [h('p', { class: 'muted' }, 'No drafts yet.')])];
+    return [h('div', { class: 'hello' }, h('h1', {}, 'LinkedIn'),
+      h('p', { class: 'lede' }, 'A draft every Friday at 7 PM from your commits. Nothing is posted automatically: approve, copy, paste into LinkedIn.')),
+      h('div', { class: 'btns', style: 'margin-bottom:1.5rem' }, gen), ...(drafts.length ? drafts : [h('p', { class: 'muted' }, 'No drafts yet.')])];
   },
 
   async '/tamil'() {
     const d = await api('/tamil');
     const b = h('button', { class: 'btn ghost', type: 'button' }, d.today ? 'Another phrase' : "Get today's phrase");
     b.addEventListener('click', busy(b, async () => { await api('/tamil/new', { method: 'POST' }); render(); }));
-    const card = (p) => h('div', { class: 'box' }, h('b', { style: 'font-size:1.4rem' }, p.tamil), '\n', h('b', {}, p.transliteration), ` = ${p.meaning}\n`,
-      h('span', { class: 'muted' }, p.when), p.reply ? `\nReply: ${typeof p.reply === 'object'
-        ? [p.reply.transliteration, p.reply.tamil && `(${p.reply.tamil})`, p.reply.meaning && `= ${p.reply.meaning}`].filter(Boolean).join(' ')
-        : p.reply}` : '');
-    return [h('h1', {}, 'Tamil phrase'), h('p', { class: 'lede' }, `This week: ${d.theme}. A new phrase every morning at 8; quiz on Sundays.`),
-      d.today ? card(d.today) : null, h('p', {}, b),
-      h('h2', {}, 'Earlier'), h('table', {}, h('tbody', {}, d.phrases.filter((p) => p !== d.today && p.date !== d.today?.date).map((p) =>
-        h('tr', {}, h('td', {}, h('b', {}, p.transliteration), h('br'), h('span', { class: 'muted' }, p.tamil)), h('td', {}, p.meaning)))))];
+    const t = d.today;
+    const reply = t?.reply && (typeof t.reply === 'object'
+      ? [t.reply.transliteration, t.reply.tamil && `(${t.reply.tamil})`, t.reply.meaning && `= ${t.reply.meaning}`].filter(Boolean).join(' ') : t.reply);
+    return [
+      h('div', { class: 'hello' }, h('h1', {}, 'Tamil'), h('p', { class: 'lede' }, `This week: ${d.theme}. A new phrase at 8 AM; quiz on Sundays.`)),
+      t ? h('div', { class: 'box' }, h('div', { class: 'phrase' }, t.transliteration), h('div', { class: 'muted', style: 'font-size:1.15rem;margin:.25rem 0 .6rem' }, t.tamil),
+        h('div', { style: 'font-weight:600' }, t.meaning), h('div', { class: 'muted', style: 'margin-top:.4rem' }, t.when),
+        reply ? h('div', { style: 'margin-top:.6rem' }, h('span', { class: 'label' }, 'Reply '), reply) : null) : null,
+      h('div', { class: 'btns' }, b),
+      h('div', { class: 'sec' }, 'Earlier'),
+      h('div', { class: 'list' }, d.phrases.filter((p) => p.date !== t?.date).map((p) =>
+        h('div', { class: 'item' }, h('div', { class: 'main' }, h('b', {}, p.transliteration), h('small', {}, p.tamil)), h('span', { class: 'muted', style: 'text-align:right' }, p.meaning)))),
+    ];
   },
 
   async '/room'() {
     const d = await api('/room');
-    const s = d.state || {};
-    const toggle = h('button', { class: 'btn', type: 'button' }, s.armed ? 'Disarm (I\'m home)' : 'Arm (I\'m leaving)');
-    toggle.addEventListener('click', busy(toggle, async () => { await api('/room/arm', { method: 'POST', body: { armed: !s.armed } }); setTimeout(render, 3000); }));
+    let s = d.state || {};
     const time = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-    return [h('h1', {}, 'Room'), h('p', { class: 'lede' }, 'Lights from the ambient light sensor. Alerts are pushed only while armed.'),
-      h('div', { class: 'stats' },
-        h('div', { class: 'stat' }, h('b', {}, h('span', { class: 'dot' + (s.lights === 'on' ? ' on' : '') }), s.lights || '—'), h('span', {}, 'Lights')),
-        h('div', { class: 'stat' }, h('b', {}, s.lux == null ? '—' : Math.round(s.lux)), h('span', {}, 'Lux now')),
-        h('div', { class: 'stat' }, h('b', {}, s.armed ? 'Armed' : 'Off'), h('span', {}, 'Alerts'))),
-      h('p', {}, toggle),
-      h('h2', {}, 'Recent changes'), h('table', {}, h('tbody', {}, d.events.map((e) =>
-        h('tr', {}, h('td', {}, time(e.t)), h('td', {}, `${e.kind} ${e.value}`), h('td', { class: 'muted' }, e.armed ? 'armed' : '')))))];
+    const lights = h('div', { class: 'big' }), lux = h('div', { class: 'big' }), alerts = h('div', { class: 'big' });
+    const lightW = h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Lights'), h('span', { class: 'live' }, 'live')), lights);
+    const toggle = h('button', { class: 'btn', type: 'button' });
+    const list = h('div', { class: 'list' });
+    const paint = (events, flash) => {
+      lights.textContent = s.lights ? s.lights.toUpperCase() : '—';
+      lux.textContent = s.lux == null ? '—' : Math.round(s.lux);
+      alerts.replaceChildren(s.armed ? h('span', { class: 'accent' }, 'Armed') : 'Off');
+      toggle.textContent = s.armed ? "Disarm (I'm home)" : "Arm (I'm leaving)";
+      if (events) list.replaceChildren(...events.map((e) => h('div', { class: 'item' }, h('div', { class: 'main' }, `${e.kind} ${e.value}`, e.armed ? h('span', { class: 'tag red' }, 'armed') : null), h('span', { class: 'muted' }, time(e.t)))));
+      if (flash) { lightW.classList.remove('flash'); void lightW.offsetWidth; lightW.classList.add('flash'); }
+    };
+    toggle.addEventListener('click', busy(toggle, async () => { await api('/room/arm', { method: 'POST', body: { armed: !s.armed } }); toast(s.armed ? 'Disarming…' : 'Arming…'); }));
+    paint(d.events);
+    liveRoom((n) => { const changed = n.lights !== s.lights; s = n; paint(n.events, changed); });
+    return [
+      h('div', { class: 'hello' }, h('h1', {}, 'Room'), h('p', { class: 'lede' }, 'Live from the phone\'s light sensor. Alerts are pushed only while armed.')),
+      h('div', { class: 'grid' }, lightW, h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Lux now')), lux),
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Alerts')), alerts)),
+      h('div', { class: 'btns', style: 'margin-top:1rem' }, toggle),
+      h('div', { class: 'sec' }, 'Recent changes'), list,
+    ];
   },
 };
 
 // ---------- router ----------
+const TITLES = { '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path) { history.pushState(null, '', path); render(); }
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
-  document.querySelectorAll('.nav a').forEach((a) => {
+  roomStream?.close(); roomStream = null;
+  const inside = path !== '/login';
+  tabs.hidden = !inside; logoutBtn.hidden = !inside;
+  if (!inside) statusEl.hidden = true;
+  tabs.querySelectorAll('a').forEach((a) => {
     if (a.getAttribute('href') === path) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
+  if (!view.firstChild) view.replaceChildren(h('p', { class: 'loading' }, 'Loading'));
   const page = pages[path] || (async () => [h('h1', {}, 'Not found'), h('p', {}, h('a', { href: '/', 'data-link': true }, 'Back to the hub'))]);
   try {
     const nodes = await page();
     if (nodes) view.replaceChildren(...[nodes].flat().filter((n) => n != null && n !== false));
-    const me = path === '/login' ? { loggedIn: false } : { loggedIn: true };
-    logoutBtn.hidden = !me.loggedIn;
-    const TITLES = { '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Expenses', '/interview': 'Interview coach',
-      '/linkedin': 'LinkedIn drafts', '/tamil': 'Tamil phrase', '/room': 'Room' };
-    document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
+    if (inside && path !== '/' && statusEl.hidden) refreshStatus();
   } catch (e) {
     if (location.pathname !== '/login') view.replaceChildren(h('p', { class: 'err' }, e.message));
   }
 }
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
-  if (a && a.origin === location.origin && !e.metaKey && !e.ctrlKey) { e.preventDefault(); go(a.pathname + a.search); }
+  if (a && a.origin === location.origin && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (a.pathname + a.search !== location.pathname + location.search) { view.replaceChildren(); go(a.pathname + a.search); } }
 });
 logoutBtn.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); go('/login'); });
-window.addEventListener('popstate', render);
+window.addEventListener('popstate', () => { view.replaceChildren(); render(); });
 render();

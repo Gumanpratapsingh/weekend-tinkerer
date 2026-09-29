@@ -10,10 +10,11 @@ import expenses from './modules/expenses.mjs';
 import interview from './modules/interview.mjs';
 import linkedin from './modules/linkedin.mjs';
 import tamil from './modules/tamil.mjs';
-import room from './modules/room.mjs';
+import room, { stream as roomStream } from './modules/room.mjs';
+import status from './modules/status.mjs';
 
 const PORT = 8082;
-const MODULES = [expenses, interview, linkedin, tamil, room];
+const MODULES = [expenses, interview, linkedin, tamil, room, status];
 const routes = Object.assign({}, ...MODULES.map((m) => m.routes || {}));
 
 async function login(req, res) {
@@ -47,6 +48,7 @@ createServer(async (req, res) => {
   if (!token) return send(res, 401, { error: 'Log in first.' });
   if (key === 'POST /api/logout') { endSession(token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 
+  if (key === 'GET /api/room/stream') return roomStream(req, res);   // long-lived SSE, owner-only like the rest
   const handler = routes[key];
   if (!handler) return send(res, 404, { error: 'Not found' });
   try {
