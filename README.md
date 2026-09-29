@@ -8,11 +8,11 @@ One private web app, the **Tinker hub**, fronts all the tools. Each tool is a ro
 
 | Route | Tool | What it does |
 |---|---|---|
-| `/expenses` | [Expense logger](expense-logger/) | Log by Siri or a text ("250 swiggy dinner"); auto categories; budgets; monthly summary; CSV |
+| `/expenses` | [Expense logger](expense-logger/) | Log by Siri, a text ("250 swiggy dinner") or **automatically from bank SMS**; auto categories; budgets; monthly summary; CSV |
 | `/interview` | [Interview coach](interview-coach/) | A question every morning, graded by an LLM, weak topics repeat sooner, Sunday recap |
 | `/linkedin` | [LinkedIn drafts](linkedin-drafts/) | Friday draft from the week's commits; you approve and post it yourself |
 | `/tamil` | [Tamil phrase](tamil-phrase/) | A practical Chennai Tamil phrase every morning, themed weeks, Sunday quiz |
-| `/room` | Room watcher view | Lights on/off log from the phone's light sensor; arm/disarm alerts |
+| `/room` | Room watcher view | Live lights on/off and light level (Server-Sent Events); arm/disarm alerts |
 | — | [Presence](presence/) | iPhone location automations arm/disarm the room alerts |
 
 ## How it fits together

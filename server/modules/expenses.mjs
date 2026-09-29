@@ -100,6 +100,17 @@ async function onMessage(text) {
   budgetCheck(item.category);
 }
 
+// Used by the bank-SMS importer: categorise, save, confirm by push, check the budget.
+export async function logExpense({ amount, note, source }) {
+  const item = add({ amount, note, category: await categorise(note) });
+  item.source = source; persist();
+  log(`expense ${item.amount} ${item.category} via ${source}`);
+  await push(`Logged Rs ${Math.round(item.amount)} - ${item.category}`,
+    `${item.note} (from your bank SMS). This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'bank' });
+  budgetCheck(item.category);
+  return item;
+}
+
 async function monthlySummary() {
   const last = istMonth(Date.now() - 86400e3 * 2);          // runs on the 1st: summarise the previous month
   const items = inMonth(last);

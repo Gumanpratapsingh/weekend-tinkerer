@@ -12,6 +12,7 @@ import linkedin from './modules/linkedin.mjs';
 import tamil from './modules/tamil.mjs';
 import room, { stream as roomStream } from './modules/room.mjs';
 import status from './modules/status.mjs';
+import { smsIngest } from './modules/banksms.mjs';
 
 const PORT = 8082;
 const MODULES = [expenses, interview, linkedin, tamil, room, status];
@@ -37,6 +38,9 @@ createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = url.pathname.replace(/^\/hub/, '');
   const key = `${req.method} ${path.replace(/\/[0-9a-f-]{8,}$/i, '/:id')}`;
+
+  // Bank SMS from the iPhone automation: authenticated by its own secret token, not the login cookie.
+  if (key === 'POST /api/expenses/sms') return smsIngest(req, res);
 
   // CSRF: state-changing requests must come from our own page (custom header can't be sent cross-site
   // without CORS, and SameSite=Strict keeps the cookie off cross-site requests anyway).
