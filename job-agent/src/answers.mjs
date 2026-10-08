@@ -19,6 +19,7 @@ export const SEED = [
   'Do you need visa sponsorship to work in the role\'s country?',
   'What is your gender? (for diversity forms; you may say "prefer not to say")',
   'Short answer to "Why do you want to join us?" that I can adapt per company',
+  'May I tick standard "I acknowledge the candidate privacy notice / consent to processing my data for recruiting" boxes for you? (yes/no). NDAs and signatures will always be asked separately.',
 ];
 
 const words = (s) => new Set(norm(s).split(' ').filter((w) => w.length > 2));
@@ -55,24 +56,36 @@ const used = (id) => run('UPDATE questions SET uses = uses + 1 WHERE id = ?', id
  * Resolve a batch of fields/questions. Each item: {key, label, type, options?, required?}.
  * Returns {answers: {key: value}, unknown: [item]}. Unknown required items must be asked to the owner.
  */
+const LEGAL = /\b(nda|non-?disclosure|confidential(ity)? agreement|e-?signature|signature|sign(ed)? (here|below)|type your (full|legal) name|i agree to the terms|arbitration)\b/i;
+
 export async function resolve(items, context = '') {
   const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
   const answers = {};
   const pending = [];
   for (const it of items) {
+    // Legal agreements are per company: only an exact earlier answer for this same job/company counts.
+    if (LEGAL.test(it.label)) {
+      it.label = `${it.label} (for ${context || 'this application'})`;
+      const k = known.find((x) => norm(x.question) === norm(it.label));
+      if (k) { answers[it.key] = coerce(k.answer, it); used(k.id); } else it.legal = true;
+      continue;
+    }
     const exact = known.find((k) => norm(k.question) === norm(it.label));
     const near = exact || known.map((k) => [k, similarity(k.question, it.label)]).filter(([, s]) => s >= 0.75).sort((a, b) => b[1] - a[1])[0]?.[0];
     if (near && fits(near.answer, it)) { answers[it.key] = coerce(near.answer, it); used(near.id); }
     else pending.push(it);
   }
-  if (!pending.length) return { answers, unknown: [] };
+  const legalUnknown = items.filter((it) => it.legal);
+  if (!pending.length) return { answers, unknown: legalUnknown };
 
   // One LLM call for everything left: match to known answers or derive from resume facts, else "UNKNOWN".
   const m = master();
   const facts = [
     `Name: ${m.name}. Email: ${m.contact.email}. Phone: ${m.contact.phone}. LinkedIn: https://${m.contact.linkedin}. GitHub: https://${m.contact.github}.`,
     `Education: ${m.education.map((e) => `${e.degree}, ${e.school}, ${e.dates}`).join('; ')}.`,
-    `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at Finzly since Aug 2024.`,
+    `Current location: ${m.contact.location}. Phone country: India (+91).`,
+    `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at ${m.experience[0].org} since Aug 2024.`,
+    `Employment history (complete): ${m.experience.map((e) => `${e.title}, ${e.org}, ${e.dates}`).join('; ')}. Never worked for or contracted with any other company.`,
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');
   let out = {};
@@ -83,14 +96,19 @@ export async function resolve(items, context = '') {
 - Yes/no skill questions ("Do you have experience with X?") may be answered from FACTS: "Yes" only if X is in FACTS.
 - Years with a skill in FACTS: use full-time years since Aug 2024 (round down), unless a known answer says otherwise.
 - Anything personal (salary, notice, visa, relocation, demographics, references, cover letters, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
-- For choice fields the answer must be exactly one of the options, or "UNKNOWN".
+- Legal agreements, NDAs, confidentiality terms, or e-signatures (e.g. "type your full name to sign"): ALWAYS "UNKNOWN".
+- Privacy-notice acknowledgement / data-processing consent: "Yes" (or the matching agree option) only if KNOWN ANSWERS says the owner allows it; otherwise "UNKNOWN".
+- For choice fields the answer must be exactly one of the options, or "UNKNOWN". Fields marked "long_list" (countries etc.)
+  have too many options to show: answer with the plain value (e.g. "India") and it will be matched.
+- "Have you worked for / been employed by <company>?": answer from the employment history in FACTS.
 Return JSON {"<key>": "<answer or UNKNOWN>"}.` },
       { role: 'user', content: `FACTS:\n${facts}\n\nKNOWN ANSWERS:\n${known.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n')}\n\n`
-        + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) => ({ key, label, type, options })))}` },
+        + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) =>
+          (options?.length > 40 ? { key, label, type: 'long_list' } : { key, label, type, options })))}` },
     ], { json: true, maxTokens: 900, temperature: 0 });
   } catch (e) { log(`resolve llm: ${e.message}`); }
 
-  const unknown = [];
+  const unknown = [...legalUnknown];
   for (const it of pending) {
     const a = out[it.key];
     if (a && a !== 'UNKNOWN' && fits(a, it)) { answers[it.key] = coerce(a, it); remember(it.label, String(answers[it.key]), 'derived'); }
@@ -106,7 +124,8 @@ function fits(answer, it) {
 }
 function pickOption(answer, options) {
   const a = norm(answer);
-  return options.find((o) => norm(o) === a) || options.find((o) => norm(o).startsWith(a) || a.startsWith(norm(o)));
+  return options.find((o) => norm(o) === a) || options.find((o) => norm(o).startsWith(a) || (norm(o).length > 1 && a.startsWith(norm(o))))
+    || options.find((o) => norm(o).split(' ').includes(a));
 }
 function coerce(answer, it) {
   if (it.options?.length) return pickOption(answer, it.options) || answer;

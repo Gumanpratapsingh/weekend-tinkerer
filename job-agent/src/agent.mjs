@@ -75,6 +75,7 @@ every(30, 'setup', async () => {
     + `${config().min_score}%, watch ${config().mailbox} for replies, and ask you here when I meet a question I can't answer. `
     + 'First, a few basics every application asks:');
   for (const q of seedQuestions()) askOwner(q.question, { context: 'setup' });
+  run("UPDATE outbox SET urgent = 1 WHERE sent_at IS NULL");      // first-run setup goes out even in quiet hours
 }, { delay: 10e3 });
 
 // Evening digest at ~21:30 IST.

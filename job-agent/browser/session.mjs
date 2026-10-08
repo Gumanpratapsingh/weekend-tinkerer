@@ -10,11 +10,21 @@ const SESSIONS = join(ROOT, 'data', 'sessions');
 mkdirSync(SESSIONS, { recursive: true });
 
 let browser;
+// Close the browser after 4 idle minutes so it is not holding memory and processes between tasks.
+let idleTimer;
+export function touch() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
+}
 export async function getBrowser() {
+  touch();
   if (browser?.isConnected()) return browser;
   browser = await chromium.launch({
     headless: false,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled', '--window-size=1366,900'],
+    // Few processes: Android 13's phantom-process killer stops Termux when its children pass 32.
+    args: ['--no-sandbox', '--no-zygote', '--disable-gpu', '--renderer-process-limit=1', '--disable-features=site-per-process,Translate,MediaRouter',
+      '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--mute-audio',
+      '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled', '--window-size=1366,900'],
   });
   return browser;
 }

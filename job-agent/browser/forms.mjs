@@ -66,8 +66,12 @@ export async function collect(page, rootSel = null) {
     try {
       await el.click({ timeout: 3000 });
       await page.waitForTimeout(400);
-      f.options = (await page.locator('[role="option"]').allInnerTexts()).map((s) => s.trim()).filter(Boolean).slice(0, 80);
+      // Only this combobox's open listbox (other widgets keep hidden option lists in the DOM).
+      const owned = await el.getAttribute('aria-controls') || await el.getAttribute('aria-owns');
+      const opts = owned ? page.locator(`[id="${owned}"] [role="option"]`) : page.locator('[role="option"]:visible');
+      f.options = (await opts.allInnerTexts()).map((s) => s.trim()).filter(Boolean).slice(0, 400);
       await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
     } catch { f.options = []; }
     if (!f.options.length) f.type = 'text';
   }

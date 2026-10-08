@@ -7,8 +7,9 @@ const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATIO
 const AGENT = 'http://127.0.0.1:8083/internal/resolve';
 
 let ctxPromise;
-async function ctx() {                                // one long-lived Naukri context; refreshed cookies are saved
-  ctxPromise ||= siteContext('naukri');
+async function ctx() {                                // one Naukri context per browser run; refreshed cookies are saved
+  const c = ctxPromise && await ctxPromise.catch(() => null);
+  if (!c || !c.browser()?.isConnected()) ctxPromise = siteContext('naukri');
   return ctxPromise;
 }
 async function home() {

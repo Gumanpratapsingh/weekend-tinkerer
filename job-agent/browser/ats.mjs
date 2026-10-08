@@ -3,8 +3,8 @@ import { siteContext, shotPath } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 
 const SITES = {
-  greenhouse: { open: async (page) => page.locator('button:has-text("Apply"), a:has-text("Apply")').first().click({ timeout: 4000 }).catch(() => {}),
-    root: 'form#application-form, form[action*="applications"], #application_form, form',
+  greenhouse: { open: async () => {},
+    root: 'form#application-form, #application_form, form[action*="applications"], form#application_form',
     submit: 'button[type="submit"]:has-text("Submit"), input[type="submit"], button:has-text("Submit application")' },
   lever: { open: async () => {}, root: 'form[action*="apply"], form',
     submit: '#btn-submit, button[type="submit"]:has-text("Submit")' },
@@ -20,7 +20,10 @@ async function applyAts(kind, { job, resume, dryRun = false }) {
   const ctx = await siteContext(kind);
   const page = await ctx.newPage();
   try {
-    await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // Greenhouse: the embed URL serves the bare form on every board (company sites wrap it in an iframe).
+    const [, slug, id] = String(job.id).split(':');
+    const url = kind === 'greenhouse' ? `https://boards.greenhouse.io/embed/job_app?for=${slug}&token=${id}` : job.apply_url;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
     await site.open(page);
     await page.waitForTimeout(1500);
