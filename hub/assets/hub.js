@@ -80,6 +80,7 @@ function quickAdd(placeholder, extra = () => ({})) {
 
 // ---------- live room updates (Server-Sent Events) ----------
 let roomStream = null;
+let jobsTimer = null;                              // /jobs live polling, cleared on every navigation
 function liveRoom(onState) {
   roomStream?.close();
   roomStream = new EventSource('/api/room/stream');
@@ -105,8 +106,8 @@ setInterval(() => { if (!statusEl.hidden) refreshStatus(); }, 60e3);
 const pages = {
   async '/'() {
     const month = today().slice(0, 7);
-    const [exp, iv, ta, room, li, st] = await Promise.allSettled([
-      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(),
+    const [exp, iv, ta, room, li, st, jb] = await Promise.allSettled([
+      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'),
     ]).then((r) => r.map((x) => (x.status === 'fulfilled' ? x.value : null)));
     const hr = ist().getUTCHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -151,9 +152,15 @@ const pages = {
     const linkedin = h('a', { class: 'w', href: '/linkedin', 'data-link': true }, h('div', { class: 'label' }, h('span', {}, 'LinkedIn')),
       h('div', { class: 'big s' }, draft ? 'Draft ready' : 'Fri 7 PM'), h('div', { class: 'sub' }, draft ? `from ${draft.commits} commits` : 'next draft'));
 
+    // Job agent
+    const jobsW = h('a', { class: 'w', href: '/jobs', 'data-link': true },
+      h('div', { class: 'label' }, h('span', {}, 'Job agent'), jb?.installed ? h('span', { class: jb.paused ? '' : 'live' }, jb.paused ? 'paused' : jb.dryRun ? 'dry run' : 'live') : null),
+      h('div', { class: 'big' }, jb?.installed ? String(jb.today.applied) : '—'),
+      h('div', { class: 'sub' }, jb?.installed ? `applied today · ${jb.total.applied} total${jb.questions.length ? ` · ${jb.questions.length} question${jb.questions.length > 1 ? 's' : ''} for you` : ''}` : 'not running'));
+
     return [
       h('div', { class: 'hello' }, h('h1', {}, `${greet}, Guman`), h('p', { class: 'lede' }, dateLine + up)),
-      h('div', { class: 'grid' }, money, roomW, interview, tamil, linkedin),
+      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin),
       quickAdd('250 swiggy dinner'),
     ];
   },
@@ -303,6 +310,154 @@ const pages = {
     ];
   },
 
+  async '/jobs'() {
+    const d = await api('/jobs');
+    if (!d.installed) return [h('h1', {}, 'Jobs'), h('p', { class: 'lede' }, 'The job agent has not started on the phone yet.')];
+    const params = new URLSearchParams(location.search);
+    const filter = params.get('show') || 'matches';
+    const term = params.get('q') || '';
+    const act = (body, msg) => async () => { await api('/jobs/action', { method: 'POST', body }); toast(msg); render(); };
+    const when = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+    // ---- live strip: what the agent is doing right now (polled every 5 s while this page is open)
+    const nowText = h('span', {}), nowAgo = h('small', { class: 'muted' });
+    const tiles = { applied: h('div', { class: 'big' }), found: h('div', { class: 'big' }), matched: h('div', { class: 'big' }), replies: h('div', { class: 'big' }) };
+    const paint = (x) => {
+      nowText.textContent = x.paused ? 'Paused' : x.now?.text || 'Idle';
+      nowAgo.textContent = x.now?.at ? ` · ${ago(x.now.at)}` : '';
+      for (const k of Object.keys(tiles)) tiles[k].textContent = x.today[k];
+    };
+    paint(d);
+    jobsTimer = setInterval(async () => { try { paint(await api('/jobs')); } catch { /* next tick */ } }, 5000);
+
+    const mode = h('div', { class: 'btns' },
+      (() => { const b = h('button', { class: 'btn ghost small', type: 'button' }, d.paused ? 'Resume' : 'Pause');
+        b.addEventListener('click', busy(b, act({ action: d.paused ? 'resume' : 'pause' }, d.paused ? 'Applying again' : 'Paused'))); return b; })(),
+      (() => { const b = h('button', { class: 'btn small', type: 'button' }, d.dryRun ? 'Go live' : 'Back to dry run');
+        b.addEventListener('click', busy(b, async () => {
+          if (d.dryRun && !confirm('Go live? The agent will submit real applications for jobs scoring 75+, within the daily caps.')) return;
+          await act({ action: d.dryRun ? 'live' : 'dry' }, d.dryRun ? 'Live: applications will be submitted' : 'Dry run: forms filled, never submitted')();
+        })); return b; })());
+
+    // ---- needs you: open questions (answer inline) + jobs to finish by hand
+    const questions = d.questions.map((x) => {
+      const input = h('input', { placeholder: 'Your answer', 'aria-label': `Answer to ${x.question}`, autocomplete: 'off' });
+      const b = h('button', { type: 'submit' }, 'Save');
+      const f = h('form', { class: 'quick', style: 'margin-top:.4rem' }, input, b);
+      f.addEventListener('submit', busy(b, async () => {
+        if (!input.value.trim()) throw new Error('Type an answer first.');
+        await act({ action: 'answer', id: x.id, answer: input.value }, 'Saved. Remembered for every future application.')();
+      }));
+      return h('div', { class: 'item', style: 'display:block' }, h('div', { class: 'main' }, h('b', {}, `Q${x.id} `), x.question,
+        x.waiting > 1 ? h('span', { class: 'tag red' }, `${x.waiting} waiting`) : null), f);
+    });
+    const attention = d.attention.map((j) => h('div', { class: 'item' },
+      h('div', { class: 'main' }, h('a', { href: `/jobs/job?id=${encodeURIComponent(j.id)}`, 'data-link': true }, `${j.title} · ${j.company}`),
+        h('span', { class: 'tag' + (j.status === 'interview' ? ' red' : '') }, j.status === 'manual' ? 'apply yourself' : j.status.replace('_', ' ')),
+        h('small', {}, clip(j.status_note && !/\.png$/.test(j.status_note) ? j.status_note : j.location || '', 90))),
+      j.score != null ? h('span', { class: 'num' }, `${j.score}%`) : null));
+
+    // ---- 14-day applied chart
+    const days = [...Array(14)].map((_, i) => new Date(Date.now() + 5.5 * 3600e3 - (13 - i) * 86400e3).toISOString().slice(0, 10));
+    const per = Object.fromEntries(d.days.map((x) => [x.d, x.n]));
+    const peak = Math.max(1, ...days.map((x) => per[x] || 0));
+    const chart = h('div', { class: 'spark', role: 'img', 'aria-label': 'Applications per day, last 14 days' },
+      days.map((x) => h('i', { title: `${x}: ${per[x] || 0}`, style: `height:${Math.max(3, ((per[x] || 0) / peak) * 100)}%` })));
+
+    // ---- pipeline list with filters
+    const FILTERS = [['matches', 'Scored'], ['queued', 'Queue'], ['ready', 'Dry-run ok'], ['applied', 'Applied'], ['interview', 'Interview'],
+      ['manual', 'Apply yourself'], ['needs_answer', 'Waiting on you'], ['rejected', 'Rejected'], ['all', 'All']];
+    const list = await api(`/jobs/list?status=${filter}&q=${encodeURIComponent(term)}`);
+    const search = h('input', { placeholder: 'Search title or company', value: term, 'aria-label': 'Search jobs' });
+    const sform = h('form', { class: 'row' }, search);
+    sform.addEventListener('submit', (e) => { e.preventDefault(); go(`/jobs?show=${filter}&q=${encodeURIComponent(search.value)}`); });
+    const rows = list.jobs.map((j) => h('div', { class: 'item' },
+      h('div', { class: 'main' }, h('a', { href: `/jobs/job?id=${encodeURIComponent(j.id)}`, 'data-link': true }, j.title),
+        h('span', { class: 'tag' }, j.source), j.status !== filter ? h('span', { class: 'tag' }, j.status.replace('_', ' ')) : null,
+        h('small', {}, `${j.company} · ${clip(j.location || '', 50)} · ${j.applied_at ? 'applied ' + ago(j.applied_at) : 'found ' + ago(j.found_at)}`)),
+      h('span', { class: 'num' + (j.score >= 75 ? ' accent' : '') }, j.score != null ? `${j.score}%` : '—')));
+
+    const learned = d.total.learned;
+    return [
+      h('div', { class: 'hello' }, h('h1', {}, 'Jobs'),
+        h('p', { class: 'lede' }, h('span', { class: 'live' }, 'live'), ' ', nowText, nowAgo),
+        h('p', { class: 'lede' }, d.dryRun ? h('span', { class: 'accent' }, 'Dry run: forms are filled but never submitted. ') : 'Live: applying to jobs scoring 75+. ',
+          `${d.total.found} jobs seen · ${d.total.applied} applied · ${d.total.interviews} in interview stage · ${learned} answers learned`)),
+      mode,
+      h('div', { class: 'grid', style: 'margin-top:1rem' },
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Applied today')), tiles.applied),
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Found today')), tiles.found),
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Matches 75+')), tiles.matched),
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Replies')), tiles.replies)),
+      h('div', { class: 'sec' }, 'Applied · last 14 days'), chart,
+      questions.length || attention.length ? h('div', { class: 'sec' }, 'Needs you') : null,
+      questions.length ? h('div', { class: 'list' }, questions) : null,
+      attention.length ? h('div', { class: 'list', style: 'margin-top:.5rem' }, attention) : null,
+      h('div', { class: 'sec' }, 'Pipeline'),
+      h('div', { class: 'chips' }, FILTERS.map(([k, label]) => h('a', { href: `/jobs?show=${k}`, 'data-link': true, class: 'chip' + (k === filter ? ' on' : '') },
+        label, d.byStatus[k] ? h('small', {}, ` ${d.byStatus[k]}`) : null))),
+      sform,
+      rows.length ? h('div', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'Nothing here yet.'),
+      h('div', { class: 'sec' }, 'Recruiter mail'),
+      d.mail.length ? h('div', { class: 'list' }, d.mail.map((m) => h('div', { class: 'item' },
+        h('div', { class: 'main' }, m.subject || '(no subject)', h('span', { class: 'tag' + (['interview', 'offer'].includes(m.category) ? ' red' : '') }, m.category),
+          h('small', {}, `${m.from_addr} · ${when(m.at)}`))))) : h('p', { class: 'muted' }, 'No recruiter mail yet (or the mailbox is not connected).'),
+      h('div', { class: 'sec' }, 'Activity'),
+      d.events.length ? h('div', { class: 'list' }, d.events.map((e) => h('div', { class: 'item' },
+        h('div', { class: 'main' }, e.text, h('small', {}, `${e.kind} · ${when(e.at)}`))))) : h('p', { class: 'muted' }, 'Nothing yet.'),
+      h('div', { class: 'sec' }, 'Sources'),
+      h('div', { class: 'list' }, d.bySource.map((s) => h('div', { class: 'item' }, h('div', { class: 'main' }, s.source), h('span', { class: 'num' }, `${s.applied || 0} / ${s.n}`)))),
+      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
+    ];
+  },
+
+  async '/jobs/job'() {
+    const id = new URLSearchParams(location.search).get('id');
+    const j = await api(`/jobs/detail?id=${encodeURIComponent(id)}`);
+    const act = (action, msg) => busy(null, async () => { await api('/jobs/action', { method: 'POST', body: { action, id: j.id } }); toast(msg); render(); });
+    const file = (kind) => busy(null, async () => {
+      const f = await api(`/jobs/file?id=${encodeURIComponent(j.id)}&kind=${kind}`);
+      const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: f.type }));
+      if (kind === 'resume') h('a', { href: url, download: f.name }).click();
+      else shot.replaceChildren(h('img', { src: `data:${f.type};base64,${f.data}`, alt: 'Screenshot of the application', style: 'max-width:100%;border:1px solid var(--line)' }));
+    });
+    const shot = h('div', {});
+    const btn = (label, fn, ghost = true) => { const b = h('button', { class: 'btn' + (ghost ? ' ghost' : ''), type: 'button' }, label); b.addEventListener('click', fn); return b; };
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      h('div', { class: 'hello' }, h('h1', { style: 'font-size:clamp(1.6rem,4vw,2.4rem)' }, j.title),
+        h('p', { class: 'lede' }, `${j.company} · ${j.location || ''} · ${j.source} · ${j.status.replace('_', ' ')}${j.applied_at ? ' · applied ' + ago(j.applied_at) : ''}`)),
+      j.score != null ? h('div', {}, h('span', { class: 'score' }, `${j.score}%`), h('p', { class: 'muted' }, j.score_reasons)) : null,
+      h('div', { class: 'btns' },
+        h('a', { class: 'btn', href: j.apply_url || j.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open job ↗'),
+        j.hasResume ? btn('Tailored resume ↓', file('resume')) : null,
+        j.hasShot ? btn('Screenshot', file('shot')) : null,
+        !['applied', 'interview', 'queued'].includes(j.status) ? btn('Apply anyway', act('queue', 'Queued')) : null,
+        j.status === 'manual' ? btn('I applied', act('applied', 'Marked as applied')) : null,
+        !['applied', 'interview', 'skipped'].includes(j.status) ? btn('Skip', act('skip', 'Skipped')) : null),
+      shot,
+      j.status_note && !/\.png$/.test(j.status_note) ? h('p', { class: 'muted' }, j.status_note) : null,
+      j.emails.length ? h('div', { class: 'sec' }, 'Emails') : null,
+      ...j.emails.map((m) => h('div', { class: 'box' }, h('div', { class: 'label' }, h('span', {}, `${m.direction === 'in' ? 'From ' + m.from_addr : 'You replied'} · ${m.category}`)),
+        h('b', {}, m.subject), '\n\n', clip(m.body, 1500))),
+      h('div', { class: 'sec' }, 'Description'), h('div', { class: 'box', style: 'border-left-color:var(--line);font-size:.88rem' }, j.description || '—'),
+    ];
+  },
+
+  async '/jobs/memory'() {
+    const d = await api('/jobs/memory');
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      h('div', { class: 'hello' }, h('h1', {}, 'Memory'), h('p', { class: 'lede' }, 'Every question the agent has answered for you. "derived" ones came from your resume; forget any that look wrong and it will ask you next time.')),
+      h('div', { class: 'list' }, d.answers.map((a) => {
+        const x = h('button', { class: 'x', type: 'button', title: 'Forget', 'aria-label': `Forget ${a.question}` }, '✕');
+        x.addEventListener('click', busy(x, async () => { if (!confirm(`Forget the answer to "${a.question}"?`)) return; await api('/jobs/action', { method: 'POST', body: { action: 'forget', id: a.id } }); toast('Forgotten'); render(); }));
+        return h('div', { class: 'item' }, h('div', { class: 'main' }, a.question, h('small', {}, `${a.answer} · ${a.source}${a.uses ? ` · used ${a.uses}×` : ''}`)), x);
+      })),
+    ];
+  },
+
   async '/room'() {
     const d = await api('/room');
     let s = d.state || {};
@@ -333,16 +488,17 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path) { history.pushState(null, '', path); render(); }
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   roomStream?.close(); roomStream = null;
+  clearInterval(jobsTimer); jobsTimer = null;
   const inside = path !== '/login';
   tabs.hidden = !inside; logoutBtn.hidden = !inside;
   if (!inside) statusEl.hidden = true;
   tabs.querySelectorAll('a').forEach((a) => {
-    if (a.getAttribute('href') === path) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (a.getAttribute('href') === path || (path.startsWith('/jobs') && a.getAttribute('href') === '/jobs')) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
   if (!view.firstChild) view.replaceChildren(h('p', { class: 'loading' }, 'Loading'));

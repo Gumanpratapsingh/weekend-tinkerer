@@ -1,0 +1,233 @@
+{
+  "tracks": {
+    "backend": {
+      "queries": [
+        "java developer",
+        "spring boot developer",
+        "java backend engineer",
+        "java microservices developer"
+      ]
+    },
+    "ai": {
+      "queries": [
+        "ai engineer",
+        "genai developer",
+        "llm engineer",
+        "ai developer"
+      ]
+    }
+  },
+  "locations": {
+    "preferred": [
+      "gurugram",
+      "gurgaon",
+      "noida",
+      "greater noida",
+      "delhi",
+      "new delhi",
+      "ncr",
+      "faridabad",
+      "ghaziabad",
+      "chandigarh",
+      "mohali",
+      "panchkula",
+      "zirakpur",
+      "jaipur"
+    ],
+    "other_cities": [
+      "bengaluru",
+      "bangalore",
+      "chennai",
+      "hyderabad",
+      "pune",
+      "mumbai",
+      "kolkata",
+      "ahmedabad",
+      "kochi",
+      "coimbatore",
+      "trivandrum",
+      "thiruvananthapuram",
+      "mysore",
+      "indore",
+      "nagpur",
+      "bhubaneswar",
+      "vadodara",
+      "navi mumbai",
+      "thane",
+      "vizag",
+      "visakhapatnam",
+      "madurai",
+      "mangalore"
+    ],
+    "remote_ok": [
+      "remote",
+      "anywhere",
+      "worldwide",
+      "work from home",
+      "wfh",
+      "apac",
+      "asia",
+      "global",
+      "distributed"
+    ],
+    "remote_blocked": [
+      "us only",
+      "usa only",
+      "united states only",
+      "us-based",
+      "u.s.",
+      "canada only",
+      "uk only",
+      "eu only",
+      "europe only",
+      "emea",
+      "latam",
+      "americas",
+      "north america"
+    ],
+    "naukri": [
+      {
+        "location": ""
+      },
+      {
+        "location": "remote"
+      }
+    ],
+    "linkedin": [
+      {
+        "location": "India"
+      },
+      {
+        "location": "India",
+        "remote": true
+      }
+    ]
+  },
+  "experience_years": 2,
+  "title_exclude": [
+    "senior",
+    "sr.",
+    "sr ",
+    "lead",
+    "principal",
+    "staff",
+    "architect",
+    "manager",
+    "director",
+    "head of",
+    "vp ",
+    "intern",
+    "internship",
+    "trainee",
+    "fresher",
+    "sales",
+    "support engineer",
+    "qa ",
+    "test engineer",
+    "data analyst",
+    "android",
+    "ios "
+  ],
+  "title_include": [
+    "java",
+    "spring",
+    "backend",
+    "back end",
+    "back-end",
+    "software engineer",
+    "software developer",
+    "sde",
+    "full stack",
+    "fullstack",
+    "ai ",
+    "ml ",
+    "llm",
+    "genai",
+    "gen ai",
+    "machine learning",
+    "applied ai",
+    "ai/ml",
+    "agent",
+    "platform engineer",
+    "member of technical staff",
+    "product engineer"
+  ],
+  "min_score": 75,
+  "daily_caps": {
+    "naukri": 25,
+    "linkedin": 10,
+    "ats": 40,
+    "total": 70,
+    "per_company": 3
+  },
+  "whatsapp_quiet_hours": [
+    23,
+    8
+  ],
+  "ats": {
+    "greenhouse": [
+      "groww",
+      "inmobi",
+      "druva",
+      "hackerrank",
+      "stripe",
+      "databricks",
+      "mongodb",
+      "elastic",
+      "twilio",
+      "rubrik",
+      "okta",
+      "gitlab",
+      "coinbase",
+      "razorpaysoftwareprivatelimited",
+      "airbnb",
+      "zscaler",
+      "toast",
+      "circleci",
+      "samsara",
+      "anthropic",
+      "sumologic",
+      "highradius",
+      "slice"
+    ],
+    "lever": [
+      "meesho",
+      "paytm"
+    ],
+    "ashby": [
+      "sarvam",
+      "composio",
+      "openai",
+      "atlan",
+      "spotdraft",
+      "ema",
+      "notion"
+    ]
+  },
+  "pacing": {
+    "naukri": {
+      "hours": [
+        8,
+        23
+      ],
+      "min_gap_min": 4,
+      "max_gap_min": 8
+    },
+    "linkedin": {
+      "hours": [
+        9,
+        21
+      ],
+      "min_gap_min": 10,
+      "max_gap_min": 18
+    },
+    "ats": {
+      "hours": [
+        0,
+        24
+      ],
+      "min_gap_min": 3,
+      "max_gap_min": 6
+    }
+  }
+}

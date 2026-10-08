@@ -12,10 +12,11 @@ import linkedin from './modules/linkedin.mjs';
 import tamil from './modules/tamil.mjs';
 import room, { stream as roomStream } from './modules/room.mjs';
 import status from './modules/status.mjs';
+import jobs from './modules/jobs.mjs';
 import { smsIngest } from './modules/banksms.mjs';
 
 const PORT = 8082;
-const MODULES = [expenses, interview, linkedin, tamil, room, status];
+const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs];
 const routes = Object.assign({}, ...MODULES.map((m) => m.routes || {}));
 
 async function login(req, res) {

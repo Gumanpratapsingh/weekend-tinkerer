@@ -12,6 +12,7 @@ One private web app, the **Tinker hub**, fronts all the tools. Each tool is a ro
 | `/interview` | [Interview coach](interview-coach/) | A question every morning, graded by an LLM, weak topics repeat sooner, Sunday recap |
 | `/linkedin` | [LinkedIn drafts](linkedin-drafts/) | Friday draft from the week's commits; you approve and post it yourself |
 | `/tamil` | [Tamil phrase](tamil-phrase/) | A practical Chennai Tamil phrase every morning, themed weeks, Sunday quiz |
+| `/jobs` | [Job agent](job-agent/) | Finds jobs everywhere, tailors the resume per job, applies, reads recruiter mail, asks you on WhatsApp; live dashboard |
 | `/room` | Room watcher view | Live lights on/off and light level (Server-Sent Events); arm/disarm alerts |
 | — | [Presence](presence/) | iPhone location automations arm/disarm the room alerts |
 

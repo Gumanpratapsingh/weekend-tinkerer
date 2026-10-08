@@ -1,0 +1,155 @@
+// Naukri, driven through the owner's own logged-in session (data/sessions/naukri.json, from NaukriAutopilot).
+// Search uses Naukri's own JSON API from inside the page (same calls the site makes); applying clicks Apply and
+// answers the recruiter-question chat drawer from memory.
+import { siteContext, shotPath } from './session.mjs';
+
+const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
+const AGENT = 'http://127.0.0.1:8083/internal/resolve';
+
+let ctxPromise;
+async function ctx() {                                // one long-lived Naukri context; refreshed cookies are saved
+  ctxPromise ||= siteContext('naukri');
+  return ctxPromise;
+}
+async function home() {
+  const c = await ctx();
+  const page = c.pages()[0] || await c.newPage();
+  if (!page.url().includes('naukri.com')) { await page.goto('https://www.naukri.com/mnjuser/homepage', { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(3000); }
+  return page;
+}
+const loggedOut = (page) => /nlogin|login/i.test(page.url());
+
+async function api(path) {
+  const page = await home();
+  return page.evaluate(async ([p, h]) => {
+    const r = await fetch(p, { headers: h, credentials: 'include' });
+    return { status: r.status, body: r.ok ? await r.json() : await r.text() };
+  }, [path, H]);
+}
+
+export default {
+  async naukri_search({ plan, experience = 2 }) {
+    const out = [];
+    const seen = new Set();
+    for (const { location: loc, queries } of plan) for (const q of queries) {
+      // Open the normal search page and read the results the page itself fetches (no API calls of our own).
+      const page = await home();
+      const slug = `${q.trim().toLowerCase().replace(/\s+/g, '-')}-jobs${loc ? `-in-${loc.toLowerCase()}` : ''}`;   // no location = all India
+      const respP = page.waitForResponse((res) => res.url().includes('/jobapi/v3/search') && res.request().method() === 'GET', { timeout: 45000 }).catch(() => null);
+      await page.goto(`https://www.naukri.com/${slug}?experience=${experience}&jobAge=1`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (loggedOut(page)) return { status: 'session_expired', jobs: out };
+      const resp = await respP;
+      const r = { status: resp?.status() || 0, body: resp ? await resp.json().catch(() => ({})) : {} };
+      if (r.status !== 200) { console.error('naukri search', r.status, slug); if (await page.locator('iframe[src*="recaptcha/api2/bframe"]').count()) return { status: 'captcha', jobs: out }; continue; }
+      for (const j of r.body.jobDetails || []) {
+        if (seen.has(j.jobId)) continue;
+        seen.add(j.jobId);
+        const ph = Object.fromEntries((j.placeholders || []).map((p) => [p.type, p.label]));
+        out.push({ jobId: j.jobId, title: j.title, company: j.companyName, location: ph.location || '', experience: ph.experience || '',
+          url: `https://www.naukri.com${j.jdURL}`, snippet: j.jobDescription || '', skills: j.tagsAndSkills || '', posted: j.footerPlaceholderLabel || '' });
+      }
+      await page.waitForTimeout(4000 + Math.random() * 4000);
+    }
+    await (await ctx()).saveSession();
+    return { status: 'ok', jobs: out };
+  },
+
+  // Open the job page and read the details response the page itself loads.
+  async naukri_job({ jobId, url }) {
+    const c = await ctx();
+    const page = await c.newPage();
+    try {
+      const respP = page.waitForResponse((res) => res.url().includes(`/jobapi/v4/job/${jobId}`), { timeout: 45000 }).catch(() => null);
+      await page.goto(url || `https://www.naukri.com/job-listings-${jobId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (loggedOut(page)) return { status: 'session_expired' };
+      const resp = await respP;
+      const body = resp?.ok() ? await resp.json().catch(() => null) : null;
+      await page.waitForTimeout(1500);
+      const d = body?.jobDetails;
+      const description = d?.description || await page.locator('[class*="JDC__dang-inner-html"], [class*="job-desc"], section[class*="job-desc"]').first().innerHTML().catch(() => '');
+      const companySite = await page.locator('#company-site-button, button:has-text("Apply on company site")').count();
+      const applied = await page.locator('#already-applied, button:has-text("Applied")').count();
+      return { status: description ? 'ok' : 'error', description, external: !!(companySite || d?.applyRedirectUrl), applied: !!applied };
+    } finally { await page.close(); }
+  },
+
+  async apply_naukri({ job, resume, dryRun = false }) {
+    const c = await ctx();
+    const page = await c.newPage();
+    try {
+      await page.goto(job.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(4000);
+      if (loggedOut(page)) return { status: 'session_expired' };
+      const body = await page.innerText('body');
+      if (/already applied|applied\s*$/im.test(body.slice(0, 4000)) && await page.locator('#already-applied, button:has-text("Applied")').count()) return { status: 'already_applied' };
+      if (await page.locator('button:has-text("Apply on company site"), #company-site-button').count()) return { status: 'manual', reason: 'company site' };
+      const apply = page.locator('#apply-button, button.apply-button, button:has-text("Apply")').first();
+      if (!await apply.count()) return { status: 'closed' };
+
+      // Naukri applies with the profile resume, so upload the tailored one to the profile first.
+      if (resume && !dryRun) await uploadProfileResume(c, resume);
+
+      if (dryRun) return { status: 'dry_run', shot: await snap(page, 'naukri-dry') };
+      await apply.click();
+      await page.waitForTimeout(4000);
+
+      // Questions drawer: one question at a time, chat-style.
+      for (let i = 0; i < 25; i++) {
+        if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
+        const drawer = page.locator('.chatbot_DrawerContentWrapper, [class*="chatbot_Drawer"], [class*="chatbot"]').first();
+        if (!await drawer.count()) break;
+        const q = await currentQuestion(page);
+        if (!q) { await page.waitForTimeout(2000); continue; }
+        const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
+        const { answers, unknown } = await r.json();
+        if (unknown.length) return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
+        await answer(page, q, answers.a);
+        await page.waitForTimeout(2500);
+      }
+      if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
+      return { status: 'failed', reason: 'no confirmation seen', shot: await snap(page, 'naukri-unsure') };
+    } finally { await c.saveSession().catch(() => {}); await page.close(); }
+  },
+};
+
+async function done(page) {
+  const t = await page.innerText('body').catch(() => '');
+  return /you have successfully applied|applied successfully|application sent|successfully applied/i.test(t) || /\/myapply\/saveApply|applied=true/i.test(page.url());
+}
+
+async function currentQuestion(page) {
+  return page.evaluate(() => {
+    const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    const bot = [...document.querySelectorAll('[class*="botMsg"], [class*="bot-msg"], li.botItem, [class*="chatbot_ListItem"]')].map((e) => clean(e.innerText)).filter(Boolean);
+    const label = bot.at(-1);
+    if (!label) return null;
+    const options = [...document.querySelectorAll('[class*="chatbot_Drawer"] input[type="radio"], [class*="chatbot_Drawer"] input[type="checkbox"], .ssrc__radio-btn-container label, [class*="chipsContainer"] [class*="chip"]')]
+      .map((e) => clean(e.labels?.[0]?.innerText || e.value || e.innerText)).filter(Boolean);
+    return { label, options: [...new Set(options)] };
+  });
+}
+
+async function answer(page, q, value) {
+  if (q.options.length) {
+    const opt = page.locator('[class*="chatbot_Drawer"] label, [class*="chatbot_Drawer"] [class*="chip"]', { hasText: value }).first();
+    await opt.click({ timeout: 5000 });
+  } else {
+    const box = page.locator('[class*="chatbot_Drawer"] [contenteditable="true"], [class*="chatbot_Drawer"] textarea, [class*="chatbot_Drawer"] input[type="text"]').first();
+    await box.click();
+    await box.fill(String(value)).catch(() => page.keyboard.type(String(value)));
+  }
+  await page.locator('[class*="chatbot_Drawer"] [class*="sendMsg"], [class*="chatbot_Drawer"] button:has-text("Save"), [class*="chatbot_Drawer"] [class*="send"]').first().click({ timeout: 5000 });
+}
+
+async function uploadProfileResume(c, pdf) {
+  const p = await c.newPage();
+  try {
+    await p.goto('https://www.naukri.com/mnjuser/profile', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const inp = p.locator('input#attachCV, input[type="file"][id*="attach"], input[type="file"]').first();
+    await inp.waitFor({ state: 'attached', timeout: 10000 });
+    await inp.setInputFiles(pdf);
+    await p.waitForTimeout(8000);
+  } finally { await p.close(); }
+}
+const snap = async (page, name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: false }); return p; };

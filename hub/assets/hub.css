@@ -103,6 +103,18 @@ summary:hover{color:var(--accent)}
 .cat .t i{display:block;height:100%;background:var(--ink)}
 .cat .t i.over{background:var(--accent)}
 
+/* ---------- jobs ---------- */
+.spark{display:flex;align-items:flex-end;gap:3px;height:4.5rem;border-bottom:1px solid var(--line)}
+.spark i{flex:1;background:var(--ink);min-height:3px}
+.spark i:last-child{background:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.25rem}
+.chip{font-size:.75rem;font-weight:600;text-decoration:none;border:1px solid var(--line);padding:.25rem .6rem;color:var(--soft)}
+.chip small{font-size:.7rem}
+.chip.on{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.chip:hover{color:var(--accent)}
+.item .main a{text-decoration:none;font-weight:600}
+.item .main a:hover{color:var(--accent)}
+
 /* ---------- misc ---------- */
 .month{display:flex;align-items:center;gap:1rem;margin-bottom:1rem;font-weight:700}
 .month a{text-decoration:none;color:var(--soft);font-weight:600}

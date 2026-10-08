@@ -1,0 +1,12 @@
+{
+  "name": "job-agent",
+  "private": true,
+  "type": "module",
+  "description": "Always-on job application agent for the S20 phone server",
+  "engines": { "node": ">=22.13" },
+  "dependencies": {
+    "imapflow": "1.0.164",
+    "mailparser": "3.7.1",
+    "nodemailer": "6.9.15"
+  }
+}
