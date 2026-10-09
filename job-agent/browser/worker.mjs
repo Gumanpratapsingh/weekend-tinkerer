@@ -4,7 +4,7 @@
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROOT, getBrowser, touch } from './session.mjs';
+import { ROOT, getBrowser, begin, end } from './session.mjs';
 
 // ---------- tasks ----------
 const tasks = {
@@ -58,8 +58,10 @@ createServer((req, res) => {
     const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     queue = queue.then(async () => {
-      try { reply(200, await tasks[name](raw ? JSON.parse(raw) : {})); touch(); }
+      begin();
+      try { reply(200, await tasks[name](raw ? JSON.parse(raw) : {})); }
       catch (e) { console.error(name, e); reply(500, { error: e.message }); }
+      finally { end(); }
     });
   });
 }).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));

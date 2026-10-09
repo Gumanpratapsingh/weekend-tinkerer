@@ -12,8 +12,12 @@ mkdirSync(SESSIONS, { recursive: true });
 let browser;
 // Close the browser after 4 idle minutes so it is not holding memory and processes between tasks.
 let idleTimer;
+let busy = 0;                                         // tasks in progress: never close the browser under them
+export function begin() { busy++; clearTimeout(idleTimer); }
+export function end() { busy = Math.max(0, busy - 1); touch(); }
 export function touch() {
   clearTimeout(idleTimer);
+  if (busy) return;
   if (process.env.KEEP_BROWSER) return;               // Mac handoff: the owner is using the window
   idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
 }
