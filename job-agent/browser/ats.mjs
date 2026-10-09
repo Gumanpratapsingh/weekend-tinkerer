@@ -30,7 +30,7 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     if (/no longer (accepting|available)|job (has been )?closed|position has been filled/i.test(await page.innerText('body')))
       return { status: 'closed' };
 
-    const res = await fillForm(page, job, { root: site.root, resume, dryRun: dryRun || keepOpen });
+    const res = await fillForm(page, job, { root: site.root, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
     const shot = shotPath(`${kind}-${dryRun ? 'dry' : 'filled'}`);
     await page.screenshot({ path: shot, fullPage: true });
     if (keepOpen) return { ...res, status: 'handoff', page };

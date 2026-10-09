@@ -22,15 +22,24 @@ for (const [i, job] of jobs.entries()) {
   let res;
   try { res = await run({ job, resume, keepOpen: true }); } catch (e) { console.log(`   could not open: ${e.message}\n`); continue; }
   if (res.status !== 'handoff') { console.log(`   ${res.status}: ${res.reason || ''}\n`); continue; }
-  console.log('   Filled. In the browser window: check it, solve the CAPTCHA, press Submit. (Close the tab to skip.)');
+  console.log(`   Filled ${res.filled?.length || 0} field(s) and attached the resume.`);
+  if (res.unknown?.length) console.log(`   Left for you: ${res.unknown.map((u) => u.label).join(' · ')}`);
+  console.log('   In the browser window: check it, solve the CAPTCHA, press Submit. (Close the tab to skip.)');
   const ctx = res.page.context();
+  // Only a confirmation that appears AFTER the form opened counts (job pages often say "thank you for your interest").
+  const before = await res.page.innerText('body').catch(() => '');
+  const startUrl = res.page.url();
+  const alreadySaid = DONE.test(before);
   let applied = false;
   for (let t = 0; t < 900 && !applied; t += 2) {                 // up to 15 minutes per job
     const pages = ctx.pages();
     if (!pages.length) break;
     for (const p of pages) {
       const text = await p.innerText('body').catch(() => '');
-      if (DONE.test(text) || /thank|success|confirmation/i.test(p.url())) applied = true;
+      const newText = !alreadySaid && DONE.test(text);
+      const newUrl = p.url() !== startUrl && /thank|success|confirm/i.test(p.url());
+      const formGone = alreadySaid && !(await p.locator('button:has-text("Submit")').count().catch(() => 1)) && DONE.test(text);
+      if (newText || newUrl || formGone) applied = true;
     }
     await new Promise((r) => setTimeout(r, 2000));
   }

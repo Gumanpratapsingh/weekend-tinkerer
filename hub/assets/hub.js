@@ -438,6 +438,19 @@ const pages = {
         !['applied', 'interview', 'skipped'].includes(j.status) ? btn('Skip', act('skip', 'Skipped')) : null),
       shot,
       j.status_note && !/\.png$/.test(j.status_note) ? h('p', { class: 'muted' }, j.status_note) : null,
+      ...(() => {
+        // Every answer the agent prepared for this application, ready to copy into the form.
+        const fa = (() => { try { return JSON.parse(j.form_answers || 'null'); } catch { return null; } })();
+        if (!fa) return [];
+        const copy = (text) => async () => { await navigator.clipboard.writeText(text); toast('Copied'); };
+        return [h('div', { class: 'sec' }, 'Prefilled answers for this form'),
+          h('div', { class: 'list' }, fa.filled.map((f) => {
+            const b = h('button', { class: 'btn ghost small', type: 'button', style: 'margin:0' }, 'Copy');
+            b.addEventListener('click', copy(f.value));
+            return h('div', { class: 'item' }, h('div', { class: 'main' }, f.label, h('small', {}, clip(f.value, 160))), b);
+          })),
+          fa.open.length ? h('p', { class: 'muted' }, `Not answered yet: ${fa.open.join(' · ')}`) : null];
+      })(),
       j.emails.length ? h('div', { class: 'sec' }, 'Emails') : null,
       ...j.emails.map((m) => h('div', { class: 'box' }, h('div', { class: 'label' }, h('span', {}, `${m.direction === 'in' ? 'From ' + m.from_addr : 'You replied'} · ${m.category}`)),
         h('b', {}, m.subject), '\n\n', clip(m.body, 1500))),

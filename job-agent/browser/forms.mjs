@@ -27,6 +27,7 @@ function describeFields(rootSel) {
   };
   const fields = [];
   const groups = new Map();
+  const pfx = Math.random().toString(36).slice(2, 6);   // keys stay unique across repeated collect() passes
   let n = 0;
   for (const el of root.querySelectorAll('input, select, textarea, [role="combobox"]')) {
     if (el.dataset.jaKey || !visible(el) || el.disabled || el.readOnly && el.getAttribute('role') !== 'combobox') continue;
@@ -34,12 +35,12 @@ function describeFields(rootSel) {
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(t)) continue;
     const required = el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(el.closest('div, fieldset')?.querySelector('label, legend')?.innerText || '');
     if (t === 'radio' || t === 'checkbox') {
-      const gname = el.name || el.closest('fieldset')?.id || labelOf(el.closest('fieldset') || el.parentElement);
       const fs = el.closest('fieldset, [role="radiogroup"], [role="group"]');
       const groupLabel = clean(fs?.querySelector('legend, [class*="label"], [class*="question"]')?.innerText) || labelOf(fs || el);
+      const gname = t === 'radio' && el.name ? `r:${el.name}` : `${t}:${groupLabel || el.name || el.closest('fieldset')?.id || ''}`;
       const optLabel = labelOf(el);
       if (!groups.has(gname)) {
-        const key = `f${n++}`; groups.set(gname, key);
+        const key = `f${pfx}${n++}`; groups.set(gname, key);
         fields.push({ key, label: t === 'checkbox' && !fs ? optLabel : groupLabel, type: t, options: [], required });
       }
       const key = groups.get(gname);
@@ -48,7 +49,7 @@ function describeFields(rootSel) {
       fields.find((f) => f.key === key).options.push(optLabel);
       continue;
     }
-    const key = `f${n++}`;
+    const key = `f${pfx}${n++}`;
     el.dataset.jaKey = key;
     const f = { key, label: labelOf(el), type: t === 'select-one' ? 'select' : t, required, value: el.value || '' };
     if (el.tagName === 'SELECT') f.options = [...el.options].map((o) => clean(o.text)).filter((o) => o && !/^(select|choose|--)/i.test(o));
@@ -93,8 +94,11 @@ export async function resolveFields(fields, job) {
 }
 
 export async function fill(page, fields, answers, { resume } = {}) {
+  page.setDefaultTimeout(6000);
   for (const f of fields) {
-    const el = page.locator(`[data-ja-key="${f.key}"]`);
+    let el = page.locator(`[data-ja-key="${f.key}"]`);
+    // React forms re-render and drop our marker: fall back to the field's visible label.
+    if (!await el.count() && f.label) el = page.getByLabel(f.label.slice(0, 80), { exact: false });
     try {
       if (isResume(f) && resume) { await el.first().setInputFiles(resume); await page.waitForTimeout(1500); continue; }
       if (isCover(f)) continue;
@@ -107,11 +111,20 @@ export async function fill(page, fields, answers, { resume } = {}) {
         const opt = page.locator('[role="option"]', { hasText: String(v) }).first();
         if (await opt.count()) await opt.click(); else await page.keyboard.press('Enter');
       } else if (f.type === 'radio') {
-        await page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${String(v).replace(/"/g, '\\"')}"]`).first().check({ force: true });
+        const marked = page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${String(v).replace(/"/g, '\\"')}"]`).first();
+        if (await marked.count()) await marked.check({ force: true });
+        else {                                    // re-rendered custom radios: pick the option by its visible text
+          const byRole = page.getByRole('radio', { name: String(v), exact: true }).first();
+          if (await byRole.count()) await byRole.check({ force: true });
+          else await page.getByText(String(v), { exact: true }).first().click();
+        }
       } else if (f.type === 'checkbox') {
         const wanted = String(v).split(/\s*[;|]\s*/);
         if (f.options.length === 1) { if (/^(yes|true|agree|i agree)/i.test(v)) await el.first().check({ force: true }); }
         else for (const w of wanted) await page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first().check({ force: true }).catch(() => {});
+      } else if (f.type === 'date') {
+        const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
+        await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));
       } else {
         await el.fill(String(v));
       }
@@ -130,12 +143,15 @@ export async function captchaVisible(page) {
 }
 
 /** Shared flow for one-page forms: collect -> resolve -> (stop if unknown) -> fill -> optional submit. */
-export async function fillForm(page, job, { root = null, resume, dryRun }) {
-  const fields = await collect(page, root);
+export async function fillForm(page, job, { root = null, resume, dryRun, partial = false }) {
+  let fields = await collect(page, root);
+  if (fields.length < 3 && root) fields = [...fields, ...await collect(page, null)];   // root matched the wrong form: whole page
   const { answers, unknown } = await resolveFields(fields, job);
   // Consent boxes are often not marked required but block submission: never submit with one unanswered.
   const blocking = unknown.filter((u) => u.required || /agree|acknowledg|consent|terms|privacy|certify/i.test(u.label));
-  if (blocking.length) return { status: 'needs_answer', unknown: blocking, fields: fields.length };
-  await fill(page, fields, answers, { resume });
-  return { status: dryRun ? 'dry_run' : 'filled', fields: fields.length, unknown };
+  const filled = fields.filter((f) => answers[f.key] != null).map((f) => ({ label: f.label, value: String(answers[f.key]) }));
+  if (blocking.length && !partial) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
+  await fill(page, fields, answers, { resume });                 // partial (owner handoff): fill all we know anyway
+  if (blocking.length) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
+  return { status: dryRun ? 'dry_run' : 'filled', fields: fields.length, unknown, filled };
 }

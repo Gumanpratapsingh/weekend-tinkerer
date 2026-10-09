@@ -74,6 +74,9 @@ export async function applyJob(job, { dryRun = false } = {}) {
 
 function settle(job, res) {
   const label = `${job.title} @ ${job.company}`;
+  // Keep what was filled, so the hub can show "your answers for this form" with copy buttons.
+  if (res.filled?.length || res.unknown?.length) run('UPDATE jobs SET form_answers = ? WHERE id = ?',
+    JSON.stringify({ filled: res.filled || [], open: (res.unknown || []).map((u) => u.label) }), job.id);
   switch (res.status) {
     case 'applied':
       run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = ? WHERE id = ?", Date.now(), res.shot || null, job.id);

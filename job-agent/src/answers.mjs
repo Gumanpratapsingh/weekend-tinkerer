@@ -97,6 +97,12 @@ export async function resolve(items, context = '') {
 - Years with a skill in FACTS: use full-time years since Aug 2024 (round down), unless a known answer says otherwise.
 - Anything personal (salary, notice, visa, relocation, demographics, references, cover letters, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
 - Legal agreements, NDAs, confidentiality terms, or e-signatures (e.g. "type your full name to sign"): ALWAYS "UNKNOWN".
+- Pronouns and gender: ONLY from KNOWN ANSWERS. Never infer them from the name. Otherwise pick the
+  "prefer not to say / decline" option if there is one, else "UNKNOWN".
+- Multi-select questions ("select all that apply"): answer with the matching options separated by " | ".
+- US voluntary self-identification (EEO): veteran status -> the "not a protected veteran" option (he never served in
+  the US military); disability, race, ethnicity, Hispanic/Latino -> the "decline to self-identify / don't wish to answer"
+  option, unless KNOWN ANSWERS has the owner's own answer. Gender: KNOWN ANSWERS, else the decline option.
 - Privacy-notice acknowledgement / data-processing consent: "Yes" (or the matching agree option) only if KNOWN ANSWERS says the owner allows it; otherwise "UNKNOWN".
 - For choice fields the answer must be exactly one of the options, or "UNKNOWN". Fields marked "long_list" (countries etc.)
   have too many options to show: answer with the plain value (e.g. "India") and it will be matched.

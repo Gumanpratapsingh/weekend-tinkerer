@@ -76,7 +76,7 @@ export default {
       }
       if (!keepOpen && await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
 
-      const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen });
+      const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
       if (keepOpen) return { ...res, status: 'handoff', page };
       const shot = await snap(`ext-${dryRun ? 'dry' : 'filled'}`);
       if (res.status !== 'filled') return { ...res, shot };

@@ -14,6 +14,7 @@ import { one, run } from './db.mjs';
 
 const PORT = 8083;
 seedKnown();
+run("UPDATE jobs SET status = 'queued' WHERE status = 'applying'");   // interrupted by a restart: try again
 
 createServer((req, res) => {
   const chunks = [];
