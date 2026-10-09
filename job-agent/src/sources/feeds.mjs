@@ -1,4 +1,4 @@
-// Free remote-job feeds (no keys): Himalayas, Jobicy, We Work Remotely. (RemoteOK removed: owner's call, paid platform.)
+// Free remote-job feeds (no keys): Himalayas, Jobicy. (RemoteOK and We Work Remotely removed: owner's call, paid platforms.)
 // Most link out to the company's own page; links to Greenhouse/Lever/Ashby become auto-apply jobs
 // (and the company's board is added to the ATS list), everything else goes to the "apply yourself" list.
 import { log, sleep } from '../core.mjs';
@@ -50,23 +50,10 @@ async function jobicy() {
   return out.filter(keep);
 }
 
-async function wwr() {
-  const out = [];
-  for (const cat of ['remote-back-end-programming-jobs', 'remote-full-stack-programming-jobs']) {
-    const xml = await getText(`https://weworkremotely.com/categories/${cat}.rss`);
-    for (const item of xml.split('<item>').slice(1)) {
-      const tag = (t) => decode((new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(item)?.[1] || '').replace(/^<!\[CDATA\[|\]\]>$/g, ''));
-      const [company, ...rest] = tag('title').split(': ');
-      out.push(make('wwr', tag('guid') || tag('link'), { title: rest.join(': ') || tag('title'), company,
-        location: `Remote · ${tag('region') || ''}`, description: htmlToText(tag('description')), url: tag('link'), posted: tag('pubDate') }));
-    }
-  }
-  return out.filter(keep);
-}
 
 export async function fetchFeeds() {
   const out = [];
-  for (const [name, fn] of Object.entries({ himalayas, jobicy, wwr })) {
+  for (const [name, fn] of Object.entries({ himalayas, jobicy })) {
     try { const got = await fn(); out.push(...got); log(`feeds ${name}: ${got.length} kept`); }
     catch (e) { log(`feeds ${name}: ${e.message}`); }
   }
