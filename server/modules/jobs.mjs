@@ -59,7 +59,7 @@ export default {
           WHERE a.status = 'open' GROUP BY qq.id ORDER BY qq.id`),
         events: q('SELECT at, kind, text FROM events ORDER BY id DESC LIMIT 60'),
         mail: q("SELECT at, from_addr, subject, category FROM emails WHERE direction = 'in' ORDER BY at DESC LIMIT 15"),
-        attention: q(`SELECT ${COLS} FROM jobs WHERE status IN ('manual','needs_answer','interview') ORDER BY found_at DESC LIMIT 30`),
+        attention: q(`SELECT ${COLS} FROM jobs WHERE status IN ('captcha','manual','needs_answer','interview') ORDER BY status = 'interview' DESC, status = 'captcha' DESC, found_at DESC LIMIT 40`),
       };
     },
 

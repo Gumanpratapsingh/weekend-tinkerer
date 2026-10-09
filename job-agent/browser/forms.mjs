@@ -2,7 +2,7 @@
 // collect() labels every visible field, resolveFields() asks the agent's memory for answers,
 // fill() types/selects/uploads them. Unknown required fields stop the run so the owner can be asked.
 
-const AGENT = 'http://127.0.0.1:8083/internal/resolve';
+const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
 
 // Runs in the page: tag each visible field with data-ja-key and describe it.
 function describeFields(rootSel) {

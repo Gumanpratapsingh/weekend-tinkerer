@@ -33,7 +33,7 @@ async function formScore(page) {
 }
 
 export default {
-  async apply_external({ job, resume, dryRun = false }) {
+  async apply_external({ job, resume, dryRun = false, keepOpen = false }) {
     const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : 'external');
     let page = await ctx.newPage();
     const snap = async (name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }).catch(() => {}); return p; };
@@ -46,7 +46,7 @@ export default {
         const url = page.url();
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
         const known = await knownAts(url);
-        if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun }); }
+        if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         if (/no longer (accepting|available)|position (has been )?(filled|closed)|job (is )?(closed|expired)/i.test(await page.innerText('body').catch(() => ''))) return { status: 'closed' };
 
         // A form embedded in an iframe: open the iframe's page directly.
@@ -74,9 +74,10 @@ export default {
         }
         if (!clicked) return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };
       }
-      if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
+      if (!keepOpen && await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
 
-      const res = await fillForm(page, job, { root: null, resume, dryRun });
+      const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen });
+      if (keepOpen) return { ...res, status: 'handoff', page };
       const shot = await snap(`ext-${dryRun ? 'dry' : 'filled'}`);
       if (res.status !== 'filled') return { ...res, shot };
       if (!res.fields) return { status: 'manual', reason: 'no fillable form found', shot };
@@ -90,6 +91,6 @@ export default {
       if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done') };
       const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
       return { status: 'failed', reason: errors.filter(Boolean).slice(0, 4).join(' | ') || 'no confirmation seen', shot: await snap('ext-unsure') };
-    } finally { await ctx.close().catch(() => {}); }
+    } finally { if (!keepOpen) await ctx.close().catch(() => {}); }
   },
 };

@@ -353,7 +353,7 @@ const pages = {
     });
     const attention = d.attention.map((j) => h('div', { class: 'item' },
       h('div', { class: 'main' }, h('a', { href: `/jobs/job?id=${encodeURIComponent(j.id)}`, 'data-link': true }, `${j.title} · ${j.company}`),
-        h('span', { class: 'tag' + (j.status === 'interview' ? ' red' : '') }, j.status === 'manual' ? 'apply yourself' : j.status.replace('_', ' ')),
+        h('span', { class: 'tag' + (j.status === 'interview' ? ' red' : '') }, j.status === 'manual' ? 'apply yourself' : j.status === 'captcha' ? 'captcha · finish on Mac' : j.status.replace('_', ' ')),
         h('small', {}, clip(j.status_note && !/\.png$/.test(j.status_note) ? j.status_note : j.location || '', 90))),
       j.score != null ? h('span', { class: 'num' }, `${j.score}%`) : null));
 
@@ -366,7 +366,7 @@ const pages = {
 
     // ---- pipeline list with filters
     const FILTERS = [['matches', 'Scored'], ['queued', 'Queue'], ['ready', 'Dry-run ok'], ['applied', 'Applied'], ['interview', 'Interview'],
-      ['manual', 'Apply yourself'], ['needs_answer', 'Waiting on you'], ['rejected', 'Rejected'], ['all', 'All']];
+      ['captcha', 'CAPTCHA'], ['manual', 'Apply yourself'], ['needs_answer', 'Waiting on you'], ['rejected', 'Rejected'], ['all', 'All']];
     const list = await api(`/jobs/list?status=${filter}&q=${encodeURIComponent(term)}`);
     const search = h('input', { placeholder: 'Search title or company', value: term, 'aria-label': 'Search jobs' });
     const sform = h('form', { class: 'row' }, search);

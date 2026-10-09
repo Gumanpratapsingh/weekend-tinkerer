@@ -90,6 +90,12 @@ function settle(job, res) {
         run("UPDATE jobs SET apply_type = 'external', status = 'queued', attempts = 0, status_note = 'applies on company site' WHERE id = ?", job.id);
         break;
       }
+      // CAPTCHA: the Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
+      if (/captcha/i.test(res.reason || '')) {
+        run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
+        tell(`🧩 ${label} needs a CAPTCHA. Everything else is ready: run ./scripts/finish.sh on the Mac, solve it, press Submit.`);
+        break;
+      }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
       tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
       break;

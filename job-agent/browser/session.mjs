@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { chromium } = createRequire('/opt/pw/')('playwright');
+const { chromium } = createRequire(process.env.PW_DIR || '/opt/pw/')('playwright');
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SESSIONS = join(ROOT, 'data', 'sessions');
 mkdirSync(SESSIONS, { recursive: true });
@@ -14,6 +14,7 @@ let browser;
 let idleTimer;
 export function touch() {
   clearTimeout(idleTimer);
+  if (process.env.KEEP_BROWSER) return;               // Mac handoff: the owner is using the window
   idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
 }
 export async function getBrowser() {

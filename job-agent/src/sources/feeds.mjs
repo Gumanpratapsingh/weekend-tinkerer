@@ -1,4 +1,4 @@
-// Free remote-job feeds (no keys): RemoteOK, Himalayas, Jobicy, We Work Remotely.
+// Free remote-job feeds (no keys): Himalayas, Jobicy, We Work Remotely. (RemoteOK removed: owner's call, paid platform.)
 // Most link out to the company's own page; links to Greenhouse/Lever/Ashby become auto-apply jobs
 // (and the company's board is added to the ATS list), everything else goes to the "apply yourself" list.
 import { log, sleep } from '../core.mjs';
@@ -23,12 +23,6 @@ function make(source, extId, { title, company, location, description, url, poste
 }
 const keep = (j) => titleOk(j.title) && locationOk(j.location, j.description);
 
-async function remoteok() {
-  const rows = await getJson('https://remoteok.com/api');
-  return rows.filter((r) => r.id && r.position).map((r) => make('remoteok', r.id, {
-    title: r.position, company: r.company, location: `Remote · ${r.location || 'Worldwide'}`, description: htmlToText(r.description),
-    url: r.apply_url || r.url, posted: r.date })).filter(keep);
-}
 
 async function himalayas() {
   const out = [];
@@ -72,7 +66,7 @@ async function wwr() {
 
 export async function fetchFeeds() {
   const out = [];
-  for (const [name, fn] of Object.entries({ remoteok, himalayas, jobicy, wwr })) {
+  for (const [name, fn] of Object.entries({ himalayas, jobicy, wwr })) {
     try { const got = await fn(); out.push(...got); log(`feeds ${name}: ${got.length} kept`); }
     catch (e) { log(`feeds ${name}: ${e.message}`); }
   }

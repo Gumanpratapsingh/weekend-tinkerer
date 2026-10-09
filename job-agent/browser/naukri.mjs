@@ -4,7 +4,7 @@
 import { siteContext, shotPath } from './session.mjs';
 
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
-const AGENT = 'http://127.0.0.1:8083/internal/resolve';
+const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
 
 let ctxPromise;
 async function ctx() {                                // one Naukri context per browser run; refreshed cookies are saved

@@ -1,0 +1,43 @@
+// Mac-side CAPTCHA handoff: opens each CAPTCHA-blocked job with every field filled in and the tailored resume
+// attached, waits for the owner to solve the CAPTCHA and press Submit, then marks the job applied on the phone.
+// Run through scripts/finish.sh (sets PW_DIR, AGENT_URL and the ssh tunnel to the phone's agent).
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ats from '../browser/ats.mjs';
+import external from '../browser/external.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const AGENT = process.env.AGENT_URL;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)/i;
+const handlers = { greenhouse: ats.apply_greenhouse, lever: ats.apply_lever, ashby: ats.apply_ashby, external: external.apply_external };
+
+const jobs = await (await fetch(`${AGENT}/internal/captcha-jobs`)).json();
+if (!jobs.length) { console.log('No CAPTCHA jobs waiting.'); process.exit(0); }
+console.log(`${jobs.length} job(s) need a CAPTCHA.\n`);
+
+for (const [i, job] of jobs.entries()) {
+  const resume = job.resume_path ? join(ROOT, 'data', 'handoff', basename(job.resume_path)) : null;
+  const run = handlers[job.apply_type] || handlers.external;
+  console.log(`(${i + 1}/${jobs.length}) ${job.title} @ ${job.company} — filling the form…`);
+  let res;
+  try { res = await run({ job, resume, keepOpen: true }); } catch (e) { console.log(`   could not open: ${e.message}\n`); continue; }
+  if (res.status !== 'handoff') { console.log(`   ${res.status}: ${res.reason || ''}\n`); continue; }
+  console.log('   Filled. In the browser window: check it, solve the CAPTCHA, press Submit. (Close the tab to skip.)');
+  const ctx = res.page.context();
+  let applied = false;
+  for (let t = 0; t < 900 && !applied; t += 2) {                 // up to 15 minutes per job
+    const pages = ctx.pages();
+    if (!pages.length) break;
+    for (const p of pages) {
+      const text = await p.innerText('body').catch(() => '');
+      if (DONE.test(text) || /thank|success|confirmation/i.test(p.url())) applied = true;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (applied) {
+    await fetch(`${AGENT}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'applied', id: job.id }) });
+    console.log('   ✅ Applied — marked on the phone.\n');
+  } else console.log('   Skipped (no confirmation seen). It stays on the CAPTCHA list.\n');
+  await ctx.close().catch(() => {});
+}
+process.exit(0);

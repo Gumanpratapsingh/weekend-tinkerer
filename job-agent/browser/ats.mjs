@@ -15,7 +15,7 @@ const SITES = {
 
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received)|we('ve| have) received your application|successfully submitted/i;
 
-async function applyAts(kind, { job, resume, dryRun = false }) {
+async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false }) {
   const site = SITES[kind];
   const ctx = await siteContext(kind);
   const page = await ctx.newPage();
@@ -30,9 +30,10 @@ async function applyAts(kind, { job, resume, dryRun = false }) {
     if (/no longer (accepting|available)|job (has been )?closed|position has been filled/i.test(await page.innerText('body')))
       return { status: 'closed' };
 
-    const res = await fillForm(page, job, { root: site.root, resume, dryRun });
+    const res = await fillForm(page, job, { root: site.root, resume, dryRun: dryRun || keepOpen });
     const shot = shotPath(`${kind}-${dryRun ? 'dry' : 'filled'}`);
     await page.screenshot({ path: shot, fullPage: true });
+    if (keepOpen) return { ...res, status: 'handoff', page };
     if (res.status !== 'filled') return { ...res, shot };
 
     await page.locator(site.submit).first().click({ timeout: 10000 });
@@ -42,7 +43,7 @@ async function applyAts(kind, { job, resume, dryRun = false }) {
     if (DONE.test(body) || /confirmation|thank/i.test(page.url())) return { status: 'applied', shot: await snap(page, `${kind}-done`) };
     const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
     return { status: 'failed', reason: errors.filter(Boolean).slice(0, 5).join(' | ') || 'no confirmation seen', shot: await snap(page, `${kind}-unsure`) };
-  } finally { await ctx.close(); }
+  } finally { if (!keepOpen) await ctx.close(); }
 }
 const snap = async (page, name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }); return p; };
 

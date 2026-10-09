@@ -1,0 +1,6 @@
+{
+  "name": "job-agent-mac",
+  "private": true,
+  "description": "Playwright for the Mac-side CAPTCHA handoff (scripts/finish.sh). Not used on the phone.",
+  "dependencies": { "playwright": "1.48.2" }
+}

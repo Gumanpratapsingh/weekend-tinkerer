@@ -31,6 +31,9 @@ createServer((req, res) => {
         const { fields, context } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json');
       }
+      if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
+        return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');
+      }
       // Dashboard actions from the tinker hub server (same phone, localhost only, owner already logged in there).
       if (url.pathname === '/internal/action' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -60,7 +63,7 @@ const step = (text, fn) => async () => { doing(text); try { return await fn(); }
 every(150, 'discover ats', step('Searching company career pages (Greenhouse, Lever, Ashby)', () => discover('ats')), { delay: 20e3 });
 every(180, 'discover linkedin', step('Searching LinkedIn', () => discover('linkedin')), { delay: 90e3 });
 every(180, 'discover naukri', step('Searching Naukri', () => discover('naukri')), { delay: 150e3 });
-every(240, 'discover feeds', step('Searching remote job feeds (RemoteOK, Himalayas, Jobicy, WWR)', () => discover('feeds')), { delay: 200e3 });
+every(240, 'discover feeds', step('Searching remote job feeds (Himalayas, Jobicy, WWR)', () => discover('feeds')), { delay: 200e3 });
 every(360, 'discover remotive', step('Searching Remotive', () => discover('remotive')), { delay: 240e3 });
 every(10, 'score', step('Scoring new jobs against your resume', () => scoreNew(25)), { delay: 60e3 });
 every(1, 'apply', () => applyNext({ dryRun: getKv('dry_run', '1') === '1' }), { delay: 120e3 });   // pacing lives in apply.mjs
