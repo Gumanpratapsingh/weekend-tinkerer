@@ -65,6 +65,7 @@ every(150, 'discover ats', step('Searching company career pages (Greenhouse, Lev
 every(180, 'discover linkedin', step('Searching LinkedIn', () => discover('linkedin')), { delay: 90e3 });
 every(180, 'discover naukri', step('Searching Naukri', () => discover('naukri')), { delay: 150e3 });
 every(240, 'discover feeds', step('Searching remote job feeds (Himalayas, Jobicy, WWR)', () => discover('feeds')), { delay: 200e3 });
+every(180, 'discover aggregators', step('Searching Adzuna and Jooble (all of India)', () => discover('aggregators')), { delay: 270e3 });
 every(360, 'discover remotive', step('Searching Remotive', () => discover('remotive')), { delay: 240e3 });
 every(10, 'score', step('Scoring new jobs against your resume', () => scoreNew(25)), { delay: 60e3 });
 every(1, 'apply', () => applyNext({ dryRun: getKv('dry_run', '1') === '1' }), { delay: 120e3 });   // pacing lives in apply.mjs

@@ -7,10 +7,11 @@ import { fetchAts } from './sources/ats.mjs';
 import { fetchLinkedin, linkedinDescription } from './sources/linkedin.mjs';
 import { fetchRemotive } from './sources/remotive.mjs';
 import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
+import { fetchAggregators } from './sources/aggregators.mjs';
 import { fetchNaukri } from './sources/naukri.mjs';
 import { scoreJob } from './score.mjs';
 
-export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds };
+export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators };
 
 // Any Greenhouse/Lever/Ashby link seen in a feed adds that company's board to the list searched directly.
 function learnBoard(url) {
