@@ -32,7 +32,8 @@ createServer((req, res) => {
       // Only the browser worker on this phone may call /internal (nginx never proxies it; tunnel traffic carries X-Visitor-IP).
       if (url.pathname === '/internal/resolve' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const { fields, context } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json');
+        try { return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json'); }
+        catch (e) { if (e.retryLater) return reply(503, '{"error":"AI busy"}', 'application/json'); throw e; }
       }
       if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
         return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');

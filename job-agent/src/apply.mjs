@@ -66,7 +66,7 @@ export async function applyJob(job, { dryRun = false } = {}) {
     return settle(job, res);
   } catch (e) {
     log(`apply ${job.id} error: ${e.message}`);
-    if (e.rateLimited) { run("UPDATE jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ?", job.id); return { status: 'later' }; }
+    if (e.rateLimited || /AI busy/.test(e.message)) { run("UPDATE jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ?", job.id); return { status: 'later' }; }
     run("UPDATE jobs SET status = ?, status_note = ? WHERE id = ?", (job.attempts || 0) + 1 >= 3 ? 'failed' : 'queued', e.message.slice(0, 300), job.id);
     return { status: 'error', reason: e.message };
   }

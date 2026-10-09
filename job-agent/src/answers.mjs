@@ -58,11 +58,35 @@ const used = (id) => run('UPDATE questions SET uses = uses + 1 WHERE id = ?', id
  */
 const LEGAL = /\b(nda|non-?disclosure|confidential(ity)? agreement|e-?signature|signature|sign(ed)? (here|below)|type your (full|legal) name|i agree to the terms|arbitration)\b/i;
 
+// Contact/profile fields answered straight from master.json (no AI call, never asked).
+function direct(label, m) {
+  const l = norm(label);
+  const [first, ...rest] = m.name.split(' ');
+  const rules = [
+    [/^(preferred )?first name|given name/, first], [/last name|surname|family name/, rest.join(' ')],
+    [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone],
+    [/linkedin/, `https://${m.contact.linkedin}`], [/github/, `https://${m.contact.github}`],
+    [/website|portfolio|personal (site|url)/, 'https://site.gumanpratap.workers.dev'],
+    [/current (company|employer|organi[sz]ation)|^company$/, m.experience[0].org], [/current (job )?title|current (role|designation)/, m.experience[0].title],
+    [/^(current )?(city|location)$|where are you (currently )?(based|located)/, m.contact.location],
+    [/^country( of residence)?$/, 'India'], [/(school|university|college)( name)?$/, m.education[0].school],
+    [/degree|highest (level of )?education|qualification/, "Bachelor's degree (B.Tech, Computer Science)"],
+    [/graduation (date|year)|year of (graduation|passing)/, 'May 2024'], [/field of study|major|discipline/, 'Computer Science'],
+  ];
+  for (const [re, v] of rules) if (re.test(l)) return v;
+  return null;
+}
+
 export async function resolve(items, context = '') {
   const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
   const answers = {};
   const pending = [];
+  const m0 = master();
   for (const it of items) {
+    // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it.
+    if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label)) continue;
+    const d = direct(it.label, m0);
+    if (d && fits(d, it)) { answers[it.key] = coerce(d, it); continue; }
     // Legal agreements are per company: only an exact earlier answer for this same job/company counts.
     if (LEGAL.test(it.label)) {
       it.label = `${it.label} (for ${context || 'this application'})`;
@@ -86,6 +110,9 @@ export async function resolve(items, context = '') {
     `Current location: ${m.contact.location}. Phone country: India (+91).`,
     `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at ${m.experience[0].org} since Aug 2024.`,
     `Employment history (complete): ${m.experience.map((e) => `${e.title}, ${e.org}, ${e.dates}`).join('; ')}. Never worked for or contracted with any other company.`,
+    'Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa. Not a citizen or resident of Cuba, Iran, North Korea, Syria or Crimea.',
+    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Python (production), Kubernetes, Terraform, React.',
+    'Has worked in a fast-paced multi-tenant SaaS fintech (Finzly) and automated processes (batch jobs, AWS Lambda audit logging). Never founded a company.',
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');
   let out = {};
@@ -96,6 +123,11 @@ export async function resolve(items, context = '') {
 - Yes/no skill questions ("Do you have experience with X?") may be answered from FACTS: "Yes" only if X is in FACTS.
 - Years with a skill in FACTS: use full-time years since Aug 2024 (round down), unless a known answer says otherwise.
 - Anything personal (salary, notice, visa, relocation, demographics, references, cover letters, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
+- "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
+- Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
+- Multi-select experience/skills lists: select only the options the FACTS support.
+- Work authorization / visa sponsorship for roles in INDIA or remote-from-India: authorized = Yes (Indian citizen), sponsorship = No.
+  For questions explicitly about the US/EU: authorized = No.
 - Legal agreements, NDAs, confidentiality terms, or e-signatures (e.g. "type your full name to sign"): ALWAYS "UNKNOWN".
 - Pronouns and gender: ONLY from KNOWN ANSWERS. Never infer them from the name. Otherwise pick the
   "prefer not to say / decline" option if there is one, else "UNKNOWN".
@@ -112,7 +144,11 @@ Return JSON {"<key>": "<answer or UNKNOWN>"}.` },
         + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) =>
           (options?.length > 40 ? { key, label, type: 'long_list' } : { key, label, type, options })))}` },
     ], { json: true, maxTokens: 900, temperature: 0, why: `answering ${pending.length} form question(s) from your memory` });
-  } catch (e) { log(`resolve llm: ${e.message}`); }
+  } catch (e) {
+    // AI unavailable (free-tier rate limit): retry the application later; never turn this into questions for the owner.
+    log(`resolve llm: ${e.message}`);
+    const err = new Error('AI busy, retry later'); err.retryLater = true; throw err;
+  }
 
   const unknown = [...legalUnknown];
   for (const it of pending) {

@@ -35,8 +35,14 @@ function describeFields(rootSel) {
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(t)) continue;
     const required = el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(el.closest('div, fieldset')?.querySelector('label, legend')?.innerText || '');
     if (t === 'radio' || t === 'checkbox') {
-      const fs = el.closest('fieldset, [role="radiogroup"], [role="group"]');
-      const groupLabel = clean(fs?.querySelector('legend, [class*="label"], [class*="question"]')?.innerText) || labelOf(fs || el);
+      // The question's container: nearest fieldset/group, else the nearest ancestor holding 2+ options of this type.
+      let fs = el.closest('fieldset, [role="radiogroup"], [role="group"]');
+      if (!fs) { let a = el.parentElement; while (a && a !== root && a.querySelectorAll(`input[type="${t}"]`).length < 2) a = a.parentElement; fs = a && a !== root ? a : null; }
+      const opts = fs ? [...fs.querySelectorAll(`input[type="${t}"]`)].map(labelOf) : [];
+      // Question text = the container's first text that isn't one of its options.
+      const lead = fs ? [...fs.querySelectorAll('legend, label, span, p, div, h3, h4')].map((n) => clean(n.childElementCount ? n.firstChild?.textContent : n.innerText))
+        .find((x) => x && x.length > 2 && !opts.includes(x)) : '';
+      const groupLabel = clean(fs?.querySelector('legend')?.innerText) || lead || labelOf(fs || el);
       const gname = t === 'radio' && el.name ? `r:${el.name}` : `${t}:${groupLabel || el.name || el.closest('fieldset')?.id || ''}`;
       const optLabel = labelOf(el);
       if (!groups.has(gname)) {
@@ -89,6 +95,7 @@ export async function resolveFields(fields, job) {
   if (!ask.length) return { answers: {}, unknown: [] };
   const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_id: job.id, context: `${job.title} at ${job.company}`, fields: ask }) });
+  if (r.status === 503) { const e = new Error('AI busy, retry later'); e.retryLater = true; throw e; }
   if (!r.ok) throw new Error(`agent resolve ${r.status}`);
   return r.json();
 }

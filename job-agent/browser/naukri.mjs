@@ -166,6 +166,7 @@ export default {
         progress(`Naukri asks: "${q.label.slice(0, 120)}"`);
         const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
+        if (r.status === 503) throw new Error('AI busy, retry later');
         const { answers, unknown } = await r.json();
         if (unknown.length) return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
         await answer(page, q, answers.a);
