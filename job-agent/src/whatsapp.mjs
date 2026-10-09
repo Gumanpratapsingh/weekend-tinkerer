@@ -8,7 +8,8 @@ import { getKv, setKv, all, run } from './db.mjs';
 
 const API = 'https://graph.facebook.com/v21.0';
 const WINDOW = 23.5 * 3600e3;
-export const configured = () => !!(secret('wa_token') && secret('wa_phone_id') && secret('wa_owner'));
+// WhatsApp stays off until Meta lets the account message (it needs a card + business verification): kv wa_enabled=1.
+export const configured = () => !!(secret('wa_token') && secret('wa_phone_id') && secret('wa_owner') && getKv('wa_enabled') === '1');
 
 run(`CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, body TEXT NOT NULL, ref_kind TEXT, ref_id TEXT,
   urgent INTEGER DEFAULT 0, created_at INTEGER NOT NULL, sent_at INTEGER, wa_msg_id TEXT)`);
@@ -30,6 +31,10 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
 export function tell(body, { refKind = null, refId = null, urgent = false } = {}) {
+  if (!configured()) {                                 // no chat channel yet: phone push; answers go on the hub /jobs page
+    ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
+    return;
+  }
   run('INSERT INTO outbox(body, ref_kind, ref_id, urgent, created_at) VALUES(?,?,?,?,?)', body, refKind, refId ? String(refId) : null, urgent ? 1 : 0, Date.now());
   flush().catch((e) => log(`wa flush: ${e.message}`));
 }
@@ -84,6 +89,10 @@ export async function webhook(method, query, rawBody, headers, onMessage) {
     return { status: 401, body: 'bad signature' };
   }
   const data = JSON.parse(rawBody);
+  // Delivery reports: log failures so a silent non-delivery is visible.
+  for (const entry of data.entry || []) for (const ch of entry.changes || []) for (const st of ch.value?.statuses || []) {
+    log(`wa status ${st.status}${st.errors ? ' ' + JSON.stringify(st.errors).slice(0, 300) : ''}`);
+  }
   for (const entry of data.entry || []) for (const ch of entry.changes || []) for (const msg of ch.value?.messages || []) {
     if (msg.from !== secret('wa_owner')) { log(`wa: ignored message from ${msg.from}`); continue; }
     if (getKv(`wa_seen_${msg.id}`)) continue;                     // Meta retries deliveries

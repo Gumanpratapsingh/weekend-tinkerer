@@ -30,7 +30,7 @@ export async function scoreJob(job) {
   const out = await llm([
     { role: 'system', content: SYSTEM },
     { role: 'user', content: `CANDIDATE:\n${profile()}\n\nJOB:\n${jd}` },
-  ], { json: true, maxTokens: 300, temperature: 0 });
+  ], { json: true, maxTokens: 300, temperature: 0, small: true });
   return {
     score: Math.max(0, Math.min(100, Math.round(Number(out.score) || 0))),
     track: out.track === 'ai' ? 'ai' : 'backend',

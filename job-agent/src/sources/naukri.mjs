@@ -6,9 +6,13 @@ import { titleOk, locationOk, htmlToText } from './common.mjs';
 
 export async function fetchNaukri() {
   const c = config();
-  const queries = Object.values(c.tracks).flatMap((t) => t.queries.slice(0, 3));
+  const n = c.naukri || {};
+  const queries = Object.values(c.tracks).flatMap((t) => t.queries).slice(0, n.queries_per_location || 6);
   const plan = c.locations.naukri.map((l) => ({ location: l.location, queries }));
-  const r = await browserTask('naukri_search', { plan, experience: c.experience_years }, 25 * 60e3);
+  const r = await browserTask('naukri_search', { plan, experience: c.experience_years, pages: n.pages || 1, jobAge: n.job_age_days || 1 }, 60 * 60e3);
+  const rec = await browserTask('naukri_recommended', {}, 5 * 60e3).catch((e) => { log(`naukri recommended: ${e.message}`); return { jobs: [] }; });
+  log(`naukri: ${r.jobs?.length || 0} from search, ${rec.jobs?.length || 0} recommended`);
+  r.jobs = [...(r.jobs || []), ...(rec.jobs || [])];
   if (r.status === 'session_expired') { setKv('session_naukri', 'expired'); log('naukri session expired'); }
   const out = [];
   for (const j of r.jobs || []) {

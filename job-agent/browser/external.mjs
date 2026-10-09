@@ -1,0 +1,95 @@
+// Any other careers site: follow the Apply links to the real application form and fill it with the generic engine.
+// Hands the job back to the owner only for account walls (we never create accounts), CAPTCHAs (never bypassed),
+// or questions only the owner can answer.
+import { siteContext, shotPath } from './session.mjs';
+import { fillForm, captchaVisible } from './forms.mjs';
+import ats from './ats.mjs';
+
+// Sites that require creating a candidate account before applying.
+const ACCOUNT_WALL = /myworkdayjobs|workday\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
+const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)/i;
+
+async function knownAts(url) {
+  const m = /(?:boards|job-boards)\.greenhouse\.io\/([\w-]+)\/jobs\/(\d+)|greenhouse\.io\/embed\/job_app\?.*for=([\w-]+).*token=(\d+)/.exec(url);
+  if (m) return { task: 'apply_greenhouse', id: `greenhouse:${m[1] || m[3]}:${m[2] || m[4]}`, apply_url: url };
+  const l = /jobs\.lever\.co\/([\w-]+)\/([0-9a-f-]{36})/.exec(url);
+  if (l) return { task: 'apply_lever', id: `lever:${l[1]}:${l[2]}`, apply_url: `https://jobs.lever.co/${l[1]}/${l[2]}/apply` };
+  const a = /jobs\.ashbyhq\.com\/([\w.-]+)\/([0-9a-f-]{36})/.exec(url);
+  if (a) return { task: 'apply_ashby', id: `ashby:${a[1]}:${a[2]}`, apply_url: `https://jobs.ashbyhq.com/${a[1]}/${a[2]}/application` };
+  return null;
+}
+
+// Form that looks like a job application: has a file input, or an email field plus a few others.
+async function formScore(page) {
+  return page.evaluate(() => {
+    const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const inputs = [...document.querySelectorAll('input, textarea, select')].filter((e) => e.type === 'file' || vis(e));
+    const hasFile = inputs.some((e) => e.type === 'file');
+    const hasEmail = inputs.some((e) => e.type === 'email' || /email/i.test(e.name + e.id + (e.placeholder || '')));
+    const hasPassword = inputs.some((e) => e.type === 'password' && vis(e));
+    return { n: inputs.length, hasFile, hasEmail, hasPassword };
+  });
+}
+
+export default {
+  async apply_external({ job, resume, dryRun = false }) {
+    const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : 'external');
+    let page = await ctx.newPage();
+    const snap = async (name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }).catch(() => {}); return p; };
+    try {
+      await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(3000);
+
+      // Follow Apply links/buttons (new tabs included) until a form shows up. At most 4 hops.
+      for (let hop = 0; hop < 4; hop++) {
+        const url = page.url();
+        if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
+        const known = await knownAts(url);
+        if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun }); }
+        if (/no longer (accepting|available)|position (has been )?(filled|closed)|job (is )?(closed|expired)/i.test(await page.innerText('body').catch(() => ''))) return { status: 'closed' };
+
+        // A form embedded in an iframe: open the iframe's page directly.
+        const frameUrl = await page.evaluate(() => [...document.querySelectorAll('iframe')].map((f) => f.src)
+          .find((s) => /greenhouse|lever|ashby|workable|smartrecruiters|recruitee|bamboohr|breezy|teamtailor|personio|zohorecruit|apply|career|job/i.test(s || '')));
+        if (frameUrl && !/recaptcha|hcaptcha/.test(frameUrl)) { await page.goto(frameUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(2500); continue; }
+
+        const f = await formScore(page);
+        if (f.hasPassword && !f.hasFile) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
+        if (f.hasFile || (f.hasEmail && f.n >= 3)) break;                       // reached the application form
+
+        // Click the most likely Apply control; follow a popup if it opens one.
+        const target = page.locator('a, button, [role="button"], input[type="submit"]').filter({ hasText: /apply|interested/i });
+        let clicked = false;
+        for (const el of await target.all()) {
+          const text = (await el.innerText().catch(() => '') || await el.getAttribute('value') || '').trim();
+          if (!APPLY_TEXT.test(text) || !(await el.isVisible().catch(() => false))) continue;
+          const popup = ctx.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+          await el.click({ timeout: 8000 }).catch(() => {});
+          const p2 = await popup;
+          if (p2) { page = p2; await page.waitForLoadState('domcontentloaded').catch(() => {}); }
+          await page.waitForTimeout(3500);
+          clicked = true;
+          break;
+        }
+        if (!clicked) return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };
+      }
+      if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
+
+      const res = await fillForm(page, job, { root: null, resume, dryRun });
+      const shot = await snap(`ext-${dryRun ? 'dry' : 'filled'}`);
+      if (res.status !== 'filled') return { ...res, shot };
+      if (!res.fields) return { status: 'manual', reason: 'no fillable form found', shot };
+
+      const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /submit|apply|send application|send/i }).last();
+      if (!await submit.count()) return { status: 'manual', reason: 'no submit button found', shot };
+      await submit.click({ timeout: 10000 });
+      await page.waitForTimeout(6000);
+      if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
+      const body = await page.innerText('body').catch(() => '');
+      if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done') };
+      const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
+      return { status: 'failed', reason: errors.filter(Boolean).slice(0, 4).join(' | ') || 'no confirmation seen', shot: await snap('ext-unsure') };
+    } finally { await ctx.close().catch(() => {}); }
+  },
+};

@@ -4,8 +4,12 @@
       "queries": [
         "java developer",
         "spring boot developer",
-        "java backend engineer",
-        "java microservices developer"
+        "java backend developer",
+        "java microservices",
+        "java full stack developer",
+        "backend developer java",
+        "software engineer java",
+        "sde java"
       ]
     },
     "ai": {
@@ -13,7 +17,9 @@
         "ai engineer",
         "genai developer",
         "llm engineer",
-        "ai developer"
+        "ai developer",
+        "generative ai engineer",
+        "ai ml engineer node"
       ]
     }
   },
@@ -152,12 +158,12 @@
     "member of technical staff",
     "product engineer"
   ],
-  "min_score": 75,
+  "min_score": 65,
   "daily_caps": {
-    "naukri": 25,
-    "linkedin": 10,
+    "naukri": 50,
+    "linkedin": 20,
     "ats": 40,
-    "total": 70,
+    "total": 110,
     "per_company": 3
   },
   "whatsapp_quiet_hours": [
@@ -210,16 +216,16 @@
         8,
         23
       ],
-      "min_gap_min": 4,
-      "max_gap_min": 8
+      "min_gap_min": 3,
+      "max_gap_min": 6
     },
     "linkedin": {
       "hours": [
         9,
         21
       ],
-      "min_gap_min": 10,
-      "max_gap_min": 18
+      "min_gap_min": 8,
+      "max_gap_min": 15
     },
     "ats": {
       "hours": [
@@ -229,5 +235,10 @@
       "min_gap_min": 3,
       "max_gap_min": 6
     }
+  },
+  "naukri": {
+    "pages": 3,
+    "job_age_days": 3,
+    "queries_per_location": 14
   }
 }

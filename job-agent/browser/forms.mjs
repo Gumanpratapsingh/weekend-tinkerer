@@ -133,7 +133,8 @@ export async function captchaVisible(page) {
 export async function fillForm(page, job, { root = null, resume, dryRun }) {
   const fields = await collect(page, root);
   const { answers, unknown } = await resolveFields(fields, job);
-  const blocking = unknown.filter((u) => u.required);
+  // Consent boxes are often not marked required but block submission: never submit with one unanswered.
+  const blocking = unknown.filter((u) => u.required || /agree|acknowledg|consent|terms|privacy|certify/i.test(u.label));
   if (blocking.length) return { status: 'needs_answer', unknown: blocking, fields: fields.length };
   await fill(page, fields, answers, { resume });
   return { status: dryRun ? 'dry_run' : 'filled', fields: fields.length, unknown };

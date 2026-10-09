@@ -29,19 +29,20 @@ async function api(path) {
 }
 
 export default {
-  async naukri_search({ plan, experience = 2 }) {
+  async naukri_search({ plan, experience = 2, pages = 1, jobAge = 1 }) {
     const out = [];
     const seen = new Set();
-    for (const { location: loc, queries } of plan) for (const q of queries) {
+    for (const { location: loc, queries } of plan) for (const q of queries) for (let pg = 1; pg <= pages; pg++) {
       // Open the normal search page and read the results the page itself fetches (no API calls of our own).
       const page = await home();
-      const slug = `${q.trim().toLowerCase().replace(/\s+/g, '-')}-jobs${loc ? `-in-${loc.toLowerCase()}` : ''}`;   // no location = all India
+      const slug = `${q.trim().toLowerCase().replace(/\s+/g, '-')}-jobs${loc ? `-in-${loc.toLowerCase()}` : ''}${pg > 1 ? `-${pg}` : ''}`;   // no location = all India
       const respP = page.waitForResponse((res) => res.url().includes('/jobapi/v3/search') && res.request().method() === 'GET', { timeout: 45000 }).catch(() => null);
-      await page.goto(`https://www.naukri.com/${slug}?experience=${experience}&jobAge=1`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.goto(`https://www.naukri.com/${slug}?experience=${experience}&jobAge=${jobAge}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
       if (loggedOut(page)) return { status: 'session_expired', jobs: out };
       const resp = await respP;
       const r = { status: resp?.status() || 0, body: resp ? await resp.json().catch(() => ({})) : {} };
       if (r.status !== 200) { console.error('naukri search', r.status, slug); if (await page.locator('iframe[src*="recaptcha/api2/bframe"]').count()) return { status: 'captcha', jobs: out }; continue; }
+      if (!(r.body.jobDetails || []).length) break;                  // no more pages for this query
       for (const j of r.body.jobDetails || []) {
         if (seen.has(j.jobId)) continue;
         seen.add(j.jobId);
@@ -56,6 +57,32 @@ export default {
   },
 
   // Open the job page and read the details response the page itself loads.
+  // Naukri's own "Recommended jobs" for this profile: read every job list the page loads.
+  async naukri_recommended() {
+    const page = await home();
+    const lists = [];
+    const onResp = async (res) => {
+      if (!/jobapi|recom/i.test(res.url()) || res.request().method() !== 'GET') return;
+      const b = await res.json().catch(() => null);
+      const arr = b?.jobDetails || b?.recommendedJobs || b?.jobs || b?.data?.jobDetails;
+      if (Array.isArray(arr)) lists.push(...arr);
+    };
+    page.on('response', onResp);
+    try {
+      await page.goto('https://www.naukri.com/mnjuser/recommendedjobs', { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (loggedOut(page)) return { status: 'session_expired', jobs: [] };
+      await page.waitForTimeout(8000);
+      for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, 2500); await page.waitForTimeout(2500); }
+    } finally { page.off('response', onResp); }
+    const seen = new Set();
+    const jobs = lists.filter((j) => j?.jobId && !seen.has(j.jobId) && seen.add(j.jobId)).map((j) => {
+      const ph = Object.fromEntries((j.placeholders || []).map((p) => [p.type, p.label]));
+      return { jobId: j.jobId, title: j.title, company: j.companyName, location: ph.location || '', experience: ph.experience || '',
+        url: j.jdURL ? `https://www.naukri.com${j.jdURL}` : `https://www.naukri.com/job-listings-${j.jobId}`, snippet: j.jobDescription || '', skills: j.tagsAndSkills || '' };
+    });
+    return { status: 'ok', jobs };
+  },
+
   async naukri_job({ jobId, url }) {
     const c = await ctx();
     const page = await c.newPage();

@@ -58,8 +58,9 @@ const PROVIDERS = [
 function readKey(f) { try { return readFileSync(join(HOME, f), 'utf8').trim(); } catch { return ''; } }
 const cooldown = new Map();                           // "provider/model" -> retry-after timestamp
 
-export async function llm(messages, { maxTokens = 1200, json = false, temperature = 0.3 } = {}) {
-  for (const p of PROVIDERS) {
+export async function llm(messages, { maxTokens = 1200, json = false, temperature = 0.3, small = false } = {}) {
+  for (const p0 of PROVIDERS) {
+    const p = small ? { ...p0, models: [...p0.models].reverse() } : p0;   // small: try the cheaper model first
     const key = p.key();
     if (!key) continue;
     for (const model of p.models) {

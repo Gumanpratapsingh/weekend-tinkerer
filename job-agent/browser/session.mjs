@@ -1,6 +1,6 @@
 // Shared browser + per-site login sessions for the worker and its site modules.
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,7 +36,9 @@ export async function siteContext(site) {
   const ctx = await b.newContext({
     storageState: existsSync(state) ? state : undefined,
     viewport: { width: 1366, height: 900 }, locale: 'en-IN', timezoneId: 'Asia/Kolkata',
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    // Same browser identity the session was created with (saved by scripts/login.sh), else a desktop Linux Chrome.
+    userAgent: existsSync(join(SESSIONS, `${site}.ua`)) ? readFileSync(join(SESSIONS, `${site}.ua`), 'utf8').trim()
+      : 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
   });
   ctx.saveSession = () => ctx.storageState({ path: state });
   return ctx;

@@ -57,11 +57,10 @@ export async function scoreNew(limit = 25) {
     }
     let s;
     try { s = await scoreJob(job); } catch (e) { if (e.rateLimited) break; log(`score ${job.id}: ${e.message}`); continue; }
-    const status = s.score < min ? 'scored' : job.apply_type === 'external' ? 'manual' : 'queued';
+    const status = s.score < min ? 'scored' : 'queued';             // external sites too: browser/external.mjs
     run('UPDATE jobs SET score = ?, track = ?, score_reasons = ?, status = ? WHERE id = ?', s.score, s.track, s.reasons, status, job.id);
     if (status === 'queued') queued++;
     await sleep(6000);                                 // stay under the free tier's tokens-per-minute limit
-    if (status === 'manual') event('manual', `${job.title} @ ${job.company} (${s.score}) — apply yourself: ${job.apply_url}`);
   }
   return queued;
 }

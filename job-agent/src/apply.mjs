@@ -7,7 +7,7 @@ import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 
-const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats' };
+const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats' };
 const sessionReady = { naukri: () => getKv('session_naukri') !== 'expired', linkedin: () => getKv('session_linkedin') !== 'expired' };
 
 function appliedToday(bucket) {
@@ -85,6 +85,11 @@ function settle(job, res) {
       run('UPDATE jobs SET attempts = 0 WHERE id = ?', job.id);
       break;
     case 'manual':
+      // Naukri/LinkedIn jobs that apply on the company's own site: hand them to the generic external applier.
+      if (/company site/.test(res.reason || '') && job.apply_type !== 'external') {
+        run("UPDATE jobs SET apply_type = 'external', status = 'queued', attempts = 0, status_note = 'applies on company site' WHERE id = ?", job.id);
+        break;
+      }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
       tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
       break;
