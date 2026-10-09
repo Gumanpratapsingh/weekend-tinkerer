@@ -1,7 +1,9 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
 import { createServer } from 'node:http';
-import { log, every, istHour, config, activity } from './core.mjs';
+import { log, every, istHour, config, activity, ROOT } from './core.mjs';
+import { join } from 'node:path';
+import { browserTask } from './browser.mjs';
 import { getKv, setKv, all } from './db.mjs';
 import { discover, scoreNew } from './discover.mjs';
 import { applyNext, todayStats } from './apply.mjs';
@@ -65,6 +67,32 @@ every(150, 'discover ats', step('Searching company career pages (Greenhouse, Lev
 every(180, 'discover linkedin', step('Searching LinkedIn', () => discover('linkedin')), { delay: 90e3 });
 every(180, 'discover naukri', step('Searching Naukri', () => discover('naukri')), { delay: 150e3 });
 every(240, 'discover feeds', step('Searching remote job feeds (Himalayas, Jobicy)', () => discover('feeds')), { delay: 200e3 });
+// Fast lane: jobs posted in the last hour or so go straight to scoring and the front of the queue.
+every(config().fresh_lane?.every_min || 40, 'fresh lane', async () => {
+  const [from, to] = config().fresh_lane?.hours || [8, 23];
+  const h = istHour();
+  if (h < from || h >= to) return;
+  await step('Fast lane: checking Naukri + LinkedIn for jobs posted in the last hour', async () => {
+    const added = await discover('fresh');
+    if (added) { activity(`⚡ Fast lane: ${added} fresh job(s) — scoring now, they go first`); await scoreNew(40); }
+  })();
+}, { delay: 600e3 });
+
+// Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
+every(5, 'naukri refresh', async () => {
+  const n = new Date(Date.now() + 5.5 * 3600e3), hm = n.getUTCHours() * 60 + n.getUTCMinutes(), day = n.toISOString().slice(0, 10);
+  for (const [slot, at, rotate] of [['am', 9 * 60 + 5, true], ['pm', 22 * 60 + 45, false]]) {
+    if (hm < at || hm > at + 60 || getKv(`naukri_refresh_${slot}`) === day) continue;
+    setKv(`naukri_refresh_${slot}`, day);
+    const heads = config().naukri_headlines || [];
+    const i = Number(getKv('naukri_headline_i', 0));
+    const r = await browserTask('naukri_refresh', { resume: join(ROOT, 'profile', 'base-resume.pdf'), headline: rotate && heads.length ? heads[i % heads.length] : null }, 5 * 60e3)
+      .catch((e) => ({ status: 'error', reason: e.message }));
+    if (rotate) setKv('naukri_headline_i', i + 1);
+    log(`naukri refresh ${slot}: ${r.status}${r.reason ? ' ' + r.reason : ''}`);
+  }
+});
+
 every(180, 'discover aggregators', step('Searching Adzuna and Jooble (all of India)', () => discover('aggregators')), { delay: 270e3 });
 every(360, 'discover remotive', step('Searching Remotive', () => discover('remotive')), { delay: 240e3 });
 every(10, 'score', step('Scoring new jobs against your resume', () => scoreNew(25)), { delay: 60e3 });

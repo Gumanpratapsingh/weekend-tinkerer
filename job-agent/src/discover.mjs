@@ -8,10 +8,11 @@ import { fetchLinkedin, linkedinDescription } from './sources/linkedin.mjs';
 import { fetchRemotive } from './sources/remotive.mjs';
 import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
 import { fetchAggregators } from './sources/aggregators.mjs';
-import { fetchNaukri } from './sources/naukri.mjs';
+import { fetchNaukri, fetchNaukriFresh } from './sources/naukri.mjs';
 import { scoreJob } from './score.mjs';
 
-export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators };
+export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
+  fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })] };
 
 // Any Greenhouse/Lever/Ashby link seen in a feed adds that company's board to the list searched directly.
 function learnBoard(url) {
@@ -26,10 +27,10 @@ function insert(job) {
   if (one('SELECT 1 FROM jobs WHERE id = ?', job.id)) return false;
   const dedupe = dedupeKey(job.company, job.title);
   const dup = one("SELECT id FROM jobs WHERE dedupe = ? AND status IN ('queued','applying','ready','applied','needs_answer','manual','interview')", dedupe);
-  run(`INSERT INTO jobs(id, source, url, apply_url, apply_type, title, company, location, description, posted_at, dedupe, found_at, status, status_note)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  run(`INSERT INTO jobs(id, source, url, apply_url, apply_type, title, company, location, description, posted_at, dedupe, found_at, status, status_note, priority)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     job.id, job.source, job.url, job.apply_url, job.apply_type, job.title, job.company, job.location,
-    job.description || '', job.posted_at || '', dedupe, Date.now(), dup ? 'skipped' : 'new', dup ? `same role as ${dup.id}` : null);
+    job.description || '', job.posted_at || '', dedupe, Date.now(), dup ? 'skipped' : 'new', dup ? `same role as ${dup.id}` : null, job.fresh ? 1 : 0);
   return !dup;
 }
 
@@ -45,7 +46,7 @@ export async function discover(sourceName) {
 // Score new jobs (oldest first). Stops quietly when the free LLM budget runs out; picks up next round.
 export async function scoreNew(limit = 25) {
   const min = config().min_score;
-  const jobs = all("SELECT * FROM jobs WHERE status = 'new' ORDER BY found_at LIMIT ?", limit);
+  const jobs = all("SELECT * FROM jobs WHERE status = 'new' ORDER BY priority DESC, found_at LIMIT ?", limit);
   let queued = 0;
   for (const job of jobs) {
     if (!job.description && job.source === 'linkedin') {

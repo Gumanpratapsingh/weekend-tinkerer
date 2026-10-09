@@ -85,6 +85,38 @@ export default {
     return { status: 'ok', jobs };
   },
 
+  // Daily profile refresh (what NaukriAutopilot did on the Mac): base resume + next headline variant, verified.
+  async naukri_refresh({ resume, headline }) {
+    const c = await ctx();
+    progress('Naukri: refreshing your profile (resume + headline) so recruiters see it as updated today');
+    if (resume) await uploadProfileResume(c, resume);
+    const page = await c.newPage();
+    try {
+      await page.goto('https://www.naukri.com/mnjuser/profile', { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (loggedOut(page)) return { status: 'session_expired' };
+      await page.addStyleTag({ content: OVERLAY_CSS }).catch(() => {});
+      await page.waitForTimeout(3000);
+      if (headline) {
+        const edit = await firstVisible(page, ['#lazyResumeHead span.edit', '#resumeHeadline span.edit', "[id*='resumeHeadline'] span.edit", 'span.edit.icon']);
+        if (!edit) return { status: 'error', reason: 'headline edit control not found' };
+        await edit.click({ force: true });
+        await page.waitForTimeout(1200);
+        const box = await firstVisible(page, ['#resumeHeadlineTxt', "textarea[id*='resumeHeadline']", 'form textarea']);
+        if (!box) return { status: 'error', reason: 'headline box did not open' };
+        await box.fill(headline);
+        const save = await firstVisible(page, ["button[type='submit']:has-text('Save')", "button:has-text('Save')"]);
+        await save?.click({ force: true });
+        await page.waitForTimeout(3000);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(3000);
+        const ok = (await page.innerText('body')).replace(/\s+/g, ' ').includes(headline.slice(0, 40));
+        if (!ok) return { status: 'error', reason: 'headline did not stick' };
+      }
+      progress('Naukri: profile refreshed ✓ (shows "updated today")');
+      return { status: 'ok' };
+    } finally { await c.saveSession().catch(() => {}); await page.close(); }
+  },
+
   async naukri_job({ jobId, url }) {
     const c = await ctx();
     const page = await c.newPage();
@@ -173,6 +205,9 @@ async function answer(page, q, value) {
   }
   await page.locator('[class*="chatbot_Drawer"] [class*="sendMsg"], [class*="chatbot_Drawer"] button:has-text("Save"), [class*="chatbot_Drawer"] [class*="send"]').first().click({ timeout: 5000 });
 }
+
+const OVERLAY_CSS = '#ni-desktop-nps-profile,#ni-desktop-nps,.md__backdrop,[class*="nps-widget"]{display:none!important;pointer-events:none!important}';
+const firstVisible = async (page, sels) => { for (const s of sels) { const l = page.locator(s).first(); if (await l.isVisible().catch(() => false)) return l; } return null; };
 
 async function uploadProfileResume(c, pdf) {
   const p = await c.newPage();

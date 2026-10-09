@@ -6,3 +6,4 @@ data/
 # Personal: full resume facts, mailbox and the owner's answers. Deployed to the phone, never published.
 profile/master.json
 profile/private.json
+profile/*.pdf

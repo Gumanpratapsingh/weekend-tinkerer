@@ -5,16 +5,16 @@ import { getText, htmlToText, decode, locationOk, titleOk } from './common.mjs';
 
 const pick = (html, re) => decode((re.exec(html)?.[1] || '').replace(/<[^>]+>/g, '').trim());
 
-export async function fetchLinkedin() {
+export async function fetchLinkedin({ fresh = false } = {}) {
   const c = config();
   const queries = Object.values(c.tracks).flatMap((t) => t.queries);
   const seen = new Set();
   const out = [];
   for (const q of queries) {
-    for (const { location: loc, remote } of c.locations.linkedin) for (const easy of [true, false]) for (let start = 0; start < (c.linkedin_pages || 3) * 25; start += 25) {
+    for (const { location: loc, remote } of c.locations.linkedin) for (const easy of [true, false]) for (let start = 0; start < (fresh ? 1 : c.linkedin_pages || 3) * 25; start += 25) {
       // f_TPR=r86400: last 24h; f_AL=true: Easy Apply (false: all jobs, applied on the company's site); f_E=2,3: entry + associate
       const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(q)}`
-        + `&location=${encodeURIComponent(loc)}&f_TPR=r86400${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
+        + `&location=${encodeURIComponent(loc)}&f_TPR=${fresh ? 'r3600' : 'r86400'}${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
       let html;
       try { html = await getText(url); } catch (e) { log(`linkedin search: ${e.message}`); await sleep(60000); break; }
       const cards = html.split('<li>').slice(1);
@@ -28,7 +28,7 @@ export async function fetchLinkedin() {
         const location = pick(card, /job-search-card__location[^>]*>([\s\S]*?)<\/span>/);
         if (!titleOk(title) || !(remote || locationOk(location))) continue;
         // Easy Apply jobs are applied on LinkedIn; the rest go through their company site (browser/external.mjs).
-        out.push({ id: `linkedin:${id}`, source: 'linkedin', apply_type: easy ? 'linkedin' : 'external',
+        out.push({ fresh, id: `linkedin:${id}`, source: 'linkedin', apply_type: easy ? 'linkedin' : 'external',
           url: `https://www.linkedin.com/jobs/view/${id}/`, apply_url: `https://www.linkedin.com/jobs/view/${id}/`,
           title, company, location, posted_at: pick(card, /datetime="([^"]+)"/) });
       }

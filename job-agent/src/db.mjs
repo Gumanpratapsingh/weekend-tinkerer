@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 // Later columns (added in place on existing databases).
-for (const col of ['form_answers TEXT']) { try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch { /* already there */ } }
+for (const col of ['form_answers TEXT', 'priority INTEGER DEFAULT 0']) { try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch { /* already there */ } }
 
 export const one = (sql, ...p) => db.prepare(sql).get(...p);
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
