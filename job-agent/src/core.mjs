@@ -28,7 +28,7 @@ export function log(line) {
 }
 // Live activity feed for the hub's /jobs/live page (short lines; the agent and the browser worker both write here).
 export function activity(text) {
-  try { appendFileSync(join(DATA, 'activity.log'), `${new Date().toISOString()} ${String(text).slice(0, 400)}\n`); } catch { /* best effort */ }
+  try { appendFileSync(join(DATA, 'activity.log'), `${new Date().toISOString()} ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
 }
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -54,7 +54,9 @@ export function every(minutes, name, fn, { delay = 5000 } = {}) {
 // Groq is required; Cerebras / Gemini keys are optional extra daily budget if the owner adds them.
 const PROVIDERS = [
   { name: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: () => readKey('.groq_key'),
-    models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], extra: { reasoning_effort: 'low', include_reasoning: false } },
+    // Three models with separate free quotas. qwen hides its reasoning with a different parameter.
+    models: ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'], extra: { reasoning_effort: 'low', include_reasoning: false },
+    extraFor: { 'qwen/qwen3.8-27b': { reasoning_format: 'hidden' } } },
   { name: 'cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: () => secret('cerebras_key'),
     models: ['gpt-oss-120b'], extra: {} },
   { name: 'gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', key: () => secret('gemini_key'),
@@ -77,7 +79,7 @@ export async function llm(messages, { maxTokens = 1200, json = false, temperatur
         r = await fetch(p.url, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens, ...p.extra,
+          body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens, ...(p.extraFor?.[model] || p.extra),
             ...(json ? { response_format: { type: 'json_object' } } : {}) }),
           signal: AbortSignal.timeout(90000),
         });

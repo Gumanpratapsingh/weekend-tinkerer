@@ -9,7 +9,7 @@ import { renderPdf } from './browser.mjs';
 // Tech the owner does NOT have. If a rewrite mentions one of these (or any JD keyword) that its source bullet
 // doesn't support, the rewrite is rejected and the original bullet is used.
 const NOT_CLAIMED = ['python', 'pytorch', 'tensorflow', 'langchain', 'llamaindex', 'langgraph', 'kafka', 'rabbitmq',
-  'kubernetes', 'k8s', 'docker', 'redis', 'react', 'vue', 'golang', 'rust', 'c\\+\\+', 'c#', '\\.net', 'kotlin',
+  'kubernetes', 'k8s', 'docker', 'redis', 'react', 'vue', 'rust', 'c\\+\\+', 'c#', '\\.net', 'kotlin',
   'scala', 'spark', 'hadoop', 'airflow', 'gcp', 'azure', 'terraform', 'jenkins', 'ci/cd', 'mongodb', 'postgresql',
   'cassandra', 'dynamodb', 'eks', 'ecs', 'sagemaker', 'bedrock', 'hugging face', 'transformers', 'fine-tun\\w*',
   'rag', 'vector database', 'pinecone', 'embeddings', 'mlops', 'graphql', 'next\\.js', 'spring cloud',
@@ -146,4 +146,17 @@ export async function tailor(job) {
   writeFileSync(`${base}.html`, html);
   await renderPdf(`${base}.html`, `${base}.pdf`);
   return { pdf: `${base}.pdf`, track: resume.track, issues };
+}
+
+// Ready-made resume per track (no AI): original bullets, track default summary. Used for matches below
+// tailor_min_score so the free AI budget goes to the strongest matches.
+export async function baseResume(track = 'backend') {
+  const { existsSync } = await import('node:fs');
+  const pdf = join(DATA, 'resumes', `base-${track}.pdf`);
+  if (existsSync(pdf)) return { pdf, track, issues: [] };
+  const { resume } = validate({ track }, master());
+  const html = pdf.replace(/\.pdf$/, '.html');
+  writeFileSync(html, resumeHtml(resume));
+  await renderPdf(html, pdf);
+  return { pdf, track, issues: [] };
 }

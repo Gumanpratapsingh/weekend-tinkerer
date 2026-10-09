@@ -48,7 +48,7 @@ export default {
         if (seen.has(j.jobId)) continue;
         seen.add(j.jobId);
         const ph = Object.fromEntries((j.placeholders || []).map((p) => [p.type, p.label]));
-        out.push({ jobId: j.jobId, title: j.title, company: j.companyName, location: ph.location || '', experience: ph.experience || '',
+        out.push({ jobId: j.jobId, title: j.title, company: j.companyName, location: ph.location || '', experience: ph.experience || '', salary: ph.salary || '',
           url: `https://www.naukri.com${j.jdURL}`, snippet: j.jobDescription || '', skills: j.tagsAndSkills || '', posted: j.footerPlaceholderLabel || '' });
       }
       await page.waitForTimeout(4000 + Math.random() * 4000);

@@ -63,8 +63,9 @@ function direct(label, m) {
   const l = norm(label);
   const [first, ...rest] = m.name.split(' ');
   const rules = [
+    [/country code|dial(l)?ing code|phone country/, 'India (+91)'],
     [/^(preferred )?first name|given name/, first], [/last name|surname|family name/, rest.join(' ')],
-    [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone],
+    [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone.replace(/^\+?91[-\s]?/, '')],   // 10 digits; country code is its own field
     [/linkedin/, `https://${m.contact.linkedin}`], [/github/, `https://${m.contact.github}`],
     [/website|portfolio|personal (site|url)/, 'https://site.gumanpratap.workers.dev'],
     [/current (company|employer|organi[sz]ation)|^company$/, m.experience[0].org], [/current (job )?title|current (role|designation)/, m.experience[0].title],
@@ -111,7 +112,7 @@ export async function resolve(items, context = '') {
     `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at ${m.experience[0].org} since Aug 2024.`,
     `Employment history (complete): ${m.experience.map((e) => `${e.title}, ${e.org}, ${e.dates}`).join('; ')}. Never worked for or contracted with any other company.`,
     'Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa. Not a citizen or resident of Cuba, Iran, North Korea, Syria or Crimea.',
-    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Python (production), Kubernetes, Terraform, React.',
+    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, Go, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Python (production), Kubernetes, Terraform, React.',
     'Has worked in a fast-paced multi-tenant SaaS fintech (Finzly) and automated processes (batch jobs, AWS Lambda audit logging). Never founded a company.',
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');
@@ -120,7 +121,9 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-- Yes/no skill questions ("Do you have experience with X?") may be answered from FACTS: "Yes" only if X is in FACTS.
+- Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
+  Yes/No options) are answered from FACTS: "Yes" only if FACTS show it (he has built AI agents: the AI Call Assistant
+  and an autonomous job-application agent).
 - Years with a skill in FACTS: use full-time years since Aug 2024 (round down), unless a known answer says otherwise.
 - Anything personal (salary, notice, visa, relocation, demographics, references, cover letters, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
@@ -171,6 +174,13 @@ function pickOption(answer, options) {
 }
 function coerce(answer, it) {
   if (it.options?.length) return pickOption(answer, it.options) || answer;
+  // Number-only fields (CTC in lakhs, years, notice days): "15-16 LPA fixed" -> "16", "2+ years" -> "2".
+  if (!/phone|mobile|contact/i.test(it.label)
+      && /ctc|salary|compensation|lacs?|lakhs?|lpa|years?|experience|notice|days|months|number|how many|gpa|cgpa|percentage/i.test(it.label)
+      && /^\D{0,12}\d+(\.\d+)?(\s*(-|to|–)\s*\d+(\.\d+)?)?\D{0,25}$/.test(String(answer).trim())) {
+    const nums = String(answer).match(/\d+(\.\d+)?/g).map(Number);
+    return String(/ctc|salary|compensation|lacs?|lakhs?|lpa/i.test(it.label) ? Math.max(...nums) : nums[0]);
+  }
   if (it.type === 'number') return String(parseFloat(String(answer).replace(/[^0-9.]/g, '')));
   return String(answer);
 }

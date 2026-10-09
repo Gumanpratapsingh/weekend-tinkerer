@@ -55,3 +55,15 @@ export function experienceOk(text) {
   if (!mins.length) return true;
   return Math.min(...mins) <= have + 1;
 }
+
+// Highest annual salary a posting states, in LPA (lakh per annum), or null if it doesn't say / isn't in INR.
+export function maxSalaryLpa(text) {
+  const t = String(text || '').replace(/,/g, '').toLowerCase();
+  let m = /(\d+(?:\.\d+)?)\s*(?:-|to|–)\s*(\d+(?:\.\d+)?)\s*(?:lacs?|lakhs?|lpa|l\.?p\.?a)/.exec(t);
+  if (m) return Number(m[2]);
+  m = /(?:₹|inr|rs\.?)\s*(\d{5,9})\s*(?:-|to|–)\s*(?:₹|inr|rs\.?)?\s*(\d{5,9})(.{0,25})/.exec(t);
+  if (m) { const v = Number(m[2]); return /month|\/m|p\.?m\b/.test(m[3]) ? (v * 12) / 1e5 : v / 1e5; }
+  m = /(\d+(?:\.\d+)?)\s*(?:lacs?|lakhs?|lpa)\b/.exec(t);
+  if (m && Number(m[1]) < 200) return Number(m[1]);
+  return null;
+}

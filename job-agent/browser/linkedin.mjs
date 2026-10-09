@@ -3,7 +3,24 @@
 import { siteContext, shotPath, progress } from './session.mjs';
 import { collect, resolveFields, fill, captchaVisible } from './forms.mjs';
 
-const MODAL = '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]';
+// Easy Apply is a pop-up on the old UI and an in-page panel ("Apply to X · 1/5 pages") on the new one.
+// markRoot() tags whichever container holds the form so every step can be scoped to it.
+const MODAL = '[data-ja-root="1"]';
+async function markRoot(page) {
+  return page.evaluate(() => {
+    document.querySelectorAll('[data-ja-root]').forEach((e) => e.removeAttribute('data-ja-root'));
+    const old = document.querySelector('.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]');
+    let el = old;
+    if (!el) {
+      const head = [...document.querySelectorAll('h1, h2, h3, span, div')].find((n) => /^Apply to\s/.test(n.textContent.trim()) && n.textContent.trim().length < 120);
+      el = head;
+      while (el && !(el.querySelector('input, select, textarea') && [...el.querySelectorAll('button')].some((b) => /next|review|submit/i.test(b.textContent)))) el = el.parentElement;
+    }
+    if (!el) return false;
+    el.setAttribute('data-ja-root', '1');
+    return true;
+  });
+}
 
 export default {
   async apply_linkedin({ job, resume, dryRun = false }) {
@@ -22,11 +39,14 @@ export default {
       if (!await btn.count()) return { status: 'manual', reason: 'not Easy Apply' };
       if (!/easy apply/i.test(await btn.innerText())) return { status: 'manual', reason: 'applies on company site' };
       await btn.click();
-      await page.waitForSelector(MODAL, { timeout: 15000 });
+      let found = false;
+      for (let i = 0; i < 10 && !found; i++) { await page.waitForTimeout(1500); found = await markRoot(page); }
+      if (!found) return { status: 'failed', reason: 'Easy Apply form did not open', shot: await snap(page, 'li-noform') };
 
       let lastStep = '';
       for (let step = 0; step < 15; step++) {
         await page.waitForTimeout(1500 + Math.random() * 1000);
+        await markRoot(page);                                // the panel re-renders between steps
         if (await captchaVisible(page)) return await discard(page, { status: 'manual', reason: 'captcha' });
         const modal = page.locator(MODAL).first();
 
@@ -34,11 +54,14 @@ export default {
         const upload = modal.locator('input[type="file"]').first();
         if (resume && await upload.count()) { await upload.setInputFiles(resume); await page.waitForTimeout(3000); }
 
-        const fields = (await collect(page, MODAL)).filter((f) => f.type !== 'file');
+        // LinkedIn's own resume picker (saved resumes as radio options) is not a question: it keeps the upload.
+        const fields = (await collect(page, MODAL)).filter((f) => f.type !== 'file' && !/\.(pdf|docx?)/i.test(f.label + (f.options || []).join(' '))
+          && !/top choice|follow .{0,60}(page|updates|up to date)|review your application/i.test(f.label + ' ' + (f.options || []).join(' ')));
         progress(`LinkedIn: step ${step + 1}, ${fields.length} field(s)`);
         const { answers, unknown } = await resolveFields(fields, job);
-        const blocking = unknown.filter((u) => u.required || /required/i.test(u.label));
+        const blocking = unknown;                            // LinkedIn's extra questions are effectively all required
         if (blocking.length) return await discard(page, { status: 'needs_answer', unknown: blocking, shot: await snap(page, 'li-question') });
+        progress(`LinkedIn: ${fields.map((f) => `"${f.label.slice(0, 40)}"${f.type === 'radio' ? `[${f.options.join('/')}]` : ''} = ${answers[f.key] ?? (unknown.some((u) => u.key === f.key) ? '??' : '(prefilled)')}`).join(' · ').slice(0, 380)}`);
         await fill(page, fields, answers, {});
 
         const follow = modal.locator('input#follow-company-checkbox');
@@ -58,7 +81,7 @@ export default {
         if (!await next.count()) return await discard(page, { status: 'failed', reason: 'no next button', shot: await snap(page, 'li-stuck') });
         const stepText = (await modal.innerText()).slice(0, 400);
         if (stepText === lastStep) {
-          const errs = await modal.locator('.artdeco-inline-feedback--error').allInnerTexts();
+          const errs = (await modal.innerText().catch(() => '')).split('\n').filter((l) => /invalid|required|please (enter|select|make)|must be|whole number|decimal/i.test(l)).slice(0, 4);
           return await discard(page, { status: 'failed', reason: `stuck: ${errs.join(' | ').slice(0, 200)}`, shot: await snap(page, 'li-stuck') });
         }
         lastStep = stepText;

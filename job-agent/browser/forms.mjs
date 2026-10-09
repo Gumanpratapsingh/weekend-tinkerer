@@ -8,15 +8,25 @@ const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/reso
 function describeFields(rootSel) {
   const root = rootSel ? document.querySelector(rootSel) : document;
   if (!root) return [];
-  const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
-    return (r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none') || el.type === 'file'; };
+  const shown = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  // Styled radios/checkboxes hide the real input behind their label: visible if the label is.
+  const visible = (el) => el.type === 'file' || shown(el)
+    || ((el.type === 'radio' || el.type === 'checkbox') && [...(el.labels || []), el.closest('label')].some(shown));
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').replace(/\*/g, '').trim();
   const labelOf = (el) => {
-    if (el.id) { const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) return clean(l.innerText); }
+    if (el.type === 'radio' || el.type === 'checkbox') {
+      // Smallest box around this one option (contains no other option): its text is the option's name.
+      let box = el.parentElement;
+      while (box && box.parentElement && box.parentElement.querySelectorAll('input[type="radio"], input[type="checkbox"]').length === 1) box = box.parentElement;
+      const t = clean(box?.innerText || box?.textContent);
+      if (t && t.length < 120) return t;
+    }
+    if (el.id) { const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`); const t = clean(l?.innerText || l?.textContent); if (t) return t; }
     const by = el.getAttribute('aria-labelledby');
     if (by) { const t = by.split(' ').map((id) => document.getElementById(id)?.innerText).filter(Boolean).join(' '); if (t) return clean(t); }
     if (el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
-    const wrap = el.closest('label'); if (wrap) return clean(wrap.innerText);
+    const wrap = el.closest('label'); if (wrap && clean(wrap.innerText || wrap.textContent)) return clean(wrap.innerText || wrap.textContent);
     const fs = el.closest('fieldset'); if (fs?.querySelector('legend')) return clean(fs.querySelector('legend').innerText);
     let p = el.parentElement;
     for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
@@ -25,6 +35,9 @@ function describeFields(rootSel) {
     }
     return clean(el.placeholder || el.name || el.id);
   };
+  // Text just before an element (question heading above an option list), up to 3 levels up.
+  const textBefore = (n) => { for (let k = 0; n && k < 3; k++, n = n.parentElement) {
+    for (let p = n.previousElementSibling; p; p = p.previousElementSibling) { const t = clean(p.innerText); if (t && t.length > 2) return t; } } return ''; };
   const fields = [];
   const groups = new Map();
   const pfx = Math.random().toString(36).slice(2, 6);   // keys stay unique across repeated collect() passes
@@ -42,12 +55,13 @@ function describeFields(rootSel) {
       // Question text = the container's first text that isn't one of its options.
       const lead = fs ? [...fs.querySelectorAll('legend, label, span, p, div, h3, h4')].map((n) => clean(n.childElementCount ? n.firstChild?.textContent : n.innerText))
         .find((x) => x && x.length > 2 && !opts.includes(x)) : '';
-      const groupLabel = clean(fs?.querySelector('legend')?.innerText) || lead || labelOf(fs || el);
+      const groupLabel = clean(fs?.querySelector('legend')?.innerText) || lead || textBefore(fs || el) || labelOf(fs || el);
       const gname = t === 'radio' && el.name ? `r:${el.name}` : `${t}:${groupLabel || el.name || el.closest('fieldset')?.id || ''}`;
       const optLabel = labelOf(el);
       if (!groups.has(gname)) {
         const key = `f${pfx}${n++}`; groups.set(gname, key);
-        fields.push({ key, label: t === 'checkbox' && !fs ? optLabel : groupLabel, type: t, options: [], required });
+        fields.push({ key, label: t === 'checkbox' && !fs ? optLabel : groupLabel, type: t, options: [],
+          required: required || /\*/.test(fs?.innerText?.split('\n')[0] || '') || fs?.getAttribute('aria-required') === 'true' });
       }
       const key = groups.get(gname);
       el.dataset.jaKey = key;
@@ -119,7 +133,10 @@ export async function fill(page, fields, answers, { resume } = {}) {
         if (await opt.count()) await opt.click(); else await page.keyboard.press('Enter');
       } else if (f.type === 'radio') {
         const marked = page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${String(v).replace(/"/g, '\\"')}"]`).first();
-        if (await marked.count()) await marked.check({ force: true });
+        if (await marked.count()) {
+          await marked.evaluate((e) => (e.labels?.[0] || e.closest('label') || e).click());
+          if (!await marked.isChecked().catch(() => true)) await marked.check({ force: true }).catch(() => {});
+        }
         else {                                    // re-rendered custom radios: pick the option by its visible text
           const byRole = page.getByRole('radio', { name: String(v), exact: true }).first();
           if (await byRole.count()) await byRole.check({ force: true });
@@ -127,8 +144,11 @@ export async function fill(page, fields, answers, { resume } = {}) {
         }
       } else if (f.type === 'checkbox') {
         const wanted = String(v).split(/\s*[;|]\s*/);
-        if (f.options.length === 1) { if (/^(yes|true|agree|i agree)/i.test(v)) await el.first().check({ force: true }); }
-        else for (const w of wanted) await page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first().check({ force: true }).catch(() => {});
+        const tick = async (loc) => { if (await loc.isChecked().catch(() => false)) return;
+          await loc.evaluate((e) => (e.labels?.[0] || e.closest('label') || e).click()).catch(() => {});
+          if (!await loc.isChecked().catch(() => true)) await loc.check({ force: true }).catch(() => {}); };
+        if (f.options.length === 1) { if (/^(yes|true|agree|i agree|acknowledge)/i.test(v)) await tick(el.first()); }
+        else for (const w of wanted) await tick(page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first());
       } else if (f.type === 'date') {
         const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
         await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));

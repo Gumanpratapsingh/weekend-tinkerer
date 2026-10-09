@@ -11,16 +11,26 @@ const tasks = {
   async ping() { await getBrowser(); return { ok: true, version: (await getBrowser()).version() }; },
 
   // Diagnostics: open a URL with a site's session, report what loaded, save a screenshot.
-  async probe({ url, site = 'probe' }) {
+  async probe({ url, site = 'probe', click = null }) {
     const { siteContext, shotPath } = await import('./session.mjs');
     const ctx = await siteContext(site);
     const page = await ctx.newPage();
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await page.waitForTimeout(4000);
+      let after = null;
+      if (click) {                                      // diagnostics: click a button by its text, report what opened
+        const popup = page.context().waitForEvent('page', { timeout: 8000 }).catch(() => null);
+        await page.locator('button, a').filter({ hasText: click }).first().click({ timeout: 8000 }).catch((e) => { after = `click failed: ${e.message.slice(0, 120)}`; });
+        const p2 = await popup;
+        await page.waitForTimeout(5000);
+        const target = p2 || page;
+        after = after || { url: target.url(), newTab: !!p2, dialogs: await target.locator('div[role="dialog"]').count(),
+          modalClass: await target.locator('[class*="easy-apply"], [data-test-modal-id]').count(), text: (await target.innerText('body')).slice(0, 600) };
+      }
       const shot = shotPath(`probe-${site}`);
       await page.screenshot({ path: shot });
-      return { url: page.url(), title: await page.title(), text: (await page.innerText('body')).slice(0, 1500), shot };
+      return { url: page.url(), title: await page.title(), text: (await page.innerText('body')).slice(0, 1500), shot, after };
     } finally { await ctx.close(); }
   },
 

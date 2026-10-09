@@ -2,7 +2,7 @@
 // and queue the ones at or above min_score for applying.
 import { config, log, sleep } from './core.mjs';
 import { one, all, run, event, dedupeKey, getKv, setKv } from './db.mjs';
-import { experienceOk } from './sources/common.mjs';
+import { experienceOk, maxSalaryLpa } from './sources/common.mjs';
 import { fetchAts } from './sources/ats.mjs';
 import { fetchLinkedin, linkedinDescription } from './sources/linkedin.mjs';
 import { fetchRemotive } from './sources/remotive.mjs';
@@ -52,6 +52,11 @@ export async function scoreNew(limit = 25) {
     if (!job.description && job.source === 'linkedin') {
       try { job.description = await linkedinDescription(job); run('UPDATE jobs SET description = ? WHERE id = ?', job.description, job.id); }
       catch (e) { log(`linkedin jd ${job.id}: ${e.message}`); continue; }
+    }
+    const lpa = maxSalaryLpa(job.description);
+    if ((config().min_salary_lpa || 0) && lpa != null && lpa < config().min_salary_lpa) {
+      run("UPDATE jobs SET status = 'filtered', status_note = ? WHERE id = ?", `pays up to ${lpa} LPA (< ${config().min_salary_lpa})`, job.id);
+      continue;
     }
     if (!experienceOk(job.description)) {
       run("UPDATE jobs SET status = 'filtered', status_note = 'asks for more experience' WHERE id = ?", job.id);

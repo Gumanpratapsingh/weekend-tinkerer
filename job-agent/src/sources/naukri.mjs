@@ -2,7 +2,7 @@
 import { config, log } from '../core.mjs';
 import { one, setKv } from '../db.mjs';
 import { browserTask } from '../browser.mjs';
-import { titleOk, locationOk, htmlToText } from './common.mjs';
+import { titleOk, locationOk, htmlToText, maxSalaryLpa } from './common.mjs';
 
 // Fast lane: jobs from the last day, page 1 only; ones posted within hours are flagged fresh (front of the queue).
 export async function fetchNaukriFresh() {
@@ -31,11 +31,15 @@ async function toJobs(list, freshLane) {
   const out = [];
   for (const j of list || []) {
     if (!titleOk(j.title) || !locationOk(j.location) || one('SELECT 1 FROM jobs WHERE id = ?', `naukri:${j.jobId}`)) continue;
-    let description = `${j.snippet}\nSkills: ${j.skills}\nExperience: ${j.experience}`;
+    // Salary floor before spending a page load on the description.
+    const floor = config().min_salary_lpa || 0;
+    const lpa = maxSalaryLpa(j.salary);
+    if (floor && lpa != null && lpa < floor) continue;
+    let description = `${j.salary ? `Salary: ${j.salary}\n` : ''}${j.snippet}\nSkills: ${j.skills}\nExperience: ${j.experience}`;
     let external = false;
     try {
       const d = await browserTask('naukri_job', { jobId: j.jobId, url: j.url }, 90000);
-      if (d.status === 'ok') { description = `${htmlToText(d.description)}\nSkills: ${j.skills}\nExperience: ${j.experience}`; external = d.external; if (d.applied) continue; }
+      if (d.status === 'ok') { description = `${j.salary ? `Salary: ${j.salary}\n` : ''}${htmlToText(d.description)}\nSkills: ${j.skills}\nExperience: ${j.experience}`; external = d.external; if (d.applied) continue; }
     } catch (e) { log(`naukri jd ${j.jobId}: ${e.message}`); }
     const fresh = freshLane && /just now|minute|hour|today|few/i.test(j.posted || '');
     out.push({ fresh, id: `naukri:${j.jobId}`, source: 'naukri', apply_type: external ? 'external' : 'naukri',

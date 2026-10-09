@@ -50,7 +50,7 @@ export async function siteContext(site) {
 }
 import { appendFileSync } from 'node:fs';
 export function progress(text) {                      // shows up live on the hub's /jobs/live page
-  try { appendFileSync(join(ROOT, 'data', 'activity.log'), `${new Date().toISOString()} 📱 Phone browser: ${String(text).slice(0, 400)}\n`); } catch { /* best effort */ }
+  try { appendFileSync(join(ROOT, 'data', 'activity.log'), `${new Date().toISOString()} 📱 Phone browser: ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
 }
 export const shotPath = (name) => join(ROOT, 'data', 'shots', `${new Date().toISOString().replace(/[:.]/g, '-')}-${name}.png`);
 

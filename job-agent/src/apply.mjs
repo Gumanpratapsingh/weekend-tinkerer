@@ -2,7 +2,7 @@
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
 import { config, log, istDate, istHour, activity } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
-import { tailor } from './tailor.mjs';
+import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
@@ -57,7 +57,7 @@ export async function applyJob(job, { dryRun = false } = {}) {
   try {
     let resume = job.resume_path;
     if (!resume) {
-      const t = await tailor(job);
+      const t = (job.score || 0) >= (config().tailor_min_score || 0) ? await tailor(job) : await baseResume(job.track || 'backend');
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
     }

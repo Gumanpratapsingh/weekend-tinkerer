@@ -10,7 +10,7 @@ function profile() {                                  // compact text profile (~
     ...m.experience.map((e) => `${e.title} @ ${e.org} (${e.dates}): ${e.bullets.map((b) => b.text).join(' ')}`),
     `Projects: ${m.projects.map((p) => `${p.name} [${p.stack}]`).join('; ')}`,
     `Skills: ${Object.values(m.skills).flat().join(', ')}`,
-    'Does NOT have: Python ML production work, Kubernetes, Kafka, React, Go, team leadership.',
+    'Does NOT have: Python ML production work, Kubernetes, Kafka, React, team leadership.',
   ].join('\n');
   return profileCache;
 }
@@ -22,6 +22,7 @@ Score 0-100 = realistic chance this application gets a recruiter call.
 - Skills: missing a core must-have language/framework (e.g. the role is Python-only, Go-only, React-only) costs a lot;
   missing nice-to-haves or specific tools costs little.
 - Role type: Java/Spring backend, full-stack Java, or AI/LLM application engineering are all good fits.
+- Salary: if the posting states pay below 12 LPA (or the INR equivalent), score 0.
 - Location: any city in India, or remote open to people in India, is fine. Give 0 if it needs living or working authorization outside India.
 Return JSON: {"score":0-100,"track":"backend|ai","reasons":"<=25 words","blockers":["..."]}`;
 

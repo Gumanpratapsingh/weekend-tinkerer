@@ -15,6 +15,7 @@ function q(sql, ...p) {
 const one = (sql, ...p) => q(sql, ...p)[0];
 const kv = (k) => one('SELECT value FROM kv WHERE key = ?', k)?.value ?? null;
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
+const minScore = () => { try { return JSON.parse(readFileSync(join(HOME, 'jobagent', 'profile', 'config.json'), 'utf8')).min_score || 65; } catch { return 65; } };
 const fail = (status, message) => Object.assign(new Error(message), { status, expose: true });
 const COLS = 'id, source, title, company, location, score, track, status, status_note, found_at, applied_at, url, apply_url';
 
@@ -35,12 +36,13 @@ export default {
       const byStatus = Object.fromEntries(q('SELECT status, count(*) n FROM jobs GROUP BY status').map((r) => [r.status, r.n]));
       return {
         installed: true,
+        minScore: minScore(),
         now: JSON.parse(kv('now') || 'null'),
         paused: kv('paused') === '1',
         dryRun: (kv('dry_run') ?? '1') === '1',
         today: {
           found: n('SELECT count(*) n FROM jobs WHERE found_at >= ?', today),
-          matched: n('SELECT count(*) n FROM jobs WHERE found_at >= ? AND score >= 75', today),
+          matched: n('SELECT count(*) n FROM jobs WHERE found_at >= ? AND score >= ?', today, minScore()),
           applied: n('SELECT count(*) n FROM jobs WHERE applied_at >= ?', today),
           replies: n("SELECT count(*) n FROM emails WHERE at >= ? AND direction = 'in'", today),
         },
@@ -101,12 +103,13 @@ export default {
       const len = Math.min(size - since, 200_000);
       const buf = Buffer.alloc(len);
       const fd = openSync(f, 'r'); readSync(fd, buf, 0, len, since); closeSync(fd);
-      let lines = buf.toString('utf8').split('\n').filter(Boolean);
+      let lines = buf.toString('utf8').split('\n').filter((l) => Number.isFinite(Date.parse(l.slice(0, 24))));   // skip broken multi-line fragments
       if (!query.since) lines = lines.slice(-200);
       // Searches today (cheap scan of the tail; the file is small and append-only).
       const day = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
       const tail = readFileSync(f, 'utf8').slice(-600_000).split('\n');
-      const today = tail.filter((l) => l && new Date(Date.parse(l.slice(0, 24)) + 5.5 * 3600e3).toISOString().slice(0, 10) === day);
+      const dayOf = (l) => { const t = Date.parse(l.slice(0, 24)); return Number.isFinite(t) ? new Date(t + 5.5 * 3600e3).toISOString().slice(0, 10) : null; };
+      const today = tail.filter((l) => l && dayOf(l) === day);
       return { lines, offset: since + len,
         searchesToday: today.filter((l) => /page \d+ \(|discover \w+:|feeds \w+:/.test(l)).length,
         boardsToday: new Set(today.map((l) => /discover (\w+)|feeds (\w+)|🌐 (Naukri): "/.exec(l)).filter(Boolean).map((m) => m[1] || m[2] || m[3])).size };

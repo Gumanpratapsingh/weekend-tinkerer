@@ -272,5 +272,7 @@
       23
     ],
     "naukri_queries": 8
-  }
+  },
+  "min_salary_lpa": 12,
+  "tailor_min_score": 75
 }

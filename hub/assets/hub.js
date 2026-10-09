@@ -381,13 +381,13 @@ const pages = {
     return [
       h('div', { class: 'hello' }, h('h1', {}, 'Jobs'),
         h('p', { class: 'lede' }, h('span', { class: 'live' }, 'live'), ' ', nowText, nowAgo, ' · ', h('a', { href: '/jobs/live', 'data-link': true }, 'open terminal')),
-        h('p', { class: 'lede' }, d.dryRun ? h('span', { class: 'accent' }, 'Dry run: forms are filled but never submitted. ') : 'Live: applying to jobs scoring 75+. ',
+        h('p', { class: 'lede' }, d.dryRun ? h('span', { class: 'accent' }, 'Dry run: forms are filled but never submitted. ') : `Live: applying to jobs scoring ${d.minScore || 65}+. `,
           `${d.total.found} jobs seen · ${d.total.applied} applied · ${d.total.interviews} in interview stage · ${learned} answers learned`)),
       mode,
       h('div', { class: 'grid', style: 'margin-top:1rem' },
         h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Applied today')), tiles.applied),
         h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Found today')), tiles.found),
-        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Matches 75+')), tiles.matched),
+        h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, `Matches ${d.minScore || 65}+`)), tiles.matched),
         h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, 'Replies')), tiles.replies)),
       h('div', { class: 'sec' }, 'Applied · last 14 days'), chart,
       questions.length || attention.length ? h('div', { class: 'sec' }, 'Needs you') : null,
@@ -416,7 +416,7 @@ const pages = {
     const term = h('div', { class: 'term', role: 'log', 'aria-live': 'off' });
     const now = h('span', {}), stat = { searches: h('div', { class: 'big' }), boards: h('div', { class: 'big' }), found: h('div', { class: 'big' }), applied: h('div', { class: 'big' }) };
     let offset = null;
-    const time = (iso) => new Date(Date.parse(iso)).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const time = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''; };
     const add = (lines) => {
       const stick = term.scrollTop + term.clientHeight >= term.scrollHeight - 30;
       for (const l of lines) {
