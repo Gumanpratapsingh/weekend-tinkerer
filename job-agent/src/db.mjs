@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   found_at INTEGER NOT NULL,
   track TEXT,                          -- backend | ai
   score INTEGER, score_reasons TEXT,
-  status TEXT NOT NULL DEFAULT 'new',  -- new, filtered, scored, queued, applying, ready (dry run ok), needs_answer, applied, manual, failed, skipped, interview, rejected
+  status TEXT NOT NULL DEFAULT 'new',  -- new, filtered, scored, queued, applying, ready (dry run ok), needs_answer, applied, manual, claimed (owner applying by hand), failed, skipped, interview, rejected
   status_note TEXT,
   resume_path TEXT, applied_at INTEGER, attempts INTEGER DEFAULT 0
 );

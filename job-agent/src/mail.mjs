@@ -42,7 +42,7 @@ export async function checkMail() {
 
 function linkJob(company, fromAddr) {
   const domain = String(fromAddr).split('@')[1]?.split('.').slice(-2, -1)[0] || '';
-  const applied = all("SELECT id, company, title FROM jobs WHERE status IN ('applied','interview','needs_answer','manual') ORDER BY applied_at DESC LIMIT 400");
+  const applied = all("SELECT id, company, title FROM jobs WHERE status IN ('applied','interview','needs_answer','manual','claimed') ORDER BY applied_at DESC LIMIT 400");
   const c = norm(company || '');
   return applied.find((j) => c && (norm(j.company).includes(c) || c.includes(norm(j.company))))
       || applied.find((j) => domain.length > 3 && norm(j.company).replace(/ /g, '').includes(domain));

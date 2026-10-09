@@ -50,6 +50,15 @@ createServer((req, res) => {
           case 'dry': setKv('dry_run', '1'); return ok();
           case 'skip': run("UPDATE jobs SET status = 'skipped', status_note = 'skipped by you' WHERE id = ?", String(b.id)); return ok();
           case 'queue': run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'queued by you' WHERE id = ? AND status NOT IN ('applied','interview')", String(b.id)); return ok();
+          // Owner is applying by hand: park the job where neither the apply loop nor a bulk requeue of 'manual' jobs touches it.
+          case 'claim': {
+            const j = one('SELECT status FROM jobs WHERE id = ?', String(b.id));
+            if (!j) return ok({ ok: false, error: 'No such job.' });
+            if (j.status === 'applying') return ok({ ok: false, error: 'The agent is applying to this job right now. Try again in a minute.' });
+            if (['applied', 'interview'].includes(j.status)) return ok({ ok: false, error: `Already ${j.status}.` });
+            run("UPDATE jobs SET status = 'claimed', status_note = 'you are applying by hand' WHERE id = ?", String(b.id));
+            return ok();
+          }
           case 'applied': run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = 'applied by you' WHERE id = ?", Date.now(), String(b.id)); return ok();
           case 'forget': run('UPDATE questions SET answer = NULL WHERE id = ?', Number(b.id)); return ok();
         }

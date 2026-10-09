@@ -24,7 +24,9 @@ async function agent(body) {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
   }).catch(() => null);
   if (!r?.ok) throw fail(503, 'The job agent is not responding. It may be restarting.');
-  return r.json();
+  const out = await r.json();
+  if (out.ok === false) throw fail(409, out.error || 'The job agent refused that.');
+  return out;
 }
 
 export default {
@@ -61,7 +63,7 @@ export default {
           WHERE a.status = 'open' GROUP BY qq.id ORDER BY qq.id`),
         events: q('SELECT at, kind, text FROM events ORDER BY id DESC LIMIT 60'),
         mail: q("SELECT at, from_addr, subject, category FROM emails WHERE direction = 'in' ORDER BY at DESC LIMIT 15"),
-        attention: q(`SELECT ${COLS} FROM jobs WHERE status IN ('captcha','manual','needs_answer','interview') ORDER BY status = 'interview' DESC, status = 'captcha' DESC, found_at DESC LIMIT 40`),
+        attention: q(`SELECT ${COLS} FROM jobs WHERE status IN ('captcha','manual','claimed','needs_answer','interview') ORDER BY status = 'interview' DESC, status = 'claimed' DESC, status = 'captcha' DESC, found_at DESC LIMIT 40`),
       };
     },
 
@@ -120,7 +122,7 @@ export default {
     }),
 
     'POST /api/jobs/action': async ({ body }) => {
-      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'applied', 'forget'].includes(body.action)) throw fail(400, 'Unknown action.');
+      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget'].includes(body.action)) throw fail(400, 'Unknown action.');
       return agent({ action: body.action, id: body.id, answer: body.answer });
     },
   },

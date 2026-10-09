@@ -26,7 +26,7 @@ function learnBoard(url) {
 function insert(job) {
   if (one('SELECT 1 FROM jobs WHERE id = ?', job.id)) return false;
   const dedupe = dedupeKey(job.company, job.title);
-  const dup = one("SELECT id FROM jobs WHERE dedupe = ? AND status IN ('queued','applying','ready','applied','needs_answer','manual','interview')", dedupe);
+  const dup = one("SELECT id FROM jobs WHERE dedupe = ? AND status IN ('queued','applying','ready','applied','needs_answer','manual','claimed','interview')", dedupe);
   run(`INSERT INTO jobs(id, source, url, apply_url, apply_type, title, company, location, description, posted_at, dedupe, found_at, status, status_note, priority)
        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     job.id, job.source, job.url, job.apply_url, job.apply_type, job.title, job.company, job.location,
