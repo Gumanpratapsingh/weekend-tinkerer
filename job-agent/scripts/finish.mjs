@@ -9,7 +9,7 @@ import external from '../browser/external.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENT = process.env.AGENT_URL;
-const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|applied successfully|you have (successfully )?applied/i;
 const handlers = { greenhouse: ats.apply_greenhouse, lever: ats.apply_lever, ashby: ats.apply_ashby, external: external.apply_external };
 
 async function openForOwner(job, site, applySelector = null) {
@@ -52,6 +52,9 @@ for (const [i, job] of jobs.entries()) {
       const text = await p.innerText('body').catch(() => '');
       const newText = !alreadySaid && DONE.test(text);
       const newUrl = p.url() !== startUrl && /thank|success|confirm/i.test(p.url());
+      // Naukri: the Apply button turns into "Applied" (the success toast disappears quickly).
+      const naukriApplied = /naukri\.com/.test(p.url()) && await p.locator('#already-applied, button:has-text("Applied")').count().catch(() => 0) > 0;
+      if (naukriApplied) applied = true;
       const formGone = alreadySaid && !(await p.locator('button:has-text("Submit")').count().catch(() => 1)) && DONE.test(text);
       if (newText || newUrl || formGone) applied = true;
     }
