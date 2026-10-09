@@ -50,8 +50,15 @@ export default {
         progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
         // Bot-check walls (DataDome, Cloudflare, "verify you are human"): hand to the owner's CAPTCHA list.
         if (/captcha-delivery|challenges\.cloudflare|\/captcha\b|perimeterx|hcaptcha\.com/i.test(url)
-            || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000)))
-          return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
+            || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000))) {
+          if (!keepOpen) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
+          // Mac handoff: the owner solves it in the open window; then carry on to the form and prefill it.
+          console.log('   Bot check on the page: solve it in the browser window, the form will be filled right after.');
+          const start = page.url();
+          for (let w = 0; w < 150 && page.url() === start; w++) await page.waitForTimeout(2000);
+          await page.waitForTimeout(3000);
+          continue;
+        }
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }

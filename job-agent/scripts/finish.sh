@@ -8,6 +8,9 @@ cd "$(dirname "$0")/.."
 [ -d mac/node_modules/playwright ] || (cd mac && npm install --silent && npx playwright install chromium)
 # The phone's agent API, through ssh (it only listens on the phone's localhost).
 pgrep -f "18083:127.0.0.1:8083" >/dev/null || ssh -f -N -o ExitOnForwardFailure=yes -L 127.0.0.1:18083:127.0.0.1:8083 "$HOST"
+# The phone's Naukri session, so Naukri jobs open signed in here too (private, gitignored data/).
+mkdir -p data/sessions && chmod 700 data/sessions
+scp -q "$HOST:jobagent/data/sessions/naukri.json" data/sessions/naukri.json 2>/dev/null && chmod 600 data/sessions/naukri.json
 # Tailored resumes for the waiting jobs.
 mkdir -p data/handoff
 ssh "$HOST" 'cd ~/jobagent && node -e "const {DatabaseSync}=require(\"node:sqlite\");const d=new DatabaseSync(\"data/agent.db\",{readOnly:true});for(const r of d.prepare(\"select resume_path from jobs where status=\x27captcha\x27 and resume_path is not null\").all())console.log(r.resume_path)"' |
