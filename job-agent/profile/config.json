@@ -197,17 +197,36 @@
       "slice"
     ],
     "lever": [
+      "cred",
       "meesho",
-      "paytm"
+      "mindtickle",
+      "paytm",
+      "zeta"
     ],
     "ashby": [
-      "sarvam",
-      "composio",
-      "openai",
       "atlan",
-      "spotdraft",
+      "bureau",
+      "composio",
       "ema",
-      "notion"
+      "navi",
+      "notion",
+      "openai",
+      "sarvam",
+      "spotdraft",
+      "tekion"
+    ],
+    "smartrecruiters": [
+      "swiggy",
+      "freshworks",
+      "servicenow",
+      "upstox",
+      "unacademy",
+      "whatfix",
+      "cars24",
+      "interviewbit",
+      "glean",
+      "uber",
+      "mindtickle"
     ]
   },
   "pacing": {
@@ -240,5 +259,6 @@
     "pages": 3,
     "job_age_days": 3,
     "queries_per_location": 14
-  }
+  },
+  "linkedin_pages": 3
 }

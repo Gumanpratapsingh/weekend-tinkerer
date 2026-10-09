@@ -1,6 +1,6 @@
 // Apply queue: takes queued jobs (score >= min_score), tailors the resume, and applies through the browser worker,
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
-import { config, log, istDate, istHour } from './core.mjs';
+import { config, log, istDate, istHour, activity } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
@@ -79,10 +79,12 @@ function settle(job, res) {
     JSON.stringify({ filled: res.filled || [], open: (res.unknown || []).map((u) => u.label) }), job.id);
   switch (res.status) {
     case 'applied':
+      activity(`✅ APPLIED: ${label} (${job.score}%, ${job.source})`);
       run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = ? WHERE id = ?", Date.now(), res.shot || null, job.id);
       event('applied', `${label} (${job.score}%, ${job.source})`);
       break;
     case 'needs_answer':
+      activity(`❓ ${label}: needs your answer to ${res.unknown.length} question(s) — see Needs you on /jobs`);
       run("UPDATE jobs SET status = 'needs_answer', status_note = ? WHERE id = ?", `${res.unknown.length} question(s) for you`, job.id);
       for (const u of res.unknown) askOwner(u.label, { jobId: job.id, context: `${label} application`, kind: u.type, options: u.options?.length ? u.options : null });
       run('UPDATE jobs SET attempts = 0 WHERE id = ?', job.id);
@@ -96,6 +98,7 @@ function settle(job, res) {
       // CAPTCHA: the Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
       if (/captcha/i.test(res.reason || '')) {
         run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
+        activity(`🧩 ${label}: CAPTCHA — prefilled for you via ./scripts/finish.sh`);
         tell(`🧩 ${label} needs a CAPTCHA. Everything else is ready: run ./scripts/finish.sh on the Mac, solve it, press Submit.`);
         break;
       }

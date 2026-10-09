@@ -132,7 +132,7 @@ export async function planFor(job, m = master()) {
   return llm([
     { role: 'system', content: SYSTEM },
     { role: 'user', content: `CANDIDATE:\n${JSON.stringify(candidate)}\n\nJOB:\n${jd}` },
-  ], { json: true, maxTokens: 2500, temperature: 0.2 });
+  ], { json: true, maxTokens: 2500, temperature: 0.2, why: `tailoring the resume for ${job.title} @ ${job.company}` });
 }
 
 // Full pipeline for one job: plan -> validate -> HTML -> PDF. Returns the PDF path.

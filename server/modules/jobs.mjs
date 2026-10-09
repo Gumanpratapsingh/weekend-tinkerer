@@ -1,7 +1,7 @@
 // Job agent dashboard (job-agent/): reads the agent's SQLite database read-only and forwards owner actions
 // (answer a question, pause, go live, skip...) to the agent's localhost-only API. Owner login required like every route.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOME } from '../core.mjs';
 
@@ -89,6 +89,27 @@ export default {
       const path = query.kind === 'resume' ? j?.resume_path : j?.status_note;
       if (!path || !path.startsWith(DIR + '/') || path.includes('..') || !existsSync(path)) throw fail(404, 'Not available.');
       return { name: path.split('/').pop(), type: path.endsWith('.pdf') ? 'application/pdf' : 'image/png', data: readFileSync(path).toString('base64') };
+    },
+
+    // Live activity feed: lines appended since byte offset `since` (first call: the last ~200 lines).
+    'GET /api/jobs/log': ({ query }) => {
+      const f = join(DIR, 'activity.log');
+      if (!existsSync(f)) return { lines: [], offset: 0, searchesToday: 0 };
+      const size = statSync(f).size;
+      let since = Number(query.since);
+      if (!Number.isFinite(since) || since > size) since = Math.max(0, size - 48_000);
+      const len = Math.min(size - since, 200_000);
+      const buf = Buffer.alloc(len);
+      const fd = openSync(f, 'r'); readSync(fd, buf, 0, len, since); closeSync(fd);
+      let lines = buf.toString('utf8').split('\n').filter(Boolean);
+      if (!query.since) lines = lines.slice(-200);
+      // Searches today (cheap scan of the tail; the file is small and append-only).
+      const day = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+      const tail = readFileSync(f, 'utf8').slice(-600_000).split('\n');
+      const today = tail.filter((l) => l && new Date(Date.parse(l.slice(0, 24)) + 5.5 * 3600e3).toISOString().slice(0, 10) === day);
+      return { lines, offset: since + len,
+        searchesToday: today.filter((l) => /page \d+ \(|discover \w+:|feeds \w+:/.test(l)).length,
+        boardsToday: new Set(today.map((l) => /discover (\w+)|feeds (\w+)|🌐 (Naukri): "/.exec(l)).filter(Boolean).map((m) => m[1] || m[2] || m[3])).size };
     },
 
     'GET /api/jobs/memory': () => ({

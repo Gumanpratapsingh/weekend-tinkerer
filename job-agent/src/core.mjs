@@ -23,7 +23,12 @@ export const secret = (name) => {                    // secrets live in ~/.jobag
 export function log(line) {
   const s = `${new Date().toISOString()} ${line}`;
   appendFileSync(join(DATA, 'agent.log'), s + '\n');
+  activity(line.replace(/\/data\/data\/com\.termux\/files\/home\/jobagent\//g, ''));
   if (process.env.VERBOSE) console.log(s);
+}
+// Live activity feed for the hub's /jobs/live page (short lines; the agent and the browser worker both write here).
+export function activity(text) {
+  try { appendFileSync(join(DATA, 'activity.log'), `${new Date().toISOString()} ${String(text).slice(0, 400)}\n`); } catch { /* best effort */ }
 }
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,7 +63,7 @@ const PROVIDERS = [
 function readKey(f) { try { return readFileSync(join(HOME, f), 'utf8').trim(); } catch { return ''; } }
 const cooldown = new Map();                           // "provider/model" -> retry-after timestamp
 
-export async function llm(messages, { maxTokens = 1200, json = false, temperature = 0.3, small = false } = {}) {
+export async function llm(messages, { maxTokens = 1200, json = false, temperature = 0.3, small = false, why = '' } = {}) {
   for (const p0 of PROVIDERS) {
     const p = small ? { ...p0, models: [...p0.models].reverse() } : p0;   // small: try the cheaper model first
     const key = p.key();
@@ -66,6 +71,7 @@ export async function llm(messages, { maxTokens = 1200, json = false, temperatur
     for (const model of p.models) {
       const id = `${p.name}/${model}`;
       if ((cooldown.get(id) || 0) > Date.now()) continue;
+      if (why) activity(`🤖 AI (${p.name} ${model.replace(/^openai\//, '')}): ${why}`);
       let r;
       try {
         r = await fetch(p.url, {

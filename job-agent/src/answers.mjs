@@ -111,7 +111,7 @@ Return JSON {"<key>": "<answer or UNKNOWN>"}.` },
       { role: 'user', content: `FACTS:\n${facts}\n\nKNOWN ANSWERS:\n${known.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n')}\n\n`
         + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) =>
           (options?.length > 40 ? { key, label, type: 'long_list' } : { key, label, type, options })))}` },
-    ], { json: true, maxTokens: 900, temperature: 0 });
+    ], { json: true, maxTokens: 900, temperature: 0, why: `answering ${pending.length} form question(s) from your memory` });
   } catch (e) { log(`resolve llm: ${e.message}`); }
 
   const unknown = [...legalUnknown];

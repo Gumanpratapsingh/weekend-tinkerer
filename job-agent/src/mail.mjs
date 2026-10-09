@@ -64,7 +64,7 @@ async function handle(mail) {
  "needs_reply":bool, "urgent":bool}
 "confirmation" = automatic "we received your application". Job alerts/marketing are job_related=false.` },
     { role: 'user', content: `From: ${mail.from?.text}\nSubject: ${mail.subject}\nDate: ${mail.date?.toISOString()}\n\n${text}` },
-  ], { json: true, maxTokens: 600, temperature: 0 });
+  ], { json: true, maxTokens: 600, temperature: 0, why: `reading an email from ${from}` });
   if (!c.job_related) return;
 
   const job = linkJob(c.company, from);
@@ -106,7 +106,7 @@ export async function composeDraft(draftId) {
 Answer each question using ONLY the given answers. No placeholders, no promises not in the answers, no subject line.
 Sign off as "Regards,\\n${me.name}\\n${me.contact.phone}".` },
     { role: 'user', content: `THEIR EMAIL:\n${mail.body.slice(0, 3000)}\n\nANSWERS:\n${items.map((it) => `${it.label} -> ${answers[it.key]}`).join('\n')}` },
-  ], { maxTokens: 600, temperature: 0.3 });
+  ], { maxTokens: 600, temperature: 0.3, why: 'drafting a reply to a recruiter' });
   run("UPDATE drafts SET body = ?, status = 'pending' WHERE id = ?", body, draftId);
   tell(`✍️ Draft reply #${draftId} to ${mail.from_addr}\nRe: ${mail.subject}\n\n${body}\n\n— Reply to this message with *ok* to send, *no* to discard, or type the exact text to send instead.`,
     { refKind: 'draft', refId: draftId, urgent: true });

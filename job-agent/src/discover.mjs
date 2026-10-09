@@ -37,7 +37,7 @@ export async function discover(sourceName) {
   try { jobs = await SOURCES[sourceName](); } catch (e) { log(`discover ${sourceName}: ${e.message}`); return 0; }
   for (const j of jobs) learnBoard(j.apply_url);
   const added = jobs.filter(insert).length;
-  log(`discover ${sourceName}: ${jobs.length} matched filters, ${added} new`);
+  log(`🔎 discover ${sourceName}: ${jobs.length} jobs match your filters, ${added} new`);
   return added;
 }
 

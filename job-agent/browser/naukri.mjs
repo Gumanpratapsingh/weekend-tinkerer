@@ -1,7 +1,7 @@
 // Naukri, driven through the owner's own logged-in session (data/sessions/naukri.json, from NaukriAutopilot).
 // Search uses Naukri's own JSON API from inside the page (same calls the site makes); applying clicks Apply and
 // answers the recruiter-question chat drawer from memory.
-import { siteContext, shotPath } from './session.mjs';
+import { siteContext, shotPath, progress } from './session.mjs';
 
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
 const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
@@ -43,6 +43,7 @@ export default {
       const r = { status: resp?.status() || 0, body: resp ? await resp.json().catch(() => ({})) : {} };
       if (r.status !== 200) { console.error('naukri search', r.status, slug); if (await page.locator('iframe[src*="recaptcha/api2/bframe"]').count()) return { status: 'captcha', jobs: out }; continue; }
       if (!(r.body.jobDetails || []).length) break;                  // no more pages for this query
+      progress(`Naukri: "${q}" page ${pg} (${loc || 'all India'}) → ${(r.body.jobDetails || []).length} jobs · ${out.length + (r.body.jobDetails || []).length} so far`);
       for (const j of r.body.jobDetails || []) {
         if (seen.has(j.jobId)) continue;
         seen.add(j.jobId);
@@ -53,6 +54,7 @@ export default {
       await page.waitForTimeout(4000 + Math.random() * 4000);
     }
     await (await ctx()).saveSession();
+    progress(`Naukri search done: ${out.length} jobs`);
     return { status: 'ok', jobs: out };
   },
 
@@ -102,6 +104,7 @@ export default {
   },
 
   async apply_naukri({ job, resume, dryRun = false }) {
+    progress(`Naukri: applying to ${job.title} @ ${job.company}`);
     const c = await ctx();
     const page = await c.newPage();
     try {
@@ -128,6 +131,7 @@ export default {
         if (!await drawer.count()) break;
         const q = await currentQuestion(page);
         if (!q) { await page.waitForTimeout(2000); continue; }
+        progress(`Naukri asks: "${q.label.slice(0, 120)}"`);
         const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
         const { answers, unknown } = await r.json();

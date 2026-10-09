@@ -1,5 +1,5 @@
 // Company career boards: Greenhouse, Lever, Ashby. No login needed; one form per job.
-import { siteContext, shotPath } from './session.mjs';
+import { siteContext, shotPath, progress } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 
 const SITES = {
@@ -17,6 +17,7 @@ const DONE = /thank you for (applying|your (application|interest))|application (
 
 async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false }) {
   const site = SITES[kind];
+  progress(`${kind}: opening ${job.title} @ ${job.company}`);
   const ctx = await siteContext(kind);
   const page = await ctx.newPage();
   try {
@@ -30,12 +31,14 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     if (/no longer (accepting|available)|job (has been )?closed|position has been filled/i.test(await page.innerText('body')))
       return { status: 'closed' };
 
+    progress(`${kind}: reading the form…`);
     const res = await fillForm(page, job, { root: site.root, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
     const shot = shotPath(`${kind}-${dryRun ? 'dry' : 'filled'}`);
     await page.screenshot({ path: shot, fullPage: true });
     if (keepOpen) return { ...res, status: 'handoff', page };
     if (res.status !== 'filled') return { ...res, shot };
 
+    progress(`${kind}: filled ${res.filled?.length || 0} fields + resume, submitting`);
     await page.locator(site.submit).first().click({ timeout: 10000 });
     await page.waitForTimeout(6000);
     if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap(page, `${kind}-captcha`) };

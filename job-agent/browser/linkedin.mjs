@@ -1,12 +1,13 @@
 // LinkedIn Easy Apply with the owner's session (data/sessions/linkedin.json, saved by scripts/login.sh on the Mac).
 // Steps through the modal: upload the tailored resume, answer fields from memory, Next/Review/Submit.
-import { siteContext, shotPath } from './session.mjs';
+import { siteContext, shotPath, progress } from './session.mjs';
 import { collect, resolveFields, fill, captchaVisible } from './forms.mjs';
 
 const MODAL = '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]';
 
 export default {
   async apply_linkedin({ job, resume, dryRun = false }) {
+    progress(`LinkedIn: Easy Apply to ${job.title} @ ${job.company}`);
     const ctx = await siteContext('linkedin');
     const page = await ctx.newPage();
     try {
@@ -34,6 +35,7 @@ export default {
         if (resume && await upload.count()) { await upload.setInputFiles(resume); await page.waitForTimeout(3000); }
 
         const fields = (await collect(page, MODAL)).filter((f) => f.type !== 'file');
+        progress(`LinkedIn: step ${step + 1}, ${fields.length} field(s)`);
         const { answers, unknown } = await resolveFields(fields, job);
         const blocking = unknown.filter((u) => u.required || /required/i.test(u.label));
         if (blocking.length) return await discard(page, { status: 'needs_answer', unknown: blocking, shot: await snap(page, 'li-question') });

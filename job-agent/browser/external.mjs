@@ -1,7 +1,7 @@
 // Any other careers site: follow the Apply links to the real application form and fill it with the generic engine.
 // Hands the job back to the owner only for account walls (we never create accounts), CAPTCHAs (never bypassed),
 // or questions only the owner can answer.
-import { siteContext, shotPath } from './session.mjs';
+import { siteContext, shotPath, progress } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 import ats from './ats.mjs';
 
@@ -34,8 +34,9 @@ async function formScore(page) {
 
 export default {
   async apply_external({ job, resume, dryRun = false, keepOpen = false }) {
-    const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : 'external');
+    const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external');
     let page = await ctx.newPage();
+    progress(`Company site: opening ${job.title} @ ${job.company}`);
     const snap = async (name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }).catch(() => {}); return p; };
     try {
       await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -76,6 +77,7 @@ export default {
       }
       if (!keepOpen && await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
 
+      progress(`Company site: form found on ${new URL(page.url()).hostname}, filling…`);
       const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
       if (keepOpen) return { ...res, status: 'handoff', page };
       const shot = await snap(`ext-${dryRun ? 'dry' : 'filled'}`);

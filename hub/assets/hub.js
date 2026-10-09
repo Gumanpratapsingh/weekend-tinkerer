@@ -380,7 +380,7 @@ const pages = {
     const learned = d.total.learned;
     return [
       h('div', { class: 'hello' }, h('h1', {}, 'Jobs'),
-        h('p', { class: 'lede' }, h('span', { class: 'live' }, 'live'), ' ', nowText, nowAgo),
+        h('p', { class: 'lede' }, h('span', { class: 'live' }, 'live'), ' ', nowText, nowAgo, ' · ', h('a', { href: '/jobs/live', 'data-link': true }, 'open terminal')),
         h('p', { class: 'lede' }, d.dryRun ? h('span', { class: 'accent' }, 'Dry run: forms are filled but never submitted. ') : 'Live: applying to jobs scoring 75+. ',
           `${d.total.found} jobs seen · ${d.total.applied} applied · ${d.total.interviews} in interview stage · ${learned} answers learned`)),
       mode,
@@ -407,7 +407,41 @@ const pages = {
         h('div', { class: 'main' }, e.text, h('small', {}, `${e.kind} · ${when(e.at)}`))))) : h('p', { class: 'muted' }, 'Nothing yet.'),
       h('div', { class: 'sec' }, 'Sources'),
       h('div', { class: 'list' }, d.bySource.map((s) => h('div', { class: 'item' }, h('div', { class: 'main' }, s.source), h('span', { class: 'num' }, `${s.applied || 0} / ${s.n}`)))),
-      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
+      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/live', 'data-link': true }, 'Live terminal: what the phone is doing →')),
+      h('p', { class: 'lede' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
+    ];
+  },
+
+  async '/jobs/live'() {
+    const term = h('div', { class: 'term', role: 'log', 'aria-live': 'off' });
+    const now = h('span', {}), stat = { searches: h('div', { class: 'big' }), boards: h('div', { class: 'big' }), found: h('div', { class: 'big' }), applied: h('div', { class: 'big' }) };
+    let offset = null;
+    const time = (iso) => new Date(Date.parse(iso)).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const add = (lines) => {
+      const stick = term.scrollTop + term.clientHeight >= term.scrollHeight - 30;
+      for (const l of lines) {
+        const msg = l.slice(25);
+        const cls = /applied|"status":"applied"|✅|done:/i.test(msg) ? 'ok' : /error|failed|timeout|closed/i.test(msg) ? 'bad' : /^🌐/.test(msg) ? 'web' : '';
+        term.append(h('div', { class: cls }, h('i', {}, time(l.slice(0, 24)) + '  '), msg));
+      }
+      while (term.childNodes.length > 600) term.firstChild.remove();
+      if (stick) term.scrollTop = term.scrollHeight;
+    };
+    const tick = async () => {
+      const [log, st] = await Promise.all([api(`/jobs/log${offset == null ? '' : `?since=${offset}`}`), api('/jobs')]);
+      offset = log.offset; add(log.lines);
+      stat.searches.textContent = log.searchesToday; stat.boards.textContent = log.boardsToday;
+      stat.found.textContent = st.today.found; stat.applied.textContent = st.today.applied;
+      now.textContent = st.paused ? 'Paused' : st.now?.text || 'Idle';
+    };
+    await tick();
+    jobsTimer = setInterval(() => tick().catch(() => {}), 3000);
+    const tile = (label, el) => h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, label)), el);
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      h('div', { class: 'hello' }, h('h1', {}, 'Live'), h('p', { class: 'lede' }, h('span', { class: 'live' }, 'now'), ' ', now)),
+      h('div', { class: 'grid' }, tile('Searches today', stat.searches), tile('Sources today', stat.boards), tile('Jobs found today', stat.found), tile('Applied today', stat.applied)),
+      h('div', { class: 'sec' }, 'What the phone is doing'), term,
     ];
   },
 
@@ -501,7 +535,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path) { history.pushState(null, '', path); render(); }
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';

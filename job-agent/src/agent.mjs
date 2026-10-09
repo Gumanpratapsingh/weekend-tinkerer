@@ -1,7 +1,7 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
 import { createServer } from 'node:http';
-import { log, every, istHour, config } from './core.mjs';
+import { log, every, istHour, config, activity } from './core.mjs';
 import { getKv, setKv, all } from './db.mjs';
 import { discover, scoreNew } from './discover.mjs';
 import { applyNext, todayStats } from './apply.mjs';
@@ -58,7 +58,7 @@ createServer((req, res) => {
 }).listen(PORT, '127.0.0.1', () => log(`job agent on 127.0.0.1:${PORT}`));
 
 // ---------- schedules ----------
-const doing = (text) => setKv('now', JSON.stringify({ text, at: Date.now() }));
+const doing = (text) => { setKv('now', JSON.stringify({ text, at: Date.now() })); if (!/^Idle/.test(text)) activity(`▶ ${text}`); };
 const step = (text, fn) => async () => { doing(text); try { return await fn(); } finally { doing('Idle — waiting for the next run'); } };
 
 every(150, 'discover ats', step('Searching company career pages (Greenhouse, Lever, Ashby)', () => discover('ats')), { delay: 20e3 });

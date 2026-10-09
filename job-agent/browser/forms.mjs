@@ -127,6 +127,17 @@ export async function fill(page, fields, answers, { resume } = {}) {
         await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));
       } else {
         await el.fill(String(v));
+        // Autocomplete fields (city/location pickers): a suggestion must be chosen or the site treats it as empty.
+        if (/location|city|address|town|where.*based|college|school|university/i.test(f.label)) {
+          await page.waitForTimeout(1500);
+          const opts = page.locator('[role="option"]:visible, .pac-item:visible, li[class*="suggestion"]:visible, li[class*="option"]:visible');
+          if (await opts.count()) {
+            const want = String(v).split(',')[0].trim().toLowerCase();
+            const all = await opts.allInnerTexts();
+            const i = Math.max(0, all.findIndex((t) => t.toLowerCase().includes(want)));
+            await opts.nth(i).click().catch(() => {});
+          }                                                 // (never press Enter here: it can submit the form early)
+        }
       }
     } catch (e) { console.error(`fill ${f.key} "${f.label}": ${e.message}`); }
   }

@@ -1,4 +1,4 @@
-// Company career boards with public JSON APIs: Greenhouse, Lever, Ashby. Free, no login, no scraping.
+// Company career boards with public JSON APIs: Greenhouse, Lever, Ashby, SmartRecruiters. Free, no login, no scraping.
 import { config, log, sleep } from '../core.mjs';
 import { getKv } from '../db.mjs';
 import { getJson, htmlToText, locationOk, titleOk } from './common.mjs';
@@ -46,7 +46,28 @@ async function ashby(slug) {
   }));
 }
 
-const BOARDS = { greenhouse, lever, ashby };
+// SmartRecruiters (Swiggy, Freshworks, ...): public postings API; applied through browser/external.mjs.
+async function smartrecruiters(slug) {
+  const out = [];
+  for (let offset = 0; offset < 400; offset += 100) {
+    const { content = [], totalFound = 0 } = await getJson(`https://api.smartrecruiters.com/v1/companies/${slug}/postings?limit=100&offset=${offset}`);
+    for (const j of content) {
+      const location = [j.location?.city, j.location?.country, j.location?.remote ? 'Remote' : ''].filter(Boolean).join(', ');
+      if (!titleOk(j.name) || !locationOk(location)) continue;
+      const full = await getJson(`https://api.smartrecruiters.com/v1/companies/${slug}/postings/${j.id}`).catch(() => null);
+      const sections = full?.jobAd?.sections || {};
+      out.push({ id: `smartrecruiters:${slug}:${j.id}`, source: 'smartrecruiters', apply_type: 'external',
+        url: `https://jobs.smartrecruiters.com/${slug}/${j.id}`, apply_url: full?.applyUrl || `https://jobs.smartrecruiters.com/${slug}/${j.id}`,
+        title: j.name, company: j.company?.name || slug, location,
+        description: htmlToText(Object.values(sections).map((x) => `${x.title || ''}\n${x.text || ''}`).join('\n')), posted_at: j.releasedDate });
+      await sleep(250);
+    }
+    if (offset + 100 >= totalFound) break;
+  }
+  return out;
+}
+
+const BOARDS = { greenhouse, lever, ashby, smartrecruiters };
 
 export async function fetchAts() {
   const out = [];

@@ -11,13 +11,15 @@ export async function fetchLinkedin() {
   const seen = new Set();
   const out = [];
   for (const q of queries) {
-    for (const { location: loc, remote } of c.locations.linkedin) {
-      // f_TPR=r86400: last 24h; f_AL=true: Easy Apply; f_E=2,3: entry + associate; f_WT=1,2,3: on-site/remote/hybrid
+    for (const { location: loc, remote } of c.locations.linkedin) for (const easy of [true, false]) for (let start = 0; start < (c.linkedin_pages || 3) * 25; start += 25) {
+      // f_TPR=r86400: last 24h; f_AL=true: Easy Apply (false: all jobs, applied on the company's site); f_E=2,3: entry + associate
       const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(q)}`
-        + `&location=${encodeURIComponent(loc)}&f_TPR=r86400&f_AL=true&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=0`;
+        + `&location=${encodeURIComponent(loc)}&f_TPR=r86400${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
       let html;
-      try { html = await getText(url); } catch (e) { log(`linkedin search: ${e.message}`); await sleep(60000); continue; }
-      for (const card of html.split('<li>').slice(1)) {
+      try { html = await getText(url); } catch (e) { log(`linkedin search: ${e.message}`); await sleep(60000); break; }
+      const cards = html.split('<li>').slice(1);
+      if (!cards.length) break;                              // no more pages
+      for (const card of cards) {
         const id = /jobPosting:(\d+)/.exec(card)?.[1];
         if (!id || seen.has(id)) continue;
         seen.add(id);
@@ -25,7 +27,8 @@ export async function fetchLinkedin() {
         const company = pick(card, /base-search-card__subtitle[^>]*>([\s\S]*?)<\/h4>/);
         const location = pick(card, /job-search-card__location[^>]*>([\s\S]*?)<\/span>/);
         if (!titleOk(title) || !(remote || locationOk(location))) continue;
-        out.push({ id: `linkedin:${id}`, source: 'linkedin', apply_type: 'linkedin',
+        // Easy Apply jobs are applied on LinkedIn; the rest go through their company site (browser/external.mjs).
+        out.push({ id: `linkedin:${id}`, source: 'linkedin', apply_type: easy ? 'linkedin' : 'external',
           url: `https://www.linkedin.com/jobs/view/${id}/`, apply_url: `https://www.linkedin.com/jobs/view/${id}/`,
           title, company, location, posted_at: pick(card, /datetime="([^"]+)"/) });
       }
