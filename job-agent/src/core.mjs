@@ -51,16 +51,14 @@ export function every(minutes, name, fn, { delay = 5000 } = {}) {
 }
 
 // ---------- LLM: OpenAI-compatible free tiers, tried in order ----------
-// Groq is required; Cerebras / Gemini keys are optional extra daily budget if the owner adds them.
+// Groq (3 models) + Google Gemini free tier (2 models), each with its own daily quota. No paid providers.
 const PROVIDERS = [
   { name: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: () => readKey('.groq_key'),
     // Three models with separate free quotas. qwen hides its reasoning with a different parameter.
     models: ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'], extra: { reasoning_effort: 'low', include_reasoning: false },
     extraFor: { 'qwen/qwen3.8-27b': { reasoning_format: 'hidden' } } },
-  { name: 'cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: () => secret('cerebras_key'),
-    models: ['gpt-oss-120b'], extra: {} },
   { name: 'gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', key: () => secret('gemini_key'),
-    models: ['gemini-2.5-flash'], extra: { reasoning_effort: 'low' } },
+    models: ['gemini-flash-latest', 'gemini-3.5-flash-lite'], extra: { reasoning_effort: 'low' } },
 ];
 function readKey(f) { try { return readFileSync(join(HOME, f), 'utf8').trim(); } catch { return ''; } }
 const cooldown = new Map();                           // "provider/model" -> retry-after timestamp

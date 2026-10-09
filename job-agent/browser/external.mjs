@@ -24,11 +24,13 @@ async function knownAts(url) {
 async function formScore(page) {
   return page.evaluate(() => {
     const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-    const inputs = [...document.querySelectorAll('input, textarea, select')].filter((e) => e.type === 'file' || vis(e));
+    const chat = (e) => /chat|bot|search|newsletter|subscribe/i.test(`${e.id} ${e.name} ${e.className} ${e.placeholder || ''} ${e.getAttribute('aria-label') || ''}`);
+    const inputs = [...document.querySelectorAll('input, textarea, select')].filter((e) => (e.type === 'file' || vis(e)) && !chat(e) && e.type !== 'checkbox');
     const hasFile = inputs.some((e) => e.type === 'file');
     const hasEmail = inputs.some((e) => e.type === 'email' || /email/i.test(e.name + e.id + (e.placeholder || '')));
     const hasPassword = inputs.some((e) => e.type === 'password' && vis(e));
-    return { n: inputs.length, hasFile, hasEmail, hasPassword };
+    const hasName = inputs.some((e) => /name/i.test(`${e.name} ${e.id} ${e.placeholder || ''} ${e.getAttribute('autocomplete') || ''}`));
+    return { n: inputs.length, hasFile, hasEmail, hasName, hasPassword };
   });
 }
 
@@ -45,6 +47,11 @@ export default {
       // Follow Apply links/buttons (new tabs included) until a form shows up. At most 4 hops.
       for (let hop = 0; hop < 4; hop++) {
         const url = page.url();
+        progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
+        // Bot-check walls (DataDome, Cloudflare, "verify you are human"): hand to the owner's CAPTCHA list.
+        if (/captcha-delivery|challenges\.cloudflare|\/captcha\b|perimeterx|hcaptcha\.com/i.test(url)
+            || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000)))
+          return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
@@ -57,23 +64,45 @@ export default {
 
         const f = await formScore(page);
         if (f.hasPassword && !f.hasFile) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
-        if (f.hasFile || (f.hasEmail && f.n >= 3)) break;                       // reached the application form
+        if (f.hasFile || (f.hasEmail && f.hasName && f.n >= 3)) break;          // reached the application form
 
-        // Click the most likely Apply control; follow a popup if it opens one.
-        const target = page.locator('a, button, [role="button"], input[type="submit"]').filter({ hasText: /apply|interested/i });
-        let clicked = false;
+        // Let single-page career sites finish rendering; decline cookie banners (privacy-friendly) so they don't cover buttons.
+        await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => {});
+        await page.locator('button, a').filter({ hasText: /^(reject all|decline( all)?|only (necessary|essential)|necessary only|accept necessary)/i }).first().click({ timeout: 2000 }).catch(() => {});
+        await page.mouse.wheel(0, 900).catch(() => {}); await page.waitForTimeout(800); await page.mouse.wheel(0, -900).catch(() => {});
+
+        // Click the most likely Apply control (best-ranked first); follow a popup if it opens one.
+        const target = page.locator('a, button, [role="button"], input[type="submit"], input[type="button"]');
+        const ranked = [];
         for (const el of await target.all()) {
-          const text = (await el.innerText().catch(() => '') || await el.getAttribute('value') || '').trim();
-          if (!APPLY_TEXT.test(text) || !(await el.isVisible().catch(() => false))) continue;
-          const popup = ctx.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+          const text = ((await el.innerText().catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || '').trim();
+          const href = (await el.getAttribute('href').catch(() => '')) || '';
+          const rank = /^apply( now)?$/i.test(text) ? 3 : APPLY_TEXT.test(text) ? 2
+            : (/apply/i.test(text) && text.length <= 40 && !/applied|how to apply|why apply|apply filter/i.test(text)) || /\/apply\b/i.test(href) ? 1 : 0;
+          if (rank) ranked.push({ el, text: text || href, rank });
+        }
+        ranked.sort((a, b) => b.rank - a.rank);
+        let clicked = false;
+        for (const { el, text } of ranked) {
+          if (!(await el.isVisible().catch(() => false))) continue;
+          progress(`Company site: clicking "${text.slice(0, 40)}"`);
+          const before = page.url();
+          const popup = ctx.waitForEvent('page', { timeout: 12000 }).catch(() => null);
           await el.click({ timeout: 8000 }).catch(() => {});
           const p2 = await popup;
           if (p2) { page = p2; await page.waitForLoadState('domcontentloaded').catch(() => {}); }
           await page.waitForTimeout(3500);
+          const g = await formScore(page);
+          // Nothing happened (same page, no form, no new tab): try the next-best Apply control.
+          if (!p2 && page.url() === before && !g.hasFile && !(g.hasEmail && g.hasName)) continue;
           clicked = true;
           break;
         }
-        if (!clicked) return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };
+        if (!clicked) {
+          const seen = ranked.map((r) => r.text).slice(0, 8);
+          progress(`Company site: no Apply control matched; candidates: ${JSON.stringify(seen).slice(0, 200)}`);
+          return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };
+        }
       }
       if (!keepOpen && await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
 
