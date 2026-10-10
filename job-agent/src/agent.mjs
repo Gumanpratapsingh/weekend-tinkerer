@@ -144,6 +144,24 @@ every(10, 'digest', async () => {
     + `\nAll time: ${s.appliedTotal} applied, ${s.interviews} interview stage.`);
 });
 
+// Nightly housekeeping (03:30 IST): rotate logs over 5 MB, delete screenshots older than 30 days.
+every(30, 'housekeeping', async () => {
+  const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
+  if (n.getUTCHours() !== 3 || getKv('housekeeping_day') === day) return;
+  setKv('housekeeping_day', day);
+  const { statSync, renameSync, readdirSync, unlinkSync } = await import('node:fs');
+  for (const f of ['activity.log', 'agent.log', 'worker.log']) {
+    const p = join(ROOT, 'data', f);
+    try { if (statSync(p).size > 5e6) renameSync(p, `${p}.1`); } catch { /* missing */ }
+  }
+  let removed = 0;
+  for (const f of readdirSync(join(ROOT, 'data', 'shots'))) {
+    const p = join(ROOT, 'data', 'shots', f);
+    try { if (Date.now() - statSync(p).mtimeMs > 30 * 864e5) { unlinkSync(p); removed++; } } catch { /* raced */ }
+  }
+  log(`housekeeping: logs rotated if over 5 MB, ${removed} old screenshot(s) removed`);
+});
+
 // Thermal guard: the phone runs 24/7 on a charger. Too hot -> pause all browser work and close Chromium; resume when cool.
 every(1, 'thermal guard', async () => {
   const st = (() => { try { return JSON.parse(readFileSync(join(HOME, 'live', 'status.json'), 'utf8')); } catch { return null; } })();

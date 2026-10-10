@@ -10,7 +10,7 @@ function profile() {                                  // compact text profile (~
     ...m.experience.map((e) => `${e.title} @ ${e.org} (${e.dates}): ${e.bullets.map((b) => b.text).join(' ')}`),
     `Projects: ${m.projects.map((p) => `${p.name} [${p.stack}]`).join('; ')}`,
     `Skills: ${Object.values(m.skills).flat().join(', ')}`,
-    'Does NOT have: Python ML production work, Kubernetes, Kafka, React, team leadership.',
+    'Does NOT have: Kubernetes, Kafka, React, team leadership.',
   ].join('\n');
   return profileCache;
 }

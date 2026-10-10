@@ -112,7 +112,7 @@ export async function resolve(items, context = '') {
     `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at ${m.experience[0].org} since Aug 2024.`,
     `Employment history (complete): ${m.experience.map((e) => `${e.title}, ${e.org}, ${e.dates}`).join('; ')}. Never worked for or contracted with any other company.`,
     'Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa. Not a citizen or resident of Cuba, Iran, North Korea, Syria or Crimea.',
-    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, Go, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Python (production), Kubernetes, Terraform, React.',
+    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, Python, Go, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Kubernetes, Terraform, React.',
     'Has worked in a fast-paced multi-tenant SaaS fintech (Finzly) and automated processes (batch jobs, AWS Lambda audit logging). Never founded a company.',
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');

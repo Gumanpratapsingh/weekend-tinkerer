@@ -52,7 +52,20 @@ export default {
 
         // Resume step: upload this job's tailored PDF.
         const upload = modal.locator('input[type="file"]').first();
-        if (resume && await upload.count()) { await upload.setInputFiles(resume); await page.waitForTimeout(3000); }
+        if (resume && await upload.count()) {
+          await upload.setInputFiles(resume);
+          await page.waitForTimeout(3500);
+          // LinkedIn keeps the previously used resume selected: tick the one we just uploaded, by its file name.
+          const name = resume.split('/').pop();
+          const mine = modal.locator('label, [role="radio"], div').filter({ hasText: name.slice(0, 40) }).last();
+          if (await mine.count()) await mine.click({ timeout: 5000 }).catch(() => {});
+          const chosen = await modal.evaluate((root, n) => {
+            const r = [...root.querySelectorAll('input[type="radio"]')].find((x) => x.checked);
+            return r ? (r.closest('label, div')?.innerText || '').includes(n) : true;
+          }, name.slice(0, 40)).catch(() => true);
+          progress(`LinkedIn: resume ${chosen ? `"${name}" selected` : 'upload NOT selected, previous resume still ticked'}`);
+          if (!chosen) return await discard(page, { status: 'failed', reason: 'could not select the tailored resume', shot: await snap(page, 'li-resume') });
+        }
 
         // LinkedIn's own resume picker (saved resumes as radio options) is not a question: it keeps the upload.
         const fields = (await collect(page, MODAL)).filter((f) => f.type !== 'file' && !/\.(pdf|docx?)/i.test(f.label + (f.options || []).join(' '))

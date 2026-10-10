@@ -91,7 +91,7 @@ function settle(job, res) {
       break;
     case 'manual':
       // Naukri/LinkedIn jobs that apply on the company's own site: hand them to the generic external applier.
-      if (/company site/.test(res.reason || '') && job.apply_type !== 'external') {
+      if (/company site|not Easy Apply/i.test(res.reason || '') && job.apply_type !== 'external') {
         run("UPDATE jobs SET apply_type = 'external', status = 'queued', attempts = 0, status_note = 'applies on company site' WHERE id = ?", job.id);
         break;
       }

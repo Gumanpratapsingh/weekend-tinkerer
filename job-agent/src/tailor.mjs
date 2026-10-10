@@ -8,7 +8,7 @@ import { renderPdf } from './browser.mjs';
 
 // Tech the owner does NOT have. If a rewrite mentions one of these (or any JD keyword) that its source bullet
 // doesn't support, the rewrite is rejected and the original bullet is used.
-const NOT_CLAIMED = ['python', 'pytorch', 'tensorflow', 'langchain', 'llamaindex', 'langgraph', 'kafka', 'rabbitmq',
+const NOT_CLAIMED = ['pytorch', 'tensorflow', 'langchain', 'llamaindex', 'langgraph', 'kafka', 'rabbitmq',
   'kubernetes', 'k8s', 'docker', 'redis', 'react', 'vue', 'rust', 'c\\+\\+', 'c#', '\\.net', 'kotlin',
   'scala', 'spark', 'hadoop', 'airflow', 'gcp', 'azure', 'terraform', 'jenkins', 'ci/cd', 'mongodb', 'postgresql',
   'cassandra', 'dynamodb', 'eks', 'ecs', 'sagemaker', 'bedrock', 'hugging face', 'transformers', 'fine-tun\\w*',
