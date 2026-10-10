@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, getBrowser, begin, end } from './session.mjs';
+import * as session from './session.mjs';
+import { writeFileSync, renameSync } from 'node:fs';
 
 // ---------- tasks ----------
 const tasks = {
@@ -63,6 +65,19 @@ for (const mod of ['naukri', 'linkedin', 'ats', 'external']) {
 process.on('unhandledRejection', (e) => console.error('unhandled rejection (kept running):', e?.message || e));
 process.on('uncaughtException', (e) => console.error('uncaught exception (kept running):', e?.message || e));
 
+// Snapshot of the browser for the hub's live screen, every 2.5 s while a task runs (JPEG, ~50 KB).
+let current = null;                                   // { task, since }
+setInterval(async () => {
+  const p = session.livePage;
+  if (!current || !p || p.isClosed()) return;
+  try {
+    const out = join(ROOT, 'data', 'live.jpg');
+    await p.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 55, timeout: 4000 });
+    renameSync(`${out}.tmp`, out);
+    writeFileSync(join(ROOT, 'data', 'live.json'), JSON.stringify({ task: current.task, url: p.url(), at: Date.now() }));
+  } catch { /* page busy or navigating: next tick */ }
+}, 2500);
+
 const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
 let queue = Promise.resolve();                       // one task at a time: the phone has one browser
 createServer((req, res) => {
@@ -75,12 +90,16 @@ createServer((req, res) => {
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     queue = queue.then(async () => {
       begin();
+      current = { task: name, since: Date.now() };
       let timer;
       try {
         const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over 12 minutes`)), TASK_LIMIT); });
         reply(200, await Promise.race([tasks[name](raw ? JSON.parse(raw) : {}), limit]));
       } catch (e) { console.error(name, e?.message || e); reply(500, { error: e?.message || String(e) }); }
-      finally { clearTimeout(timer); end(); }
+      finally {
+        clearTimeout(timer); end(); current = null;
+        try { writeFileSync(join(ROOT, 'data', 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}
+      }
     });
   });
 }).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));

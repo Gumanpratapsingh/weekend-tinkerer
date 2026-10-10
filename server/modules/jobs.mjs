@@ -117,6 +117,16 @@ export default {
         boardsToday: new Set(today.map((l) => /discover (\w+)|feeds (\w+)|🌐 (Naukri): "/.exec(l)).filter(Boolean).map((m) => m[1] || m[2] || m[3])).size };
     },
 
+    // Latest snapshot of the phone's browser (only while it is working on something).
+    'GET /api/jobs/screen': ({ query }) => {
+      const meta = (() => { try { return JSON.parse(readFileSync(join(DIR, 'live.json'), 'utf8')); } catch { return {}; } })();
+      const img = join(DIR, 'live.jpg');
+      if (!meta.task || !existsSync(img)) return { working: false, at: meta.at || null };
+      const mtime = statSync(img).mtimeMs;
+      if (Number(query.since) >= mtime) return { working: true, same: true, ...meta };   // unchanged: skip the bytes
+      return { working: true, ...meta, shotAt: mtime, image: readFileSync(img).toString('base64') };
+    },
+
     'GET /api/jobs/memory': () => ({
       answers: q('SELECT id, question, answer, source, uses, updated_at FROM questions WHERE answer IS NOT NULL ORDER BY updated_at DESC'),
     }),

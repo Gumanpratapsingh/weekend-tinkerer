@@ -414,6 +414,17 @@ const pages = {
 
   async '/jobs/live'() {
     const term = h('div', { class: 'term', role: 'log', 'aria-live': 'off' });
+    const screenImg = h('img', { class: 'screen', alt: "Live view of the phone's browser" });
+    const screenCap = h('p', { class: 'muted', style: 'font-size:.8rem;margin:.4rem 0 0' }, 'Waiting for the phone…');
+    let shotAt = 0;
+    const paintScreen = async () => {
+      const r = await api(`/jobs/screen?since=${shotAt}`);
+      if (!r.working) { screenImg.hidden = true; screenCap.textContent = 'The browser is idle right now: it shows up here whenever the agent is searching or applying.'; return; }
+      if (r.image) { screenImg.src = `data:image/jpeg;base64,${r.image}`; shotAt = r.shotAt; }
+      screenImg.hidden = false;
+      const task = String(r.task || '').replace(/^apply_/, 'applying via ').replace(/_/g, ' ');
+      screenCap.textContent = `${task} · ${String(r.url || '').replace(/^https?:\/\//, '').slice(0, 90)} · ${ago(r.at)}`;
+    };
     const now = h('span', {}), stat = { searches: h('div', { class: 'big' }), boards: h('div', { class: 'big' }), found: h('div', { class: 'big' }), applied: h('div', { class: 'big' }) };
     let offset = null;
     const time = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''; };
@@ -435,12 +446,14 @@ const pages = {
       now.textContent = st.paused ? 'Paused' : st.now?.text || 'Idle';
     };
     await tick();
-    jobsTimer = setInterval(() => tick().catch(() => {}), 3000);
+    await paintScreen().catch(() => {});
+    jobsTimer = setInterval(() => { tick().catch(() => {}); paintScreen().catch(() => {}); }, 3000);
     const tile = (label, el) => h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, label)), el);
     return [
       h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
       h('div', { class: 'hello' }, h('h1', {}, 'Live'), h('p', { class: 'lede' }, h('span', { class: 'live' }, 'now'), ' ', now)),
       h('div', { class: 'grid' }, tile('Searches today', stat.searches), tile('Sources today', stat.boards), tile('Jobs found today', stat.found), tile('Applied today', stat.applied)),
+      h('div', { class: 'sec' }, "Phone's browser · live"), screenImg, screenCap,
       h('div', { class: 'sec' }, 'What the phone is doing'), term,
     ];
   },

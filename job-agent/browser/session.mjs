@@ -46,7 +46,16 @@ export async function siteContext(site) {
       : 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
   });
   ctx.saveSession = () => ctx.storageState({ path: state });
+  watch(ctx);
   return ctx;
+}
+
+// Live screen for the hub: the page the agent is working in right now.
+export let livePage = null;
+export function watch(ctx) {
+  const track = (p) => { livePage = p; p.on('close', () => { if (livePage === p) livePage = null; }); };
+  ctx.pages().forEach(track);
+  ctx.on('page', track);
 }
 import { appendFileSync } from 'node:fs';
 export function progress(text) {                      // shows up live on the hub's /jobs/live page

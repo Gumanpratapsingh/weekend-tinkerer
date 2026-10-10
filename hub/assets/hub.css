@@ -115,7 +115,8 @@ summary:hover{color:var(--accent)}
 .item .main a{text-decoration:none;font-weight:600}
 .item .main a:hover{color:var(--accent)}
 
-/* live terminal */
+/* live screen + terminal */
+.screen{display:block;width:100%;max-width:960px;border:1px solid var(--line);background:#111}
 .term{background:#0b0b0b;color:#cfcfcf;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;height:62vh;overflow:auto;
   padding:.75rem .9rem;border:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
 .term i{font-style:normal;color:#6f6f6f}
