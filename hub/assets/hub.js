@@ -80,6 +80,7 @@ function quickAdd(placeholder, extra = () => ({})) {
 
 // ---------- live room updates (Server-Sent Events) ----------
 let roomStream = null;
+let pageTimer = null;                              // per-page refresh (health), cleared on every navigation
 let jobsTimer = null;                              // /jobs live polling, cleared on every navigation
 function liveRoom(onState) {
   roomStream?.close();
@@ -101,6 +102,9 @@ async function refreshStatus() {
   } catch { statusEl.hidden = true; return null; }
 }
 setInterval(() => { if (!statusEl.hidden) refreshStatus(); }, 60e3);
+statusEl.setAttribute('role', 'link'); statusEl.setAttribute('tabindex', '0'); statusEl.title = 'Phone health';
+statusEl.addEventListener('click', () => go('/health'));
+statusEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') go('/health'); });
 
 // ---------- pages ----------
 const pages = {
@@ -158,11 +162,73 @@ const pages = {
       h('div', { class: 'big' }, jb?.installed ? String(jb.today.applied) : '—'),
       h('div', { class: 'sub' }, jb?.installed ? `applied today · ${jb.total.applied} total${jb.questions.length ? ` · ${jb.questions.length} question${jb.questions.length > 1 ? 's' : ''} for you` : ''}` : 'not running'));
 
+    // Phone health
+    const hotPhone = st?.battC >= 43;
+    const phoneW = h('a', { class: 'w', href: '/health', 'data-link': true },
+      h('div', { class: 'label' }, h('span', {}, 'Phone'), hotPhone ? h('span', { class: 'accent' }, 'hot') : null),
+      h('div', { class: 'big' + (hotPhone ? ' accent' : '') }, st?.tempC != null ? `${Math.round(st.tempC)}°C` : '—'),
+      h('div', { class: 'sub' }, st ? `🔋${st.battery}%${st.charging ? ' ⚡' : ''}${st.availMB ? ` · ${(st.availMB / 1024).toFixed(1)} GB free` : ''}` : 'unavailable'));
+
     return [
       h('div', { class: 'hello' }, h('h1', {}, `${greet}, Guman`), h('p', { class: 'lede' }, dateLine + up)),
-      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin),
+      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW),
       quickAdd('250 swiggy dinner'),
     ];
+  },
+
+  async '/health'() {
+    const box = h('div', {}, h('p', { class: 'loading' }, 'Measuring'));
+    const svg = (tag, attrs) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+    const gb = (mb) => `${(mb / 1024).toFixed(1)} GB`;
+    const spark = (title, key, fmt, red) => {
+      const pts = (lastHealth?.history || []).filter((x) => x[key] != null);
+      if (pts.length < 2) return h('div', { class: 'spark-box' }, h('div', { class: 'label' }, h('span', {}, title)), h('p', { class: 'muted' }, 'Collecting: one point every 5 minutes.'));
+      const vals = pts.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+      const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+      const line = svg('polyline', { points: pts.map((x) => `${((x.t - t0) / (t1 - t0 || 1)) * 300},${56 - ((x[key] - lo) / span) * 52}`).join(' ') });
+      const chart = svg('svg', { viewBox: '0 0 300 60', preserveAspectRatio: 'none', class: 'spark' + (red ? ' red' : ''), role: 'img', 'aria-label': `${title} over the last 24 hours` });
+      chart.append(line);
+      return h('div', { class: 'spark-box' }, h('div', { class: 'label' }, h('span', {}, title), h('span', {}, `now ${fmt(vals[vals.length - 1])} · low ${fmt(lo)} · high ${fmt(hi)}`)), chart);
+    };
+    let lastHealth = null;
+    const paint = (d) => {
+      lastHealth = d;
+      const used = d.mem.totalMB - d.mem.availMB, cpu = d.services.reduce((n, x) => n + x.cpu, 0);
+      const issues = [];
+      if (d.battC >= 43) issues.push(`the battery is hot (${d.battC}°C)`);
+      if (d.mem.availMB < 800) issues.push('memory is tight');
+      if (d.disk.freeGB < 10) issues.push('storage is getting full');
+      const tile = (label, big, sub, red) => h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, label)), h('div', { class: 'big' + (red ? ' accent' : '') }, big), h('div', { class: 'sub' }, sub));
+      const maxMem = Math.max(...d.services.map((x) => x.memMB), 1);
+      box.replaceChildren(
+        h('div', { class: 'hello' }, h('h1', {}, 'Phone health'),
+          h('p', { class: 'lede' }, issues.length ? h('span', { class: 'accent' }, `Needs attention: ${issues.join(', ')}.`) : 'All good: the phone is coping well.',
+            ` · up ${ago(d.upSince).replace(' ago', '')} · ${(d.requests || 0).toLocaleString('en-IN')} requests today`)),
+        h('div', { class: 'grid' },
+          tile('Battery', d.battery != null ? `${d.battery}%` : '—', d.batteryStatus || ''),
+          tile('CPU temp', d.cpuC != null ? `${Math.round(d.cpuC)}°C` : '—', 'safe below ~60°C', d.cpuC >= 60),
+          tile('Battery temp', d.battC != null ? `${d.battC}°C` : '—', 'keep it below 43°C', d.battC >= 43),
+          tile('CPU now', `${(cpu / 100).toFixed(1)}`, `of ${d.cores} cores busy`),
+          tile('Memory free', gb(d.mem.availMB), `of ${gb(d.mem.totalMB)} · ${Math.round((used / d.mem.totalMB) * 100)}% used`, d.mem.availMB < 800),
+          tile('Swap used', gb(d.mem.swapUsedMB), `of ${gb(d.mem.swapTotalMB)}`),
+          tile('Storage free', `${Math.round(d.disk.freeGB)} GB`, `of ${Math.round(d.disk.totalGB)} GB`, d.disk.freeGB < 10),
+          tile('Uptime', ago(d.upSince).replace(' ago', ''), 'without a restart')),
+        h('div', { class: 'sec' }, "What's using the phone"),
+        ...d.services.map((x) => h('div', { class: 'cat' },
+          h('div', { class: 'l' }, h('span', {}, x.name), h('span', {}, `${x.memMB.toLocaleString('en-IN')} MB · ${x.cpu}% CPU`)),
+          h('div', { class: 't' }, h('i', { class: x.cpu >= 100 ? 'over' : '', style: `width:${(x.memMB / maxMem) * 100}%` })))),
+        h('p', { class: 'lede' }, 'Bar = memory. CPU is measured over one second; 100% means one full core (the phone has 8).'),
+        h('div', { class: 'sec' }, 'Last 24 hours'),
+        spark('CPU temperature', 'cpuC', (v) => `${Math.round(v)}°C`, false),
+        spark('Battery temperature', 'battC', (v) => `${Math.round(v)}°C`, true),
+        spark('Free memory', 'availMB', (v) => gb(v), false),
+        h('div', { class: 'sec' }, 'Keep it healthy'),
+        h('p', { class: 'lede' }, 'Turn on Settings → Battery → Protect battery (stops at 85%) and give the cupboard a little air. You get a push if the battery passes 43°C, memory drops under 600 MB or storage under 5 GB.'));
+    };
+    const load = async () => { try { paint(await api('/health')); } catch (e) { if (!lastHealth) box.replaceChildren(h('p', { class: 'err' }, e.message)); } };
+    load();
+    pageTimer = setInterval(load, 30e3);
+    return [box];
   },
 
   async '/login'() {
@@ -549,12 +615,13 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path) { history.pushState(null, '', path); render(); }
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   roomStream?.close(); roomStream = null;
   clearInterval(jobsTimer); jobsTimer = null;
+  clearInterval(pageTimer); pageTimer = null;
   const inside = path !== '/login';
   tabs.hidden = !inside; logoutBtn.hidden = !inside;
   if (!inside) statusEl.hidden = true;

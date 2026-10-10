@@ -143,3 +143,11 @@ summary:hover{color:var(--accent)}
 .toast.bad{background:var(--accent);color:#fff}
 @media (max-width:47.99rem){.toast{bottom:calc(5.5rem + env(safe-area-inset-bottom))}}
 @media (prefers-reduced-motion:reduce){.loading::after,.live::before,.flash{animation:none}}
+
+/* ---------- phone health ---------- */
+.status[role="link"]{cursor:pointer}
+.status[role="link"]:hover span{color:var(--accent)}
+.spark-box{margin:.9rem 0 1.2rem}
+.spark{display:block;width:100%;height:60px;margin-top:.35rem;border-bottom:1px solid var(--line)}
+.spark polyline{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
+.spark.red polyline{stroke:var(--accent)}
