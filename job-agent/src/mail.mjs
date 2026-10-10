@@ -33,7 +33,12 @@ export async function checkMail() {
       }
       for await (const msg of imap.fetch(`${last + 1}:*`, { uid: true, source: true }, { uid: true })) {
         if (msg.uid <= last) continue;
-        try { await handle(await simpleParser(msg.source)); } catch (e) { log(`mail ${msg.uid}: ${e.message}`); }
+        try { await handle(await simpleParser(msg.source)); }
+        catch (e) {
+          // AI quota hit: stop here and retry this same email next round (never skip unread mail).
+          if (e.rateLimited || /rate limited|AI busy/i.test(e.message)) { log(`mail ${msg.uid}: AI busy, will retry`); break; }
+          log(`mail ${msg.uid}: ${e.message}`);
+        }
         setKv('mail_uid', msg.uid);
       }
     } finally { lock.release(); }
@@ -56,7 +61,10 @@ async function handle(mail) {
   const known = all('SELECT DISTINCT company FROM jobs WHERE applied_at IS NOT NULL').some((j) => from.includes(norm(j.company).split(' ')[0]));
   if (!known && (!JOBBY.test(`${mail.subject} ${text.slice(0, 1500)}`) || NOISE.test(`${mail.subject} ${text.slice(0, 600)}`))) return;
 
-  const c = await llm([
+  // Obvious "we got your application" mail needs no AI (saves the free quota for real recruiter emails).
+  const conf = /(?:application was sent to|thank you for applying(?: to)?|your application (?:to|for) .{0,60}(?:has been )?(?:received|submitted))\s*:?\s*(.{2,60})/i.exec(mail.subject || '');
+  const c = conf ? { job_related: true, category: 'confirmation', company: conf[1].replace(/[.!]+$/, '').trim(), role: '', summary: mail.subject, questions: [], needs_reply: false, urgent: false }
+    : await llm([
     { role: 'system', content: `Classify an email received by a job seeker. Return JSON:
 {"job_related":bool,"category":"interview|question|assessment|rejection|offer|confirmation|other",
  "company":"", "role":"", "summary":"<=30 words, include dates/times/links that matter",
