@@ -59,7 +59,17 @@ export const visitorIp = (req) => String(req.headers['x-visitor-ip'] || req.head
 
 // ---------- ntfy ----------
 export const TOPIC = readFileSync(join(HOME, 'room', 'ntfy-topic'), 'utf8').trim();
-export async function push(title, body, { tags = '', priority = 'default' } = {}) {
+// The owner's chat app (Cupboard, same phone) gets alerts first; ntfy stays as the fallback until Cupboard
+// reports a device with notifications on ("pushable"), and whenever Cupboard is down.
+export async function cupboard(payload) {
+  try {
+    const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(4000) });
+    return r.ok && (await r.json()).pushable === true;
+  } catch { return false; }
+}
+export async function push(title, body, { tags = '', priority = 'default', actions } = {}) {
+  if (await cupboard({ title, text: body, actions })) return;
   try {
     await fetch(`https://ntfy.sh/${TOPIC}`, {
       method: 'POST', body,

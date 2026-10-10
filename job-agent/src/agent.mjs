@@ -39,6 +39,13 @@ createServer((req, res) => {
       if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
         return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');
       }
+      // Answers and button taps from Cupboard (the owner's chat app on this phone, localhost only).
+      if (url.pathname === '/internal/cupboard' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
+        const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const ref = b.ref?.ref_kind ? { ref_kind: String(b.ref.ref_kind), ref_id: String(b.ref.ref_id) } : null;
+        await handleOwner(String(b.text || '').trim().slice(0, 2000), ref);
+        return reply(200, '{"ok":true}', 'application/json');
+      }
       // Dashboard actions from the tinker hub server (same phone, localhost only, owner already logged in there).
       if (url.pathname === '/internal/action' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));

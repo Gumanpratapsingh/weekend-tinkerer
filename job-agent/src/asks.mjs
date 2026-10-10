@@ -12,7 +12,7 @@ export function askOwner(question, { jobId = null, draftId = null, context = '',
   if (!alreadyAsked) {
     const opts = q.options ? `\nOptions: ${JSON.parse(q.options).join(' / ')}` : '';
     tell(`❓ Q${q.id}: ${q.question}${opts}\n(${context})\n\n— Reply to this message with your answer. I'll remember it for every future application.`,
-      { refKind: 'question', refId: q.id });
+      { refKind: 'question', refId: q.id, options: q.options ? JSON.parse(q.options) : null });
   }
   return q.id;
 }

@@ -96,7 +96,7 @@ async function onMessage(text) {
   const note = text.replace(/spent|rs\.?|inr|rupees|₹|on/gi, ' ').replace(m[1], ' ').replace(/\s+/g, ' ').trim() || 'expense';
   const item = add({ amount: m[1], note, category: await categorise(note) });
   log(`expense ${item.amount} ${item.category}`);
-  await push(`Logged Rs ${Math.round(item.amount)} - ${item.category}`, `${item.note}. This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'white_check_mark' });
+  await push(`Logged Rs ${Math.round(item.amount)} - ${item.category}`, `${item.note}. This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'white_check_mark', actions: [{ id: 'undo-expense', label: '↶ Undo' }] });
   budgetCheck(item.category);
 }
 
@@ -106,7 +106,7 @@ export async function logExpense({ amount, note, source }) {
   item.source = source; persist();
   log(`expense ${item.amount} ${item.category} via ${source}`);
   await push(`Logged Rs ${Math.round(item.amount)} - ${item.category}`,
-    `${item.note} (from your bank SMS). This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'bank' });
+    `${item.note} (from your bank SMS). This month: ${rupees(totals(inMonth(istMonth())).total)}. Send "undo" to remove.`, { tags: 'bank', actions: [{ id: 'undo-expense', label: '↶ Undo' }] });
   budgetCheck(item.category);
   return item;
 }

@@ -368,7 +368,7 @@ createServer(async (req, res) => {
       const text = String(b.text || '').slice(0, 4000);
       if (!text) return send(res, 400, { error: 'text required' });
       const replyTo = /^http:\/\/127\.0\.0\.1:\d+\//.test(b.replyTo || '') ? b.replyTo : null;
-      const actions = Array.isArray(b.actions) ? b.actions.slice(0, 4).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), style: a.style === 'go' ? 'go' : '' })) : [];
+      const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '' })) : [];
       const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo };
       const msg = await botSay(text, extra);
       return send(res, 200, { id: msg.id, pushable: push.hasPush(o.id) });

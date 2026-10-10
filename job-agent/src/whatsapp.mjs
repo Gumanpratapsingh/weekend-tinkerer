@@ -30,13 +30,29 @@ const windowOpen = () => Date.now() - Number(getKv('wa_last_inbound', 0)) < WIND
 const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h = istHour(); return from > to ? h >= from || h < to : h >= from && h < to; };
 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
-export function tell(body, { refKind = null, refId = null, urgent = false } = {}) {
-  if (!configured()) {                                 // no chat channel yet: phone push; answers go on the hub /jobs page
-    ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
+export function tell(body, { refKind = null, refId = null, urgent = false, options = null } = {}) {
+  if (!configured()) {
+    // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
+    // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
+    (async () => {
+      if (await toCupboard(body, refKind, refId, options)) return;
+      ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
+    })().catch((e) => log(`tell: ${e.message}`));
     return;
   }
   run('INSERT INTO outbox(body, ref_kind, ref_id, urgent, created_at) VALUES(?,?,?,?,?)', body, refKind, refId ? String(refId) : null, urgent ? 1 : 0, Date.now());
   flush().catch((e) => log(`wa flush: ${e.message}`));
+}
+
+async function toCupboard(body, refKind, refId, options) {
+  const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
+  const actions = refKind === 'draft' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
+    : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
+  try {
+    const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
+      body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref, actions, replyTo: ref ? 'http://127.0.0.1:8083/internal/cupboard' : null }) });
+    return r.ok && (await r.json()).pushable === true;
+  } catch { return false; }
 }
 
 let flushing = false;
