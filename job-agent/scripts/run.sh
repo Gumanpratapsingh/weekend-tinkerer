@@ -21,8 +21,14 @@ stop() {
   pkill -f "browser/worker.mjs" 2>/dev/null; pkill -f "chrome.*--no-sandbox" 2>/dev/null; pkill -f Xvfb 2>/dev/null
   sleep 1; true
 }
+stop_worker() {
+  kill "$(cat $RUN/jobworker.pid 2>/dev/null)" 2>/dev/null; rm -f $RUN/jobworker.pid
+  pkill -f "browser/worker.mjs" 2>/dev/null; pkill -f "chrome.*--no-sandbox" 2>/dev/null; pkill -f Xvfb 2>/dev/null
+  sleep 2; true
+}
 case "$1" in
   stop) stop ;;
+  worker) stop_worker; start_worker ;;                  # used by the agent's watchdog
   restart) stop; start_worker; [ -f $J/src/agent.mjs ] && start_agent ;;
   *) start_worker; [ -f $J/src/agent.mjs ] && start_agent ;;
 esac

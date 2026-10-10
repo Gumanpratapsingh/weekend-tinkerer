@@ -59,19 +59,28 @@ for (const mod of ['naukri', 'linkedin', 'ats', 'external']) {
   if (existsSync(f)) Object.assign(tasks, (await import(f)).default);
 }
 
+// A page closing mid-click must never take the whole worker down (it did on 2026-10-10 and stalled applying).
+process.on('unhandledRejection', (e) => console.error('unhandled rejection (kept running):', e?.message || e));
+process.on('uncaughtException', (e) => console.error('uncaught exception (kept running):', e?.message || e));
+
+const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
 let queue = Promise.resolve();                       // one task at a time: the phone has one browser
 createServer((req, res) => {
+  const reply = (code, body) => { if (res.headersSent) return; res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+  if (req.url === '/health') return reply(200, { ok: true, pid: process.pid });   // instant, not queued
   let raw = '';
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
     const name = req.url.slice(1);
-    const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     queue = queue.then(async () => {
       begin();
-      try { reply(200, await tasks[name](raw ? JSON.parse(raw) : {})); }
-      catch (e) { console.error(name, e); reply(500, { error: e.message }); }
-      finally { end(); }
+      let timer;
+      try {
+        const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over 12 minutes`)), TASK_LIMIT); });
+        reply(200, await Promise.race([tasks[name](raw ? JSON.parse(raw) : {}), limit]));
+      } catch (e) { console.error(name, e?.message || e); reply(500, { error: e?.message || String(e) }); }
+      finally { clearTimeout(timer); end(); }
     });
   });
 }).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));

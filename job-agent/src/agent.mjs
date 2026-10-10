@@ -136,4 +136,16 @@ every(10, 'digest', async () => {
     + `\nAll time: ${s.appliedTotal} applied, ${s.interviews} interview stage.`);
 });
 
+// Watchdog: the browser worker answers /health instantly; two misses in a row -> restart it.
+let workerMisses = 0;
+every(2, 'worker watchdog', async () => {
+  const ok = await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(15000) }).then((r) => r.ok).catch(() => false);
+  workerMisses = ok ? 0 : workerMisses + 1;
+  if (workerMisses < 2) return;
+  workerMisses = 0;
+  activity('🔧 Phone browser was down: restarting it');
+  const { spawn } = await import('node:child_process');
+  spawn('sh', [join(ROOT, 'scripts', 'run.sh'), 'worker'], { detached: true, stdio: 'ignore' }).unref();
+}, { delay: 90e3 });
+
 process.on('unhandledRejection', (e) => log(`unhandled: ${e?.stack || e}`));
