@@ -56,7 +56,7 @@ export async function applyJob(job, { dryRun = false } = {}) {
   setKv('now', JSON.stringify({ text: `${dryRun ? 'Dry run: filling' : 'Applying to'} ${job.title} @ ${job.company} (${job.source}, ${job.score}%)`, at: Date.now(), job: job.id }));
   try {
     let resume = job.resume_path;
-    if (!resume) {
+    if (!resume && job.apply_type !== 'naukri') {      // Naukri sends the profile resume: no tailoring needed
       const t = (job.score || 0) >= (config().tailor_min_score || 0) ? await tailor(job) : await baseResume(job.track || 'backend');
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);

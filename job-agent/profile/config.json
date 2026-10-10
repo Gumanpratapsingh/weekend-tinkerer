@@ -4,6 +4,7 @@
       "queries": [
         "java developer",
         "spring boot developer",
+        "springboot developer",
         "java backend developer",
         "java microservices",
         "java full stack developer",
@@ -258,7 +259,7 @@
   "naukri": {
     "pages": 3,
     "job_age_days": 3,
-    "queries_per_location": 14
+    "queries_per_location": 15
   },
   "linkedin_pages": 3,
   "naukri_headlines": [
@@ -274,5 +275,6 @@
     "naukri_queries": 8
   },
   "min_salary_lpa": 12,
-  "tailor_min_score": 75
+  "tailor_min_score": 75,
+  "naukri_resume": "GPS_RESUME_SPRINGBOOT_DEVELOPER.pdf"
 }

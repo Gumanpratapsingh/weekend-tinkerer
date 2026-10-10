@@ -96,7 +96,7 @@ every(5, 'naukri refresh', async () => {
     setKv(`naukri_refresh_${slot}`, day);
     const heads = config().naukri_headlines || [];
     const i = Number(getKv('naukri_headline_i', 0));
-    const r = await browserTask('naukri_refresh', { resume: join(ROOT, 'profile', 'base-resume.pdf'), headline: rotate && heads.length ? heads[i % heads.length] : null }, 5 * 60e3)
+    const r = await browserTask('naukri_refresh', { resume: join(ROOT, 'profile', config().naukri_resume || 'GPS_RESUME_SPRINGBOOT_DEVELOPER.pdf') /* owner's original file and name */, headline: rotate && heads.length ? heads[i % heads.length] : null }, 5 * 60e3)
       .catch((e) => ({ status: 'error', reason: e.message }));
     if (rotate) setKv('naukri_headline_i', i + 1);
     log(`naukri refresh ${slot}: ${r.status}${r.reason ? ' ' + r.reason : ''}`);

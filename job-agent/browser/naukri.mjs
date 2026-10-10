@@ -149,8 +149,8 @@ export default {
       const apply = page.locator('#apply-button, button.apply-button, button:has-text("Apply")').first();
       if (!await apply.count()) return { status: 'closed' };
 
-      // Naukri applies with the profile resume, so upload the tailored one to the profile first.
-      if (resume && !dryRun) await uploadProfileResume(c, resume);
+      // Naukri applies with the profile resume. The owner's ORIGINAL resume stays there (recruiters search and download
+      // it), so nothing is uploaded per job. Only the daily refresh (naukri_refresh) touches it, with the base resume.
 
       if (dryRun) return { status: 'dry_run', shot: await snap(page, 'naukri-dry') };
       await apply.click();
