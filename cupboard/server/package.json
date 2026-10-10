@@ -1,0 +1,10 @@
+{
+  "name": "cupboard-server",
+  "private": true,
+  "type": "module",
+  "description": "Cupboard chat server for the S20 phone (node:sqlite storage, Web Push notifications)",
+  "engines": { "node": ">=22.13" },
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}
