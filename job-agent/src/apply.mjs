@@ -61,7 +61,7 @@ export async function applyJob(job, { dryRun = false } = {}) {
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
     }
-    const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 10 * 60e3);
+    const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 30 * 60e3);   // may wait behind a search task
     log(`apply ${job.id}: ${JSON.stringify({ ...res, unknown: res.unknown?.length })}`);
     return settle(job, res);
   } catch (e) {

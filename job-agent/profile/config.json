@@ -261,7 +261,7 @@
     "job_age_days": 3,
     "queries_per_location": 15
   },
-  "linkedin_pages": 3,
+  "linkedin_pages": 2,
   "naukri_headlines": [
     "Java Backend Engineer | Spring Boot, Microservices, REST APIs, AWS | Payment systems for 50+ banks | Building LLM-powered apps and AI agents",
     "Software Engineer at Finzly (Java, Spring Boot, AWS) | FinTech and payments backend | Hands-on with LLM integration, Groq, Playwright automation"

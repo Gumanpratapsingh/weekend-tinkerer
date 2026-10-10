@@ -79,6 +79,7 @@ setInterval(async () => {
 }, 2500);
 
 const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
+const LIMITS = { naukri_search: 60 * 60e3, naukri_recommended: 10 * 60e3 };   // full searches legitimately take ~20 min
 let queue = Promise.resolve();                       // one task at a time: the phone has one browser
 createServer((req, res) => {
   const reply = (code, body) => { if (res.headersSent) return; res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -93,7 +94,8 @@ createServer((req, res) => {
       current = { task: name, since: Date.now() };
       let timer;
       try {
-        const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over 12 minutes`)), TASK_LIMIT); });
+        const ms = LIMITS[name] || TASK_LIMIT;
+        const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over ${ms / 60e3} minutes`)), ms); });
         reply(200, await Promise.race([tasks[name](raw ? JSON.parse(raw) : {}), limit]));
       } catch (e) { console.error(name, e?.message || e); reply(500, { error: e?.message || String(e) }); }
       finally {

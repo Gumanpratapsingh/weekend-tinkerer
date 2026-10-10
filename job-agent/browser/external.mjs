@@ -122,6 +122,12 @@ export default {
 
       const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /submit|apply|send application|send/i }).last();
       if (!await submit.count()) return { status: 'manual', reason: 'no submit button found', shot };
+      // Submit stays disabled while a required field is empty: name the empty fields instead of clicking in vain.
+      if (!await submit.isEnabled().catch(() => true)) {
+        const empty = await page.evaluate(() => [...document.querySelectorAll('input[required], select[required], textarea[required], [aria-required="true"]')]
+          .filter((e) => !e.value && e.type !== 'hidden').map((e) => (e.labels?.[0]?.innerText || e.getAttribute('aria-label') || e.placeholder || e.name || '').trim()).filter(Boolean).slice(0, 6));
+        return { status: 'failed', reason: `form incomplete, Submit disabled${empty.length ? `: empty ${empty.join(', ')}` : ''}`, shot };
+      }
       await submit.click({ timeout: 10000 });
       await page.waitForTimeout(6000);
       if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
