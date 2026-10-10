@@ -21,6 +21,7 @@ export function touch() {
   if (process.env.KEEP_BROWSER) return;               // Mac handoff: the owner is using the window
   idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
 }
+export async function closeBrowser() { const b = browser; browser = null; await b?.close().catch(() => {}); }
 export async function getBrowser() {
   touch();
   if (browser?.isConnected()) return browser;
@@ -46,6 +47,8 @@ export async function siteContext(site) {
       : 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
   });
   ctx.saveSession = () => ctx.storageState({ path: state });
+  // Phone only: skip images and video. Much less CPU/heat; application forms don't need them.
+  if (!process.env.KEEP_BROWSER) await ctx.route('**/*', (r) => (['image', 'media'].includes(r.request().resourceType()) ? r.abort() : r.continue()));
   watch(ctx);
   return ctx;
 }

@@ -35,6 +35,8 @@ function insert(job) {
 }
 
 export async function discover(sourceName) {
+  // Browser-based sources wait while the phone cools down (thermal guard in agent.mjs).
+  if (['naukri', 'fresh'].includes(sourceName) && getKv('thermal_pause') === '1') { log(`discover ${sourceName}: skipped, phone cooling down`); return 0; }
   let jobs = [];
   try { jobs = await SOURCES[sourceName](); } catch (e) { log(`discover ${sourceName}: ${e.message}`); return 0; }
   for (const j of jobs) learnBoard(j.apply_url);

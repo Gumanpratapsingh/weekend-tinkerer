@@ -6,11 +6,12 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, getBrowser, begin, end } from './session.mjs';
 import * as session from './session.mjs';
-import { writeFileSync, renameSync } from 'node:fs';
+import { writeFileSync, renameSync, statSync } from 'node:fs';
 
 // ---------- tasks ----------
 const tasks = {
   async ping() { await getBrowser(); return { ok: true, version: (await getBrowser()).version() }; },
+  async rest() { await session.closeBrowser(); return { ok: true }; },   // thermal guard: free the CPU
 
   // Diagnostics: open a URL with a site's session, report what loaded, save a screenshot.
   async probe({ url, site = 'probe', click = null }) {
@@ -70,6 +71,8 @@ let current = null;                                   // { task, since }
 setInterval(async () => {
   const p = session.livePage;
   if (!current || !p || p.isClosed()) return;
+  // Only while someone has /jobs/live open (the hub touches live-watch when it asks for a frame).
+  try { if (Date.now() - statSync(join(ROOT, 'data', 'live-watch')).mtimeMs > 30e3) return; } catch { return; }
   try {
     const out = join(ROOT, 'data', 'live.jpg');
     await p.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 55, timeout: 4000 });

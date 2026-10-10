@@ -37,7 +37,7 @@ function companyToday(company) {
 }
 
 export async function applyNext({ dryRun = false } = {}) {
-  if (getKv('paused') === '1') return null;
+  if (getKv('paused') === '1' || getKv('thermal_pause') === '1') return null;
   const caps = config().daily_caps;
   if (!dryRun && appliedToday() >= caps.total) return null;
   const queued = all("SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT 200");

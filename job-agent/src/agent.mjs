@@ -1,7 +1,8 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
 import { createServer } from 'node:http';
-import { log, every, istHour, config, activity, ROOT } from './core.mjs';
+import { log, every, istHour, config, activity, ROOT, HOME } from './core.mjs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserTask } from './browser.mjs';
 import { getKv, setKv, all } from './db.mjs';
@@ -135,6 +136,22 @@ every(10, 'digest', async () => {
     + `\n\nQueue ${s.queued} · apply-yourself ${s.manual} (send "manual") · open questions ${openQuestions().length}`
     + `\nAll time: ${s.appliedTotal} applied, ${s.interviews} interview stage.`);
 });
+
+// Thermal guard: the phone runs 24/7 on a charger. Too hot -> pause all browser work and close Chromium; resume when cool.
+every(1, 'thermal guard', async () => {
+  const st = (() => { try { return JSON.parse(readFileSync(join(HOME, 'live', 'status.json'), 'utf8')); } catch { return null; } })();
+  if (!st) return;
+  const t = config().thermal || {};
+  const paused = getKv('thermal_pause') === '1';
+  if (!paused && (st.batteryTempC >= t.pause_battery_c || st.cpuTempC >= t.pause_cpu_c)) {
+    setKv('thermal_pause', '1');
+    activity(`🌡️ Phone is hot (battery ${st.batteryTempC}°C, CPU ${st.cpuTempC}°C): pausing the browser to cool down`);
+    await browserTask('rest', {}, 60e3).catch(() => {});
+  } else if (paused && st.batteryTempC <= t.resume_battery_c && st.cpuTempC <= t.resume_cpu_c) {
+    setKv('thermal_pause', '0');
+    activity(`🌡️ Cooled down (battery ${st.batteryTempC}°C, CPU ${st.cpuTempC}°C): resuming`);
+  }
+}, { delay: 30e3 });
 
 // Watchdog: the browser worker answers /health instantly; two misses in a row -> restart it.
 let workerMisses = 0;

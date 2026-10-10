@@ -1,7 +1,7 @@
 // Job agent dashboard (job-agent/): reads the agent's SQLite database read-only and forwards owner actions
 // (answer a question, pause, go live, skip...) to the agent's localhost-only API. Owner login required like every route.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOME } from '../core.mjs';
 
@@ -119,6 +119,7 @@ export default {
 
     // Latest snapshot of the phone's browser (only while it is working on something).
     'GET /api/jobs/screen': ({ query }) => {
+      try { writeFileSync(join(DIR, 'live-watch'), String(Date.now())); } catch { /* best effort */ }   // worker snapshots only while watched
       const meta = (() => { try { return JSON.parse(readFileSync(join(DIR, 'live.json'), 'utf8')); } catch { return {}; } })();
       const img = join(DIR, 'live.jpg');
       if (!meta.task || !existsSync(img)) return { working: false, at: meta.at || null };
