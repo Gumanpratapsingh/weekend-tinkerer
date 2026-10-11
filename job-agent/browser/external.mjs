@@ -8,6 +8,8 @@ import ats from './ats.mjs';
 // Sites that require creating a candidate account before applying.
 const ACCOUNT_WALL = /myworkdayjobs|workday\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
+// New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
+const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)/i;
 
 async function knownAts(url) {
@@ -18,6 +20,41 @@ async function knownAts(url) {
   const a = /jobs\.ashbyhq\.com\/([\w.-]+)\/([0-9a-f-]{36})/.exec(url);
   if (a) return { task: 'apply_ashby', id: `ashby:${a[1]}:${a[2]}`, apply_url: `https://jobs.ashbyhq.com/${a[1]}/${a[2]}/application` };
   return null;
+}
+
+// Small company sites often take applications by email ("send your resume to jobs@…", or an Apply link that is a
+// mailto: with the role in the subject). Pick the address for this job: a mailto whose subject matches the title best,
+// else one careers-style address named on the page. Returns {email, subject} or null.
+export async function emailApply(page, job) {
+  const found = await page.evaluate(() => {
+    // Skip honeypot-style links hidden from people (aria-hidden or pushed off-screen); hidden modals are fine.
+    const trap = (a) => a.getAttribute('aria-hidden') === 'true' || a.getAttribute('tabindex') === '-1' || /-9999px|opacity-\[0\.0/.test(a.className || '');
+    const all = [...document.querySelectorAll('a[href^="mailto:" i]')].filter((a) => !trap(a));
+    const links = all.map((a) => a.getAttribute('href'));
+    const onApply = all.filter((a) => /apply/i.test(a.innerText || a.getAttribute('aria-label') || '')).map((a) => a.getAttribute('href'));
+    const text = document.body.innerText || '';
+    const said = [...text.matchAll(/(?:send|email|mail|forward|share)[^.\n]{0,60}?(?:resume|cv|profile|application)[^.\n]{0,40}?([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/gi)].map((m) => m[1]);
+    return { links, onApply, said };
+  }).catch(() => ({ links: [], onApply: [], said: [] }));
+  const norm = (x) => ` ${String(x || '').toLowerCase().replace(/\.net\b/g, 'dot net').replace(/[^a-z0-9]+/g, ' ')} `;
+  const words = (x) => norm(x).trim().split(' ').filter((w) => w.length > 1 && !/^(the|and|for|of|in|at|to|sr|jr|ii|iii)$/.test(w));
+  const want = words(job.title);
+  const opts = found.links.map((h) => {
+    const m = /^mailto:([^?]+)(?:\?(.*))?$/i.exec(h || '');
+    if (!m) return null;
+    const subject = decodeURIComponent((/(?:^|&)subject=([^&]*)/i.exec(m[2] || '') || [])[1] || '').replace(/\+/g, ' ');
+    const have = words(subject);
+    const overlap = want.filter((w) => have.includes(w)).length;
+    return { email: decodeURIComponent(m[1]).trim(), subject, score: subject ? overlap / Math.max(1, want.length) : 0 };
+  }).filter((o) => o && /@/.test(o.email) && !/privacy|support|info@|sales|press|media|legal|abuse|noreply|no-reply/i.test(o.email));
+  const best = opts.filter((o) => o.subject).sort((a, b) => b.score - a.score)[0];
+  if (best && best.score >= 0.5) return { email: best.email, subject: best.subject };
+  if (opts.some((o) => o.subject)) return null;                     // role-specific addresses, none for this role
+  const one = (list) => { const u = [...new Set(list.map((e) => String(e).replace(/^mailto:/i, '').split('?')[0].trim().toLowerCase()))].filter((e) => /@/.test(e)); return u.length === 1 ? u[0] : null; };
+  // 1) "send your resume to X" on the page, 2) the address behind the Apply button, 3) one careers-style address.
+  const pick = one(found.said) || one(found.onApply)
+    || one(opts.map((o) => o.email).filter((e) => /career|job|hr|recruit|talent|hiring|resume|cv|people/i.test(e)));
+  return pick ? { email: pick, subject: '' } : null;
 }
 
 // Form that looks like a job application: has a file input, or an email field plus a few others.
@@ -84,6 +121,7 @@ export default {
         for (const el of await target.all()) {
           const text = ((await el.innerText().catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || '').trim();
           const href = (await el.getAttribute('href').catch(() => '')) || '';
+          if (/^mailto:/i.test(href)) continue;                      // email applications are handled below
           const rank = /^apply( now)?$/i.test(text) ? 3 : APPLY_TEXT.test(text) ? 2
             : (/apply/i.test(text) && text.length <= 40 && !/applied|how to apply|why apply|apply filter/i.test(text)) || /\/apply\b/i.test(href) ? 1 : 0;
           if (rank) ranked.push({ el, text: text || href, rank });
@@ -94,9 +132,19 @@ export default {
           if (!(await el.isVisible().catch(() => false))) continue;
           progress(`Company site: clicking "${text.slice(0, 40)}"`);
           const before = page.url();
-          const popup = ctx.waitForEvent('page', { timeout: 12000 }).catch(() => null);
+          const nextTab = () => ctx.waitForEvent('page', { predicate: (pg) => !TRACKER.test(pg.url()), timeout: 12000 }).catch(() => null);
+          let popup = nextTab();
           await el.click({ timeout: 8000 }).catch(() => {});
-          const p2 = await popup;
+          // LinkedIn asks "Share your profile?" before sending people to the company site: Continue opens it.
+          const share = page.locator('[role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button').filter({ hasText: /^\s*continue\s*$/i }).first();
+          if (/linkedin\.com/.test(page.url()) && await share.isVisible({ timeout: 3000 }).catch(() => false)) {
+            progress('Company site: LinkedIn "Share your profile?" → Continue');
+            popup = nextTab();
+            await share.click({ timeout: 8000 }).catch(() => {});
+          }
+          let p2 = await popup;
+          // A tracker tab can still slip through (its URL is about:blank when the event fires): wait for it to settle.
+          if (p2) { await p2.waitForLoadState('domcontentloaded').catch(() => {}); if (TRACKER.test(p2.url())) { await p2.close().catch(() => {}); p2 = await nextTab(); } }
           if (p2) { page = p2; await page.waitForLoadState('domcontentloaded').catch(() => {}); }
           await page.waitForTimeout(3500);
           const g = await formScore(page);
@@ -106,6 +154,8 @@ export default {
           break;
         }
         if (!clicked) {
+          const mail = await emailApply(page, job);
+          if (mail) { progress(`Company site: applications go by email to ${mail.email}`); return { status: 'email', email: mail.email, subject: mail.subject, shot: await snap('ext-email') }; }
           const seen = ranked.map((r) => r.text).slice(0, 8);
           progress(`Company site: no Apply control matched; candidates: ${JSON.stringify(seen).slice(0, 200)}`);
           return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };

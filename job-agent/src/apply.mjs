@@ -116,6 +116,10 @@ function settle(job, res) {
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
       tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
       break;
+    case 'email':                                     // the company takes applications by email: draft it, the person approves
+      run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `drafting an email application to ${res.email}`, job.id);
+      import('./emailapply.mjs').then(({ draftEmailApp }) => draftEmailApp(job, res)).catch((e) => logError('email apply', e, { job: job.id }));
+      break;
     case 'already_applied':
       run("UPDATE jobs SET status = 'applied', status_note = 'already applied before' WHERE id = ?", job.id);
       break;

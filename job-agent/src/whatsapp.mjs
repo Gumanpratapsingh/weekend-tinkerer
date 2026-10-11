@@ -50,7 +50,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
   const to = OWNER || toOwner ? null : privateProfile().cupboard_user;
   if (!OWNER && !toOwner && !to) { log('tell: no cupboard_user in private.json, message not sent'); return false; }
   const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
-  const actions = refKind === 'draft' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
+  const actions = refKind === 'draft' || refKind === 'emailapp' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
     : refKind === 'referral' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Skip', value: 'skip' }]
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
   try {
