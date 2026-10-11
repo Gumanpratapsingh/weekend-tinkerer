@@ -167,3 +167,29 @@ export async function latestSecurityCode(company = '') {
   } finally { await imap.logout().catch(() => {}); }
   return null;
 }
+
+// Every minute: new "security / verification code" emails (last 15 min) -> the owner, once each. He types it himself.
+export async function forwardSecurityCodes(tellFn) {
+  if (!mailConfigured()) return;
+  const imap = client();
+  await imap.connect();
+  const seen = new Set(JSON.parse(getKv('codes_forwarded', '[]')));
+  try {
+    const lock = await imap.getMailboxLock('INBOX');
+    try {
+      const since = new Date(Date.now() - 864e5);
+      const uids = [...new Set([...await imap.search({ since, subject: 'security code' }, { uid: true }), ...await imap.search({ since, subject: 'verification code' }, { uid: true })])];
+      for (const uid of uids.sort((a, b) => a - b).slice(-6)) {
+        if (seen.has(uid)) continue;
+        const msg = await imap.fetchOne(String(uid), { source: true, internalDate: true }, { uid: true });
+        seen.add(uid);
+        if (Date.now() - new Date(msg.internalDate).getTime() > 15 * 60e3) continue;     // too old to be useful
+        const m = await simpleParser(msg.source);
+        const code = /\b([A-Za-z0-9]{6,8})\b(?=[\s\S]{0,200}(?:code|expire))|code[^A-Za-z0-9]{1,40}([A-Za-z0-9]{6,8})\b/i.exec(m.text || '');
+        if (!code) continue;
+        const company = (/application to (.+)$/i.exec(m.subject || '') || [])[1] || (m.from?.text || '');
+        tellFn(`🔐 Code for your application to ${company.trim()}: ${code[1] || code[2]}\n(Enter it on the form to submit. It expires in a few minutes.)`, { urgent: true });
+      }
+    } finally { lock.release(); }
+  } finally { await imap.logout().catch(() => {}); setKv('codes_forwarded', JSON.stringify([...seen].slice(-200))); }
+}
