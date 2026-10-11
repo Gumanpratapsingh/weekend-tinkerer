@@ -39,6 +39,13 @@ createServer((req, res) => {
       if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
         return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');
       }
+      // Free-form question from the owner (Cupboard): answer from the agent's live state. Read-only.
+      if (url.pathname === '/internal/ask' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
+        const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const { ask } = await import('./assistant.mjs');
+        try { return reply(200, JSON.stringify({ answer: await ask(String(b.question || '').slice(0, 1000)) }), 'application/json'); }
+        catch (e) { return reply(200, JSON.stringify({ answer: /rate limited/i.test(e.message) ? 'The free AI is busy right now (quota). Ask again in a few minutes, or check hub → Jobs.' : `Couldn't answer: ${e.message}` }), 'application/json'); }
+      }
       // Answers and button taps from Cupboard (the owner's chat app on this phone, localhost only).
       if (url.pathname === '/internal/cupboard' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));

@@ -45,7 +45,8 @@ const HELP = `Things I understand:
 • room · arm · disarm
 • spent today · spent week · spent month
 • an expense like "250 swiggy dinner"
-• to answer a question I sent, tap Reply on it (or its buttons)`;
+• to answer a question I sent, tap Reply on it (or its buttons)
+• or just ask: "why did Rubrik fail?", "how many applied today?", "what's waiting for me?"`;
 
 /** The owner wrote to the bot. replyTo is the bot message being answered (or null). */
 export async function botReply({ text, replyTo, say, update }) {
@@ -65,7 +66,14 @@ export async function botReply({ text, replyTo, say, update }) {
   const sp = /^spent(?:\s+(today|week|month))?$/.exec(low);
   if (sp) { const p = sp[1] || 'today'; const v = spent(p === 'today' ? 1 : p === 'week' ? 7 : 'month'); return say(v ? `Spent ${p === 'today' ? 'today' : `this ${p}`}: ${v}` : 'No expense data yet.'); }
   if (/^₹?\s*\d+(\.\d+)?\s+\S/.test(t)) { await ntfy('-exp', t.replace(/^₹\s*/, '')); return say('Logging it… you\'ll get a confirmation in a moment.'); }
-  return say(`I didn't get that. ${HELP}`);
+  // Anything else: ask the job agent's assistant (answers from its live data with the free AI).
+  try {
+    const r = await fetch('http://127.0.0.1:8083/internal/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: t }), signal: AbortSignal.timeout(90000) });
+    const { answer } = await r.json();
+    if (answer) return say(answer);
+  } catch { /* agent down or slow: fall back to the menu */ }
+  return say(`I couldn't reach the job agent just now. ${HELP}`);
 }
 
 /** The owner tapped a button on a bot card. */
