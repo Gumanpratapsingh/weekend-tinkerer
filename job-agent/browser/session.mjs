@@ -65,10 +65,12 @@ export async function siteContext(site, { images = false, viewport = { width: 13
   return ctx;
 }
 
-// Live screen for the hub: the page the agent is working in right now.
-export let livePage = null;
+// Live screen for the hub: the page each person's agent is working in right now (people's tasks can run in parallel).
+const livePages = new Map();                          // person -> page
+export const livePageOf = (person) => livePages.get(person) || null;
 export function watch(ctx) {
-  const track = (p) => { livePage = p; p.on('close', () => { if (livePage === p) livePage = null; }); };
+  const person = who().person;
+  const track = (p) => { livePages.set(person, p); p.on('close', () => { if (livePages.get(person) === p) livePages.delete(person); }); };
   ctx.pages().forEach(track);
   ctx.on('page', track);
 }

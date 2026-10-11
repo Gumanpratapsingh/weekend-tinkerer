@@ -6,11 +6,14 @@ import { siteContext, shotPath, progress, capture, who } from './session.mjs';
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
 const AGENT = () => `${who().agent}/internal/resolve`;   // the agent of the person this task is for
 
-let ctxPromise;
-async function ctx() {                                // one Naukri context per browser run; refreshed cookies are saved
-  const c = ctxPromise && await ctxPromise.catch(() => null);
-  if (!c || !c.browser()?.isConnected()) ctxPromise = siteContext('naukri');
-  return ctxPromise;
+// One Naukri context per PERSON per browser run (refreshed cookies are saved). Never shared between people: a shared
+// one sent the owner's Naukri application from a friend's account on 2026-10-11.
+const ctxs = new Map();                               // person -> Promise<context>
+async function ctx() {
+  const key = who().person;
+  const c = ctxs.has(key) && await ctxs.get(key).catch(() => null);
+  if (!c || !c.browser()?.isConnected()) ctxs.set(key, siteContext('naukri'));
+  return ctxs.get(key);
 }
 async function home() {
   const c = await ctx();

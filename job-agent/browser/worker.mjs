@@ -2,6 +2,7 @@
 // Listens on 127.0.0.1:8084. The agent (Termux) posts tasks; each site module exports async handlers.
 // The jobagent folder is bind-mounted at the same path, so file paths are shared with the agent.
 import { createServer } from 'node:http';
+import { totalmem } from 'node:os';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, getBrowser, begin, end } from './session.mjs';
@@ -68,22 +69,23 @@ process.on('uncaughtException', (e) => { console.error('uncaught exception (kept
 
 // Snapshot of the browser for the hub's live screen, every 2.5 s while a task runs (JPEG, ~50 KB).
 // Written to the data folder of the person whose task is running; only while their /jobs/live page is open.
-let current = null;                                   // { task, since, who }
-let shooting = false;                                 // a slow screenshot must not pile up behind the next tick
-setInterval(async () => {
-  const p = session.livePage;
-  if (shooting || !current || !p || p.isClosed()) return;
+const lanes = new Map();                              // person -> { task, since, who }: what each person's lane is doing
+const shooting = new Set();                           // a slow screenshot must not pile up behind the next tick
+setInterval(() => { for (const current of lanes.values()) shoot(current); }, 900);
+async function shoot(current) {
+  const p = session.livePageOf(current.who.person);
+  if (shooting.has(current.who.person) || !p || p.isClosed()) return;
   const dir = current.who.data;
   try { if (Date.now() - statSync(join(dir, 'live-watch')).mtimeMs > 30e3) return; } catch { return; }
-  shooting = true;
+  shooting.add(current.who.person);
   try {
     const out = join(dir, 'live.jpg');
     await p.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 55, timeout: 4000 });
     renameSync(`${out}.tmp`, out);
     writeFileSync(join(dir, 'live.json'), JSON.stringify({ task: current.task, url: p.url(), at: Date.now() }));
   } catch { /* page busy or navigating: next tick */ }
-  finally { shooting = false; }
-}, 900);   // ~1 frame a second; only while someone watches (the live page or a sign-in page)
+  finally { shooting.delete(current.who.person); }
+}   // ~1 frame a second per person; only while that person's live page is open
 
 // ---------- live sign-in (outside the queue, in its own browser) ----------
 // The person signs in themselves through the Cupboard sign-in page: we open the real login page, relay their taps and
@@ -139,16 +141,23 @@ setInterval(async () => {                             // frames for the sign-in 
 
 const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
 const LIMITS = { naukri_search: 60 * 60e3, naukri_recommended: 10 * 60e3 };   // full searches legitimately take ~20 min
-// One task at a time (the phone has one browser), taken in turns between people so nobody's queue starves the other's.
+// Each person has one lane: their own tasks run one at a time (their logins and pages stay consistent), and different
+// people's lanes run in parallel when the machine is big enough. The laptop (16 GB) runs 2 lanes; the phone keeps 1,
+// taking turns between people, so it stays cool. JA_LANES overrides.
+const LANES = Number(process.env.JA_LANES) || (totalmem() > 12e9 ? 2 : 1);
 const waiting = [];                                  // [{ who, run }]
-let running = false, lastPerson = null;
+let lastPerson = null;
 function pump() {
-  if (running || !waiting.length) return;
-  let i = waiting.findIndex((w) => w.who.person !== lastPerson);
-  if (i < 0) i = 0;
-  const [next] = waiting.splice(i, 1);
-  running = true; lastPerson = next.who.person;
-  session.person.run(next.who, next.run).finally(() => { running = false; pump(); });
+  while (lanes.size < LANES && waiting.length) {
+    // Oldest task of a person who is not running yet; with one lane, prefer someone other than the last one served.
+    const free = waiting.map((w, i) => [w, i]).filter(([w]) => !lanes.has(w.who.person));
+    if (!free.length) return;
+    const [, i] = (LANES === 1 && free.find(([w]) => w.who.person !== lastPerson)) || free[0];
+    const [next] = waiting.splice(i, 1);
+    lastPerson = next.who.person;
+    lanes.set(next.who.person, { task: next.name, since: Date.now(), who: next.who });
+    session.person.run(next.who, next.run).finally(() => { lanes.delete(next.who.person); pump(); });
+  }
 }
 // A task says whose it is (_who); data folders must be the owner's or one under people/, never anything else.
 function whoOf(body) {
@@ -194,7 +203,10 @@ createServer((req, res) => {
     });
     return;
   }
-  if (req.url === '/health') return reply(200, { ok: true, pid: process.pid, waiting: waiting.length, running: current?.task || null, for: current?.who.person || null, signin: signin?.who.person || null });   // instant, not queued
+  // "running" stays null only when no lane is busy (linux/switch-to-laptop.sh and failover wait for that).
+  if (req.url === '/health') { const first = [...lanes.values()][0];
+    return reply(200, { ok: true, pid: process.pid, waiting: waiting.length, running: first?.task || null, for: first?.who.person || null, signin: signin?.who.person || null,
+      lanes: Object.fromEntries([...lanes].map(([p, l]) => [p, l.task])), max: LANES }); }   // instant, not queued
   let raw = '';
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
@@ -202,9 +214,8 @@ createServer((req, res) => {
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     let body, w;
     try { body = raw ? JSON.parse(raw) : {}; w = whoOf(body); } catch (e) { return reply(400, { error: e.message }); }
-    waiting.push({ who: w, run: async () => {
+    waiting.push({ who: w, name, run: async () => {
       begin();
-      current = { task: name, since: Date.now(), who: w };
       let timer;
       try {
         const ms = LIMITS[name] || TASK_LIMIT;
@@ -212,11 +223,11 @@ createServer((req, res) => {
         reply(200, await Promise.race([tasks[name](body), limit]));
       } catch (e) {
         console.error(`[${w.person}] ${name}`, e?.stack || e?.message || e);
-        session.workerError(`task ${name}`, e, { job: body.job?.id || null, url: session.livePage?.url?.() || null });
+        session.workerError(`task ${name}`, e, { job: body.job?.id || null, url: session.livePageOf(w.person)?.url?.() || null });
         reply(500, { error: e?.message || String(e) });
       }
       finally {
-        clearTimeout(timer); end(); current = null;
+        clearTimeout(timer); end();
         try { writeFileSync(join(w.data, 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}
       }
     } });
