@@ -45,7 +45,16 @@ for (const [i, job] of jobs.entries()) {
   const startUrl = res.page.url();
   const alreadySaid = DONE.test(before);
   let applied = false;
-  for (let t = 0; t < 900 && !applied; t += 2) {                 // up to 15 minutes per job
+  let shownCode = false;
+  for (let t = 0; t < 900 && !applied; t += 2) {
+    // Greenhouse asks for an emailed security code after Submit: fetch it from your inbox and show it here; you type it.
+    if (!shownCode && t % 10 === 0) {
+      const body = await res.page.innerText('body').catch(() => '');
+      if (/security code|verification code was sent/i.test(body)) {
+        const r = await fetch(`${AGENT}/internal/security-code?company=${encodeURIComponent(job.company)}`).then((x) => x.json()).catch(() => ({}));
+        if (r.code) { console.log(`   📧 Security code from your inbox: ${r.code}   (type it into the boxes, then Submit)`); shownCode = true; }
+      }
+    }                 // up to 15 minutes per job
     const pages = ctx.pages();
     if (!pages.length) break;
     for (const p of pages) {

@@ -146,3 +146,24 @@ export async function sendReferralEmail(to, subject, text) {
   await smtp.sendMail({ from: `${master().name} <${config().mailbox}>`, to, subject, text,
     attachments: [{ filename: resume.split('/').pop(), path: resume }] });
 }
+
+// The newest "Security code for your application to <company>" from the last 15 minutes (shown to the owner during the Mac handoff).
+export async function latestSecurityCode(company = '') {
+  const imap = client();
+  await imap.connect();
+  try {
+    const lock = await imap.getMailboxLock('INBOX');
+    try {
+      const uids = await imap.search({ since: new Date(Date.now() - 864e5), subject: 'Security code' }, { uid: true });
+      for (const uid of uids.slice(-5).reverse()) {
+        const msg = await imap.fetchOne(String(uid), { source: true, internalDate: true }, { uid: true });
+        if (Date.now() - new Date(msg.internalDate).getTime() > 15 * 60e3) continue;
+        const m = await simpleParser(msg.source);
+        if (company && !(m.subject || '').toLowerCase().includes(company.toLowerCase().split(' ')[0])) continue;
+        const code = /\b([A-Za-z0-9]{8})\b(?=[\s\S]{0,200}(?:code|expire))|code[^A-Za-z0-9]{1,40}([A-Za-z0-9]{8})\b/i.exec(m.text || '');
+        if (code) return { code: code[1] || code[2], subject: m.subject };
+      }
+    } finally { lock.release(); }
+  } finally { await imap.logout().catch(() => {}); }
+  return null;
+}

@@ -36,6 +36,10 @@ createServer((req, res) => {
         try { return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json'); }
         catch (e) { if (e.retryLater) return reply(503, '{"error":"AI busy"}', 'application/json'); throw e; }
       }
+      if (url.pathname === '/internal/security-code' && !req.headers['x-visitor-ip']) {
+        const { latestSecurityCode } = await import('./mail.mjs');
+        return reply(200, JSON.stringify(await latestSecurityCode(url.searchParams.get('company') || '').catch(() => null) || {}), 'application/json');
+      }
       if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
         return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');
       }

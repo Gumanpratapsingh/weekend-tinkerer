@@ -42,6 +42,9 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     await page.locator(site.submit).first().click({ timeout: 10000 });
     await page.waitForTimeout(6000);
     if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap(page, `${kind}-captcha`) };
+    // Greenhouse: "enter the 8-character code to confirm you're a human" (emailed). A human check: the owner finishes it.
+    if (/security code|verification code was sent|confirm you'?re a human/i.test(await page.innerText('body').catch(() => '')))
+      return { status: 'manual', reason: 'captcha (Greenhouse emailed security code)', shot: await snap(page, `${kind}-securitycode`) };
     const body = await page.innerText('body');
     if (DONE.test(body) || /confirmation|thank/i.test(page.url())) return { status: 'applied', shot: await snap(page, `${kind}-done`) };
     const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
