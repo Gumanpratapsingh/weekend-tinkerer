@@ -130,3 +130,57 @@ a{color:inherit}
 .signin .key{border:1px solid var(--ink);background:none;color:var(--ink);padding:.4rem .7rem;font:inherit;cursor:pointer}
 .signin .show{font-size:.8rem;color:var(--soft);display:flex;align-items:center;gap:.3rem}
 .signin .note{font-size:.78rem;color:var(--soft)}
+
+/* ---------- job dashboard ---------- */
+.jtabs{flex:none;display:flex;gap:0;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--bg)}
+.jtabs a{flex:1 0 auto;text-align:center;padding:.6rem .55rem;font-size:.82rem;font-weight:700;text-decoration:none;color:var(--soft);border-bottom:3px solid transparent}
+.jtabs a.on{color:var(--ink);border-bottom-color:var(--accent)}
+.jd{padding-bottom:2rem}
+.jpad{padding:.7rem 1rem 0}
+.jsec{padding:.9rem 1rem;border-bottom:1px solid var(--line)}
+.jsec h3{margin:0 0 .5rem;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.jsec p{margin:.25rem 0}
+.soft{color:var(--soft);font-size:.85rem}
+.mode{font-weight:700}
+.warn{margin:0;padding:.8rem 1rem;background:var(--tint);border-bottom:1px solid var(--line);font-weight:600}
+.btns{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.btn.sm{padding:.35rem .7rem;font-size:.82rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(6.5rem,1fr));border-bottom:1px solid var(--line)}
+.stat{padding:.8rem 1rem;border-right:1px solid var(--line)}
+.stat b{display:block;font-size:1.7rem;font-weight:900;letter-spacing:-.04em;line-height:1.05}
+.stat small{font-size:.72rem;color:var(--soft)}
+.bars{display:flex;align-items:flex-end;gap:3px;height:4.5rem}
+.bars i{flex:1;background:var(--ink);min-height:2px}
+.bars i:last-child{background:var(--accent)}
+.conn{display:flex;justify-content:space-between;align-items:center;padding:.3rem 0}
+.more{display:inline-block;margin-top:.3rem;font-size:.85rem;font-weight:700;color:var(--accent);text-decoration:none}
+.jsearch{width:100%;font:inherit;padding:.55rem .6rem;border:1px solid var(--ink);background:var(--bg);color:var(--ink)}
+.chips.flat{border-top:0;padding:.6rem 1rem;background:none}
+.chips button.on{background:var(--ink);color:var(--bg)}
+.jrow{display:flex;gap:.7rem;align-items:center;width:100%;padding:.65rem 1rem;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer}
+.jrow:hover{background:var(--tint)}
+.jrow .score{flex:none;width:2.4rem;height:2.4rem;display:grid;place-items:center;font-weight:900;font-size:.85rem;border:2px solid var(--ink)}
+.jrow .score.hi{border-color:var(--accent);color:var(--accent)}
+.jrow .mid{flex:1;min-width:0}
+.jrow .mid b,.jrow .mid small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jrow .mid small{font-size:.75rem;color:var(--soft)}
+.jrow .st{flex:none;max-width:7.5rem;text-align:right;font-size:.72rem;font-weight:700}
+.jrow .st small{display:block;font-weight:400;color:var(--soft)}
+.qa{padding:.6rem 0;border-top:1px solid var(--line)}
+.qa b{display:block;font-size:.9rem}
+.qa p{margin:.2rem 0;white-space:pre-wrap}
+.qa small{color:var(--soft);font-size:.72rem;margin-right:.6rem}
+.jta{width:100%;font:inherit;font-size:.9rem;padding:.5rem;border:1px solid var(--ink);background:var(--bg);color:var(--ink);margin-top:.4rem;resize:vertical}
+.rcard{padding:.7rem 0;border-top:1px solid var(--line)}
+.rhead{display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+.rhead a{text-decoration:none}
+.tag{display:inline-block;font-size:.68rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:.1rem .4rem;border:1px solid var(--ink)}
+.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.term{margin:0;max-height:55vh;overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace;background:#111;color:#e6e6e6;padding:.6rem;white-space:pre-wrap;word-break:break-word}
+.term .ts{color:#8a8a8a}
+.jd .screen{width:100%;border:1px solid var(--line);margin-top:.4rem}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:50}
+.sheetin{background:var(--bg);width:100%;max-width:46rem;max-height:88dvh;overflow-y:auto;padding:1rem 1rem calc(1.2rem + env(safe-area-inset-bottom));border-top:6px solid var(--ink)}
+.sheetin details{margin-top:.7rem}
+.sheetin summary{cursor:pointer;font-weight:700;font-size:.85rem}
+.jdesc{white-space:pre-wrap;font-size:.85rem}

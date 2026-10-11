@@ -359,6 +359,45 @@ async function api(req, res, path, query) {
     return send(res, 200, { msg });
   }
 
+  // ----- job dashboard: each person sees only their own job agent (found via agentFor), read-only plus a few actions -----
+  if ((m = /^\/api\/jobs\/([a-z]+)$/.exec(path))) {
+    const agent = agentFor(me);
+    if (!agent) throw err(404, 'No job agent is set up for you yet.');
+    const name = m[1];
+    if (M === 'GET' && name === 'screen') {
+      const r = await fetch(`${agent}/internal/dash/screen`, { signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (r?.status !== 200) { res.writeHead(204, { 'Cache-Control': 'no-store' }); return res.end(); }
+      const buf = Buffer.from(await r.arrayBuffer());
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'Content-Length': buf.length,
+        'X-Task': r.headers.get('x-task') || '', 'X-Url': r.headers.get('x-url') || '' });
+      return res.end(buf);
+    }
+    if (M === 'GET' && ['summary', 'list', 'detail', 'memory', 'referrals', 'log'].includes(name)) {
+      const qs = new URLSearchParams(Object.entries(query).filter(([k]) => ['status', 'q', 'page', 'id', 'since'].includes(k)).map(([k, v]) => [k, String(v).slice(0, 200)]));
+      const r = await fetch(`${agent}/internal/dash/${name}?${qs}`, { signal: AbortSignal.timeout(20000) }).catch(() => null);
+      if (!r) throw err(503, 'Your job agent is not responding. It may be restarting.');
+      return send(res, r.status, await r.json().catch(() => ({})));
+    }
+    if (M === 'POST' && name === 'action') {
+      const b = await readJson(req, 4000);
+      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies'].includes(b.action)) throw err(400, 'Unknown action.');
+      const r = await fetch(`${agent}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({ action: b.action, id: b.id, answer: typeof b.answer === 'string' ? b.answer.slice(0, 4000) : b.answer }) }).catch(() => null);
+      if (!r?.ok) throw err(503, 'Your job agent is not responding. It may be restarting.');
+      const out = await r.json().catch(() => ({}));
+      if (out.ok === false) throw err(409, out.error || 'Your job agent refused that.');
+      return send(res, 200, out);
+    }
+    if (M === 'POST' && name === 'signin') {                 // connect LinkedIn/Naukri from the dashboard
+      const b = await readJson(req, 200);
+      if (!/^(linkedin|naukri)$/.test(b.site || '')) throw err(400, 'Unknown site.');
+      const token = randomBytes(16).toString('hex');
+      setKv(`signin:${token}`, JSON.stringify({ uid: me.id, agent, site: b.site, exp: Date.now() + 2 * 3600e3 }));
+      return send(res, 200, { path: `/signin/${token}` });
+    }
+    throw err(404, 'Not found.');
+  }
+
   // ----- live sign-in page: the person signs in to LinkedIn/Naukri on the phone's browser, through their own agent -----
   // The token is single-person and short-lived; taps and keystrokes go to that person's agent only and are never logged.
   if ((m = /^\/api\/signin\/([a-f0-9]{32})(\/[a-z]+)?$/.exec(path))) {

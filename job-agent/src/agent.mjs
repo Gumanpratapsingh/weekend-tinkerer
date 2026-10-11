@@ -99,6 +99,21 @@ createServer((req, res) => {
         }
         return reply(404, 'not found');
       }
+      // Dashboard data for this person's Cupboard app (Cupboard -> here; localhost only, read-only).
+      if (url.pathname.startsWith('/internal/dash/') && req.method === 'GET' && !req.headers['x-visitor-ip']) {
+        const dash = await import('./dash.mjs');
+        const name = url.pathname.slice('/internal/dash/'.length), qs = Object.fromEntries(url.searchParams);
+        if (name === 'screen') {
+          const s = dash.screen();
+          if (!s) return reply(204, '');
+          res.writeHead(200, { 'Content-Type': 'image/jpeg', 'X-Task': encodeURIComponent(s.meta.task || ''), 'X-Url': encodeURIComponent(String(s.meta.url || '').slice(0, 200)) });
+          return res.end(s.image);
+        }
+        const fn = { summary: dash.summary, list: dash.list, detail: dash.detail, memory: dash.memory, referrals: dash.referrals, log: dash.log }[name];
+        if (!fn) return reply(404, '{"error":"not found"}', 'application/json');
+        const out = fn(qs);
+        return out ? reply(200, JSON.stringify(out), 'application/json') : reply(404, '{"error":"Not found."}', 'application/json');
+      }
       // Dashboard actions from the tinker hub server (same phone, localhost only, owner already logged in there).
       if (url.pathname === '/internal/action' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));

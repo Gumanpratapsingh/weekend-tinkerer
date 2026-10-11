@@ -156,6 +156,7 @@ function route() {
   if ((m = /^\/c\/(\d+)$/.exec(p))) return { name: 'chat', id: Number(m[1]) };
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
+  if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
   return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me' }[p] || 'list' };
 }
 function go(path, replace) { if (location.pathname !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
@@ -258,9 +259,23 @@ const screens = {
     tick();
   },
 
+  // ---------- job search dashboard (your own job agent) ----------
+  async jobs(r) {
+    const tabs = [['overview', 'Overview'], ['jobs', 'Jobs'], ['questions', 'Questions'], ['referrals', 'Referrals'], ['live', 'Live']];
+    const body = h('div', { class: 'scroll jd', id: 'jd' }, h('p', { class: 'loading' }, 'Loading…'));
+    app.replaceChildren(
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'),
+        h('div', { class: 't' }, h('b', {}, 'Job search'), h('small', { id: 'jdsub' }, 'your job agent'))),
+      h('nav', { class: 'jtabs' }, tabs.map(([k, l]) => h('a', { href: k === 'overview' ? '/jobs' : `/jobs/${k}`, 'data-link': true, class: k === r.tab ? 'on' : '' }, l))),
+      body);
+    if (state.jobName) document.getElementById('jdsub').textContent = `${state.jobName}'s job agent`;
+    try { await jobTabs[r.tab](body); } catch (e) { body.replaceChildren(h('p', { class: 'loading' }, e.message)); }
+  },
+
   list() {
     app.replaceChildren(
       h('div', { class: 'bar' }, h('div', { class: 't' }, h('h1', {}, 'Cupboard'), h('small', { id: 'phone' }, 'served from an S20')),
+        h('a', { class: 'icon', href: '/jobs', 'data-link': true, 'aria-label': 'Job search', title: 'Job search' }, '💼'),
         h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, '✎'),
         h('a', { class: 'icon', href: '/me', 'data-link': true, 'aria-label': 'Settings', title: 'Settings' }, '⚙')),
       h('div', { class: 'scroll', id: 'list' }));
@@ -579,6 +594,177 @@ function stopRec(send) {
     } catch (e) { toast(e.message, true); }
   };
   r.mr.stop();
+}
+
+// ---------- job dashboard tabs ----------
+const LABEL = { new: 'New', scored: 'Scored', filtered: 'Filtered out', queued: 'In queue', applying: 'Applying now', ready: 'Filled (not sent)',
+  needs_answer: 'Waiting for your answer', captcha: 'Needs you (CAPTCHA)', manual: 'Apply yourself', claimed: 'You are applying', applied: 'Applied',
+  interview: 'Interview', rejected: 'Rejected', failed: 'Failed', skipped: 'Skipped' };
+const STAGE = { drafted: 'Draft: needs your OK', approved: 'Approved, sending soon', invited: 'Invite sent', accepted: 'Connected',
+  followup_drafted: 'Follow-up: needs your OK', followup_approved: 'Follow-up approved', followup_sent: 'Asked for referral', replied: 'Replied',
+  referred: 'Referred ✓', skipped: 'Skipped', failed: 'Failed' };
+const act = (action, id, answer) => api('/jobs/action', { method: 'POST', body: { action, id, answer } });
+const ago = (t) => { const m = (Date.now() - t) / 60000; return m < 60 ? `${Math.max(1, Math.round(m))}m` : m < 2880 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
+const stat = (n, l) => h('div', { class: 'stat' }, h('b', {}, String(n)), h('small', {}, l));
+const sec = (title, ...kids) => h('section', { class: 'jsec' }, h('h3', {}, title), ...kids);
+let jobTimer = null;
+const jobTabs = {
+  async overview(box) {
+    const s = await api('/jobs/summary');
+    state.jobName = s.name;
+    document.getElementById('jdsub').textContent = s.name ? `${s.name}'s job agent` : 'your job agent';
+    const mode = s.paused ? '⏸ Paused' : s.dryRun ? '🧪 Fill-only: forms are filled but not sent' : '🚀 Live: applying for you';
+    const modeBtns = [];
+    const btn = (label, action, cls = '') => { const b = h('button', { class: `btn ${cls}`, type: 'button' }, label);
+      b.addEventListener('click', async () => { b.disabled = true; try { await act(action); go(location.pathname, true); } catch (e) { toast(e.message, true); b.disabled = false; } }); return b; };
+    if (s.dryRun) modeBtns.push(btn('Go live', 'live'));
+    else modeBtns.push(btn('Fill-only', 'dry', 'ghost'));
+    modeBtns.push(s.paused ? btn('Resume', 'resume') : btn('Pause', 'pause', 'ghost'));
+    const conn = (key, label) => {
+      const ok = s.connected[key];
+      const row = h('div', { class: 'conn' }, h('span', {}, `${ok ? '✅' : '⚪️'} ${label}`));
+      if (!ok) {
+        const b = h('button', { class: 'btn ghost sm', type: 'button' }, 'Connect');
+        b.addEventListener('click', async () => {
+          if (key === 'gmail') { const c = state.convs.find((x) => x.kind === 'bot'); if (c) { await api(`/convs/${c.id}/messages`, { method: 'POST', body: { text: 'login gmail' } }).catch(() => {}); go(`/c/${c.id}`); } return; }
+          try { const { path } = await api('/jobs/signin', { method: 'POST', body: { site: key } }); go(path); } catch (e) { toast(e.message, true); }
+        });
+        row.append(b);
+      }
+      return row;
+    };
+    const max = Math.max(1, ...s.days.map((d) => d.n));
+    const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(Date.now() + 5.5 * 3600e3 - (13 - i) * 864e5).toISOString().slice(0, 10); return { d, n: s.days.find((x) => x.d === d)?.n || 0 }; });
+    const kids = [];
+    if (s.setup) kids.push(h('p', { class: 'warn' }, '👋 Setup isn\'t finished yet. Open your "Job agent" chat to continue.'));
+    kids.push(sec('Status', h('p', { class: 'mode' }, mode), s.now?.text ? h('p', { class: 'soft' }, `Now: ${s.now.text}`) : null, h('div', { class: 'btns' }, modeBtns)));
+    kids.push(h('div', { class: 'stats' }, stat(s.today.found, 'found today'), stat(s.today.matched, `fit ≥ ${s.minScore}%`), stat(s.today.applied, 'applied today'), stat(s.total.applied, 'applied total'), stat(s.total.interviews, 'interviews')));
+    kids.push(sec('Applied, last 14 days', h('div', { class: 'bars' }, days.map((d) => h('i', { title: `${d.d}: ${d.n}`, style: `height:${Math.round((d.n / max) * 100)}%` })))));
+    if (s.questions.length) kids.push(sec(`Questions for you (${s.questions.length})`, ...s.questions.slice(0, 5).map(qCard), s.questions.length > 5 ? h('a', { href: '/jobs/questions', 'data-link': true, class: 'more' }, 'All questions →') : null));
+    if (s.drafts) kids.push(sec('Referrals', h('a', { href: '/jobs/referrals', 'data-link': true, class: 'more' }, `${s.drafts} draft(s) waiting for your OK →`)));
+    if (s.attention.length) kids.push(sec('Needs you', ...s.attention.map(jobRow)));
+    kids.push(sec('Accounts', conn('linkedin', 'LinkedIn'), conn('naukri', 'Naukri'), conn('gmail', `Gmail${s.connected.mailbox ? ` (${s.connected.mailbox})` : ''}`)));
+    box.replaceChildren(...kids.filter(Boolean));
+  },
+  async jobs(box) {
+    const filters = [['matches', 'Matches'], ['queued', 'Queue'], ['applied', 'Applied'], ['needs_answer', 'Waiting'], ['manual', 'Apply yourself'], ['interview', 'Interview'], ['failed', 'Failed'], ['all', 'All']];
+    let status = 'matches', q = '', page = 0;
+    const listEl = h('div', {});
+    const search = h('input', { type: 'search', placeholder: 'Search title or company', class: 'jsearch' });
+    const chips = h('div', { class: 'chips flat' }, filters.map(([k, l]) => { const b = h('button', { type: 'button', class: k === status ? 'on' : '' }, l);
+      b.addEventListener('click', () => { status = k; page = 0; [...chips.children].forEach((c) => c.classList.toggle('on', c === b)); load(); }); return b; }));
+    let t; search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { q = search.value; page = 0; load(); }, 300); });
+    const more = h('button', { class: 'btn ghost full', type: 'button' }, 'Load more');
+    more.addEventListener('click', () => { page++; load(true); });
+    async function load(append) {
+      const { jobs } = await api(`/jobs/list?status=${status}&q=${encodeURIComponent(q)}&page=${page}`);
+      const rows = jobs.map(jobRow);
+      if (append) listEl.append(...rows); else listEl.replaceChildren(...(rows.length ? rows : [h('p', { class: 'loading' }, 'Nothing here yet.')]));
+      more.hidden = jobs.length < 40;
+    }
+    box.replaceChildren(h('div', { class: 'jpad' }, search), chips, listEl, h('div', { class: 'jpad' }, more));
+    await load();
+  },
+  async questions(box) {
+    const { open, answers } = await api('/jobs/memory');
+    const learned = answers.map((a) => {
+      const row = h('div', { class: 'qa' }, h('b', {}, a.question), h('p', {}, a.answer), a.uses ? h('small', {}, `used ${a.uses}×`) : null);
+      const edit = h('button', { class: 'btn ghost sm', type: 'button' }, 'Change');
+      edit.addEventListener('click', () => row.replaceWith(qCard({ id: a.id, question: a.question, value: a.answer })));
+      row.append(edit);
+      return row;
+    });
+    box.replaceChildren(sec(`Waiting for your answer (${open.length})`, ...(open.length ? open.map(qCard) : [h('p', { class: 'soft' }, 'Nothing waiting. 🎉')])),
+      sec(`What I know about you (${answers.length})`, h('p', { class: 'soft' }, 'I reuse these on every application. Change any of them anytime.'), ...learned));
+  },
+  async referrals(box) {
+    const { rows, companies } = await api('/jobs/referrals');
+    const card = (r) => {
+      const draft = ['drafted', 'followup_drafted'].includes(r.stage);
+      const text = draft ? h('textarea', { rows: '5', class: 'jta' }) : null;
+      if (text) text.value = r.stage === 'followup_drafted' ? r.followup || '' : r.note || '';
+      const kids = [h('div', { class: 'rhead' }, h('a', { href: r.profile, target: '_blank', rel: 'noopener' }, h('b', {}, r.person)), h('span', { class: 'tag' }, STAGE[r.stage] || r.stage)),
+        h('small', {}, `${r.company}${r.job_title ? ` · ${r.job_title}` : ''}${r.alumni ? ' · alum' : ''}`), r.headline ? h('p', { class: 'soft' }, r.headline) : null];
+      if (draft) {
+        const send = h('button', { class: 'btn sm', type: 'button' }, 'Send'), skip = h('button', { class: 'btn ghost sm', type: 'button' }, 'Skip');
+        const orig = text.value;
+        send.addEventListener('click', async () => { send.disabled = true; try { const o = await act('ref_decide', r.id, text.value.trim() === orig.trim() ? 'ok' : text.value.trim()); toast(o.message || 'Sent'); go(location.pathname, true); } catch (e) { toast(e.message, true); send.disabled = false; } });
+        skip.addEventListener('click', async () => { try { await act('ref_decide', r.id, 'skip'); go(location.pathname, true); } catch (e) { toast(e.message, true); } });
+        kids.push(text, h('div', { class: 'btns' }, send, skip));
+      } else if (r.note) kids.push(h('p', { class: 'soft clip' }, r.note));
+      return h('div', { class: 'rcard' }, kids.filter(Boolean));
+    };
+    box.replaceChildren(sec('Referral requests', h('p', { class: 'soft' }, `Nothing is sent without your OK. Target companies: ${companies.length ? companies.join(', ') : 'companies where you are a strong match'}.`),
+      ...(rows.length ? rows.map(card) : [h('p', { class: 'soft' }, 'None yet. They start once LinkedIn is connected.')])));
+  },
+  async live(box) {
+    const img = h('img', { class: 'screen', alt: 'Phone browser', hidden: true });
+    const cap = h('p', { class: 'soft' }, 'The phone\'s browser shows up here while it works on one of your applications.');
+    const term = h('pre', { class: 'term' });
+    box.replaceChildren(sec('Phone browser', cap, img), sec('What your agent is doing', term));
+    let offset;
+    const tick = async () => {
+      if (route().name !== 'jobs' || route().tab !== 'live') return;
+      try {
+        const r = await fetch(`/api/jobs/screen?t=${Date.now()}`, { credentials: 'same-origin' });
+        if (r.status === 200) { const u = URL.createObjectURL(await r.blob()); const old = img.src; img.src = u; img.hidden = false; cap.textContent = `Working on: ${decodeURIComponent(r.headers.get('x-task') || '')}`; if (old.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(old), 3000); }
+        else { img.hidden = true; cap.textContent = 'The phone\'s browser shows up here while it works on one of your applications.'; }
+        const l = await api(`/jobs/log${offset != null ? `?since=${offset}` : ''}`);
+        offset = l.offset;
+        if (l.lines.length) {
+          const atBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 40;
+          term.append(...l.lines.map((x) => h('div', {}, h('span', { class: 'ts' }, time(Date.parse(x.slice(0, 24)))), ' ', x.slice(25))));
+          while (term.childElementCount > 400) term.firstChild.remove();
+          if (atBottom || l.lines.length > 50) term.scrollTop = term.scrollHeight;
+        }
+      } catch { /* keep polling */ }
+      clearTimeout(jobTimer); jobTimer = setTimeout(tick, 2500);
+    };
+    tick();
+  },
+};
+function qCard(q) {
+  const opts = (() => { try { return JSON.parse(q.options || 'null'); } catch { return null; } })();
+  const inp = h('textarea', { rows: '2', class: 'jta', placeholder: 'Your answer' });
+  if (q.value) inp.value = q.value;
+  const save = h('button', { class: 'btn sm', type: 'button' }, 'Save');
+  const box = h('div', { class: 'qa ask' }, h('b', {}, q.question));
+  if (opts?.length) box.append(h('div', { class: 'chips flat' }, opts.map((o) => { const b = h('button', { type: 'button' }, o); b.addEventListener('click', () => { inp.value = o; }); return b; })));
+  save.addEventListener('click', async () => { if (!inp.value.trim()) return; save.disabled = true;
+    try { await act('answer', q.id, inp.value.trim()); toast('Saved. I\'ll use it from now on.'); box.replaceWith(h('div', { class: 'qa' }, h('b', {}, q.question), h('p', {}, inp.value.trim()))); }
+    catch (e) { toast(e.message, true); save.disabled = false; } });
+  box.append(inp, h('div', { class: 'btns' }, save));
+  return box;
+}
+function jobRow(j) {
+  const row = h('button', { class: 'jrow', type: 'button' },
+    h('span', { class: `score${j.score >= 80 ? ' hi' : ''}` }, j.score != null ? `${j.score}` : '–'),
+    h('span', { class: 'mid' }, h('b', {}, j.title || ''), h('small', {}, `${j.company || ''}${j.location ? ` · ${j.location}` : ''}`)),
+    h('span', { class: 'st' }, LABEL[j.status] || j.status, h('small', {}, ago(j.applied_at || j.found_at))));
+  row.addEventListener('click', () => openJob(j.id));
+  return row;
+}
+async function openJob(id) {
+  const j = await api(`/jobs/detail?id=${encodeURIComponent(id)}`).catch((e) => { toast(e.message, true); return null; });
+  if (!j) return;
+  const close = h('button', { class: 'icon', type: 'button', 'aria-label': 'Close' }, '✕');
+  const b = (label, action, cls = 'ghost') => { const x = h('button', { class: `btn sm ${cls}`, type: 'button' }, label);
+    x.addEventListener('click', async () => { x.disabled = true; try { await act(action, j.id); toast('Done'); sheet.remove(); } catch (e) { toast(e.message, true); x.disabled = false; } }); return x; };
+  const acts = [];
+  if (!['applied', 'interview'].includes(j.status)) acts.push(b("I'm applying myself", 'claim'), b('Mark applied', 'applied'), b('Skip', 'skip'));
+  if (['failed', 'skipped', 'manual', 'filtered', 'scored'].includes(j.status)) acts.unshift(b('Let the agent apply', 'queue', ''));
+  const sheet = h('div', { class: 'sheet' }, h('div', { class: 'sheetin' },
+    h('div', { class: 'rhead' }, h('b', {}, j.title), close),
+    h('p', { class: 'soft' }, `${j.company} · ${j.location || ''} · ${j.source}`),
+    h('p', {}, h('span', { class: 'tag' }, LABEL[j.status] || j.status), j.score != null ? ` Fit ${j.score}%` : ''),
+    j.score_reasons ? h('p', { class: 'soft' }, j.score_reasons) : null,
+    j.status_note && !/\.png$/.test(j.status_note) ? h('p', { class: 'soft' }, j.status_note) : null,
+    h('div', { class: 'btns' }, h('a', { class: 'btn sm', href: j.apply_url || j.url, target: '_blank', rel: 'noopener' }, 'Open job ↗'), ...acts),
+    j.attempts?.length ? h('details', {}, h('summary', {}, `Attempts (${j.attempts.length})`), ...j.attempts.map((a) => h('p', { class: 'soft' }, `${new Date(a.at).toLocaleString('en-IN')} · ${a.status} · ${a.reason || ''}`))) : null,
+    h('details', {}, h('summary', {}, 'Job description'), h('p', { class: 'jdesc' }, j.description || '—'))));
+  close.addEventListener('click', () => sheet.remove());
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.remove(); });
+  document.body.append(sheet);
 }
 
 render();
