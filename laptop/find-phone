@@ -1,0 +1,18 @@
+#!/bin/sh
+# Prints the S20's current IP (it moves on WiFi reconnects); cached in ~/.cache/phone-ip.
+# A candidate counts only if it serves the phone's known SSH host key (known_hosts alias "s20phone").
+C=$HOME/.cache/phone-ip
+KEY=$(awk '$1 == "s20phone" { print $3 }' "$HOME/.ssh/known_hosts")
+[ -n "$KEY" ] || exit 1
+try() {
+  nc -z -w2 "$1" 8022 2>/dev/null &&
+    ssh-keyscan -T 3 -p 8022 -t ed25519 "$1" 2>/dev/null | awk '{ print $3 }' | grep -qxF "$KEY"
+}
+ip=$(cat "$C" 2>/dev/null)
+if [ -n "$ip" ] && try "$ip"; then echo "$ip"; exit 0; fi
+for net in 192.168.1 172.20.10; do
+  for i in $(seq 2 254); do (nc -z -w1 "$net.$i" 8022 2>/dev/null && echo "$net.$i") & done
+  wait
+done | while read -r ip; do
+  if try "$ip"; then echo "$ip" > "$C"; echo "$ip"; break; fi
+done
