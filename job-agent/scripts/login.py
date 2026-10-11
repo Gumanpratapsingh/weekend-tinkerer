@@ -1,7 +1,8 @@
 """Sign in to a job site in a real browser window on the Mac, then save the session for the phone.
 You type your password/OTP yourself; only the resulting cookies are saved (never the password).
-Usage: login.py linkedin|naukri  -> writes data/sessions/<site>.json and <site>.ua next to this repo."""
-import json, pathlib, sys, time
+Usage: login.py linkedin|naukri [person]  -> writes data/sessions/<site>.json and <site>.ua next to this repo
+(or people/<person>/data/sessions/ for someone else's agent; their browser profile is kept separate from the owner's)."""
+import json, pathlib, re, sys, time
 from playwright.sync_api import sync_playwright
 
 SITES = {
@@ -9,8 +10,11 @@ SITES = {
     "naukri": ("https://www.naukri.com/nlogin/login", lambda u: "mnjuser" in u),
 }
 site = sys.argv[1]
+person = sys.argv[2] if len(sys.argv) > 2 else ""
+if person and not re.fullmatch(r"[a-z][a-z0-9_-]{0,30}", person): sys.exit("bad person name")
 start, done = SITES[site]
-out = pathlib.Path(__file__).resolve().parent.parent / "data" / "sessions"
+root = pathlib.Path(__file__).resolve().parent.parent
+out = (root / "people" / person / "data" / "sessions") if person else (root / "data" / "sessions")
 out.mkdir(parents=True, exist_ok=True)
 
 with sync_playwright() as p:

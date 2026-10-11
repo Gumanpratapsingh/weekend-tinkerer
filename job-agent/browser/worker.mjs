@@ -116,6 +116,11 @@ async function runSignin(w, site) {
     for (const until = Date.now() + 15 * 60e3; Date.now() < until;) {
       const p = ctx.pages().at(-1);
       if (!p) return { ok: false, reason: 'the page was closed' };
+      // Sign-in only: never create an account here. A tap on "Register" goes back to the login form.
+      if (site === 'naukri' && /naukri\.com\/registration\//.test(p.url())) {
+        session.progress('🔐 naukri: registration page opened; back to the login form (sign in with the existing account)');
+        await p.goto(login, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+      }
       if (done.test(p.url())) { await p.waitForTimeout(3000); await ctx.saveSession(); session.progress(`🔐 ${site}: signed in, session saved`); return { ok: true }; }
       await new Promise((r) => setTimeout(r, 1500));
     }
