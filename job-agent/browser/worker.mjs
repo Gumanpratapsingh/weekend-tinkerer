@@ -67,49 +67,72 @@ process.on('unhandledRejection', (e) => { console.error('unhandled rejection (ke
 process.on('uncaughtException', (e) => { console.error('uncaught exception (kept running):', e?.message || e); session.workerError('uncaught', e); });
 
 // Snapshot of the browser for the hub's live screen, every 2.5 s while a task runs (JPEG, ~50 KB).
-let current = null;                                   // { task, since }
+// Written to the data folder of the person whose task is running; only while their /jobs/live page is open.
+let current = null;                                   // { task, since, who }
 setInterval(async () => {
   const p = session.livePage;
   if (!current || !p || p.isClosed()) return;
-  // Only while someone has /jobs/live open (the hub touches live-watch when it asks for a frame).
-  try { if (Date.now() - statSync(join(ROOT, 'data', 'live-watch')).mtimeMs > 30e3) return; } catch { return; }
+  const dir = current.who.data;
+  try { if (Date.now() - statSync(join(dir, 'live-watch')).mtimeMs > 30e3) return; } catch { return; }
   try {
-    const out = join(ROOT, 'data', 'live.jpg');
+    const out = join(dir, 'live.jpg');
     await p.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 55, timeout: 4000 });
     renameSync(`${out}.tmp`, out);
-    writeFileSync(join(ROOT, 'data', 'live.json'), JSON.stringify({ task: current.task, url: p.url(), at: Date.now() }));
+    writeFileSync(join(dir, 'live.json'), JSON.stringify({ task: current.task, url: p.url(), at: Date.now() }));
   } catch { /* page busy or navigating: next tick */ }
 }, 2500);
 
 const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
 const LIMITS = { naukri_search: 60 * 60e3, naukri_recommended: 10 * 60e3 };   // full searches legitimately take ~20 min
-let queue = Promise.resolve();                       // one task at a time: the phone has one browser
+// One task at a time (the phone has one browser), taken in turns between people so nobody's queue starves the other's.
+const waiting = [];                                  // [{ who, run }]
+let running = false, lastPerson = null;
+function pump() {
+  if (running || !waiting.length) return;
+  let i = waiting.findIndex((w) => w.who.person !== lastPerson);
+  if (i < 0) i = 0;
+  const [next] = waiting.splice(i, 1);
+  running = true; lastPerson = next.who.person;
+  session.person.run(next.who, next.run).finally(() => { running = false; pump(); });
+}
+// A task says whose it is (_who); data folders must be the owner's or one under people/, never anything else.
+function whoOf(body) {
+  const w = body._who; delete body._who;
+  if (!w) return session.who();
+  const name = String(w.person || '');
+  if (!/^[a-z][a-z0-9_-]{0,30}$/.test(name)) throw new Error('bad person');
+  const port = Number(w.port);
+  if (!(port > 1024 && port < 65536)) throw new Error('bad port');
+  return { person: name, data: name === 'owner' ? join(ROOT, 'data') : join(ROOT, 'people', name, 'data'), agent: `http://127.0.0.1:${port}` };
+}
 createServer((req, res) => {
   const reply = (code, body) => { if (res.headersSent) return; res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
-  if (req.url === '/health') return reply(200, { ok: true, pid: process.pid });   // instant, not queued
+  if (req.url === '/health') return reply(200, { ok: true, pid: process.pid, waiting: waiting.length, running: current?.task || null, for: current?.who.person || null });   // instant, not queued
   let raw = '';
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
     const name = req.url.slice(1);
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
-    queue = queue.then(async () => {
+    let body, w;
+    try { body = raw ? JSON.parse(raw) : {}; w = whoOf(body); } catch (e) { return reply(400, { error: e.message }); }
+    waiting.push({ who: w, run: async () => {
       begin();
-      current = { task: name, since: Date.now() };
+      current = { task: name, since: Date.now(), who: w };
       let timer;
       try {
         const ms = LIMITS[name] || TASK_LIMIT;
         const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over ${ms / 60e3} minutes`)), ms); });
-        reply(200, await Promise.race([tasks[name](raw ? JSON.parse(raw) : {}), limit]));
+        reply(200, await Promise.race([tasks[name](body), limit]));
       } catch (e) {
-        console.error(name, e?.stack || e?.message || e);
-        let job = null; try { job = JSON.parse(raw || '{}').job?.id || null; } catch { /* not json */ }
-        session.workerError(`task ${name}`, e, { job, url: session.livePage?.url?.() || null });
+        console.error(`[${w.person}] ${name}`, e?.stack || e?.message || e);
+        session.workerError(`task ${name}`, e, { job: body.job?.id || null, url: session.livePage?.url?.() || null });
         reply(500, { error: e?.message || String(e) });
       }
       finally {
         clearTimeout(timer); end(); current = null;
-        try { writeFileSync(join(ROOT, 'data', 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}
+        try { writeFileSync(join(w.data, 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}
       }
-    });
+    } });
+    pump();
   });
 }).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));

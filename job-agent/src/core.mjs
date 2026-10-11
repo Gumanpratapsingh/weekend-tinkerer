@@ -6,17 +6,40 @@ import { fileURLToPath } from 'node:url';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const HOME = homedir();
-export const DATA = join(ROOT, 'data');              // db, tailored resumes, screenshots — never in git
+// One codebase, one agent process per person. JA_PERSON unset = the owner (profile/, data/, ~/.jobagent, port 8083).
+// Anyone else lives in people/<name>/{profile,data} with secrets in ~/.jobagent-<name> and their own port (JA_PORT).
+export const PERSON = process.env.JA_PERSON || '';
+export const OWNER = !PERSON;
+if (PERSON && !/^[a-z][a-z0-9_-]{0,30}$/.test(PERSON)) throw new Error(`bad JA_PERSON ${PERSON}`);
+const BASE = OWNER ? ROOT : join(ROOT, 'people', PERSON);
+export const PROFILE = join(BASE, 'profile');         // resume facts, config, answers, resume PDF
+export const DATA = join(BASE, 'data');              // db, tailored resumes, screenshots — never in git
+export const PORT = Number(process.env.JA_PORT || 8083);
+export const AGENT_URL = `http://127.0.0.1:${PORT}`;
+const SECRETS = join(HOME, OWNER ? '.jobagent' : `.jobagent-${PERSON}`);
 mkdirSync(join(DATA, 'resumes'), { recursive: true, mode: 0o700 });
 mkdirSync(join(DATA, 'shots'), { recursive: true, mode: 0o700 });
 
 export const readJson = (f, fallback) => { try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return fallback; } };
-export const master = () => readJson(join(ROOT, 'profile', 'master.json'));
-// config.json is safe to publish; private.json (gitignored) adds the mailbox and the owner's known answers.
-export const privateProfile = () => readJson(join(ROOT, 'profile', 'private.json'), {});
-export const config = () => ({ ...readJson(join(ROOT, 'profile', 'config.json')), mailbox: privateProfile().mailbox });
-export const secret = (name) => {                    // secrets live in ~/.jobagent/<name>, typed in by the owner
-  const f = join(HOME, '.jobagent', name);
+export const master = () => readJson(join(PROFILE, 'master.json'));
+// config.json is safe to publish; private.json (gitignored) adds the mailbox and the person's known answers.
+export const privateProfile = () => readJson(join(PROFILE, 'private.json'), {});
+export const config = () => ({ ...readJson(join(PROFILE, 'config.json')), mailbox: privateProfile().mailbox });
+// Per-person wording (master.json "persona"): school, career start, pitch lines. Code never hardcodes a person.
+export const persona = () => master()?.persona || {};
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function careerStart() {                      // {t: ms, label: "Aug 2024"} from persona.career_start "YYYY-MM"
+  const [y, mo] = String(persona().career_start || '').split('-').map(Number);
+  return y ? { t: Date.UTC(y, (mo || 1) - 1, 1), label: `${MONTHS[(mo || 1) - 1]} ${y}` } : null;
+}
+export const yearsWorked = () => { const c = careerStart(); return c ? (Date.now() - c.t) / (365.25 * 864e5) : Number(config().experience_years) || 0; };
+// Has this person saved a login for a site (data/sessions/<site>.json, from scripts/login.sh)? No login, no browser work there.
+export const hasSession = (site) => existsSync(join(DATA, 'sessions', `${site}.json`));
+// Schedules marked { always: true } run during first-time setup; everything else waits until the profile exists.
+export const gate = { open: true };
+export const resumeFile = () => join(PROFILE, config().naukri_resume || 'resume.pdf');   // the person's original resume
+export const secret = (name) => {                    // secrets live in ~/.jobagent[-<person>]/<name>, typed in by the person
+  const f = join(SECRETS, name);
   return existsSync(f) ? readFileSync(f, 'utf8').trim() : '';
 };
 
@@ -45,10 +68,10 @@ export const istDate = (t = Date.now()) => new Date(t + IST).toISOString().slice
 export const istHour = (t = Date.now()) => new Date(t + IST).getUTCHours();
 
 // Run fn now-ish and then every `minutes`, never overlapping itself.
-export function every(minutes, name, fn, { delay = 5000 } = {}) {
+export function every(minutes, name, fn, { delay = 5000, always = false } = {}) {
   let running = false;
   const tick = async () => {
-    if (running) return;
+    if (running || (!gate.open && !always)) return;
     running = true;
     try { await fn(); } catch (e) { logError(name, e); }
     running = false;
@@ -60,7 +83,7 @@ export function every(minutes, name, fn, { delay = 5000 } = {}) {
 // ---------- LLM: OpenAI-compatible free tiers, tried in order ----------
 // Groq (3 models) + Google Gemini free tier (2 models), each with its own daily quota. No paid providers.
 const PROVIDERS = [
-  { name: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: () => readKey('.groq_key'),
+  { name: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: () => secret('groq_key') || (OWNER ? readKey('.groq_key') : ''),   // never borrow the owner's quota
     // Three models with separate free quotas. qwen hides its reasoning with a different parameter.
     models: ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'], extra: { reasoning_effort: 'low', include_reasoning: false },
     extraFor: { 'qwen/qwen3.8-27b': { reasoning_format: 'hidden' } } },
@@ -107,7 +130,7 @@ export async function llm(messages, { maxTokens = 1200, json = false, temperatur
 
 // ---------- ntfy: fallback channel when WhatsApp can't deliver ----------
 export async function ntfy(title, body, { priority = 'default', tags = 'briefcase' } = {}) {
-  const topic = readKey('room/ntfy-topic');
+  const topic = OWNER ? readKey('room/ntfy-topic') : secret('ntfy_topic');   // each person's own private topic
   if (!topic) return;
   try {
     await fetch(`https://ntfy.sh/${topic}`, { method: 'POST', body,

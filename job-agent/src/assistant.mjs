@@ -2,7 +2,7 @@
 // Read-only: it explains and reports; it never changes anything.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { llm, config, ROOT, HOME } from './core.mjs';
+import { llm, config, DATA, HOME } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
 
 const HOW = `How the job agent works (for explaining "why" questions):
@@ -27,7 +27,7 @@ function context() {
     .map((r) => `Q${r.id} (${r.n} job(s) waiting): ${r.question}`);
   const events = all('SELECT at, kind, text FROM events ORDER BY id DESC LIMIT 25').map((r) => `${new Date(r.at + 5.5 * 3600e3).toISOString().slice(5, 16)} ${r.kind}: ${String(r.text).slice(0, 140)}`);
   let errors = [];
-  try { errors = readFileSync(join(ROOT, 'data', 'errors.jsonl'), 'utf8').trim().split('\n').slice(-60).map((l) => JSON.parse(l))
+  try { errors = readFileSync(join(DATA, 'errors.jsonl'), 'utf8').trim().split('\n').slice(-60).map((l) => JSON.parse(l))
     .filter((r) => Date.now() - Date.parse(r.at) < 864e5).map((r) => `${r.kind}: ${String(r.message).slice(0, 120)}`); } catch { /* none */ }
   const errCounts = {}; for (const e of errors) errCounts[e] = (errCounts[e] || 0) + 1;
   const ref = all('SELECT stage, count(*) n FROM referrals WHERE person IS NOT NULL GROUP BY stage').map((r) => `${r.stage}=${r.n}`).join(' ');

@@ -1,6 +1,6 @@
 // Apply queue: takes queued jobs (score >= min_score), tailors the resume, and applies through the browser worker,
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
-import { config, log, logError, istDate, istHour, activity } from './core.mjs';
+import { config, log, logError, istDate, istHour, activity, hasSession } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
@@ -8,7 +8,7 @@ import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats' };
-const sessionReady = { naukri: () => getKv('session_naukri') !== 'expired', linkedin: () => getKv('session_linkedin') !== 'expired' };
+const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
 
 function appliedToday(bucket) {
   const since = Date.parse(`${istDate()}T00:00:00+05:30`);

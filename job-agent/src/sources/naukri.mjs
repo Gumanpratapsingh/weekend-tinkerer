@@ -1,11 +1,12 @@
 // Naukri search through the browser worker (needs the owner's session). Descriptions are fetched for new jobs only.
-import { config, log } from '../core.mjs';
+import { config, log, hasSession } from '../core.mjs';
 import { one, setKv } from '../db.mjs';
 import { browserTask } from '../browser.mjs';
 import { titleOk, locationOk, htmlToText, maxSalaryLpa } from './common.mjs';
 
 // Fast lane: jobs from the last day, page 1 only; ones posted within hours are flagged fresh (front of the queue).
 export async function fetchNaukriFresh() {
+  if (!hasSession('naukri')) return [];               // this person hasn't signed in to Naukri yet
   const c = config();
   const queries = Object.values(c.tracks).flatMap((t) => t.queries).slice(0, c.fresh_lane?.naukri_queries || 8);
   const r = await browserTask('naukri_search', { plan: [{ location: '', queries }], experience: c.experience_years, pages: 1, jobAge: 1 }, 30 * 60e3);
@@ -14,6 +15,7 @@ export async function fetchNaukriFresh() {
 }
 
 export async function fetchNaukri() {
+  if (!hasSession('naukri')) return [];
   const c = config();
   const n = c.naukri || {};
   const queries = Object.values(c.tracks).flatMap((t) => t.queries).slice(0, n.queries_per_location || 6);

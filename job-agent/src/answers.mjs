@@ -1,10 +1,10 @@
 // The agent's question memory: every question a form or recruiter asks, and the owner's answer.
 // Lookup order: exact match -> near match -> LLM match against known answers/resume facts -> ask the owner.
-import { llm, master, config, log, privateProfile } from './core.mjs';
+import { llm, master, config, log, privateProfile, persona, careerStart, yearsWorked } from './core.mjs';
 import { one, all, run, norm } from './db.mjs';
 
 // Questions almost every Indian application asks. Asked once on WhatsApp during setup.
-export const SEED = [
+const SEED_BASE = [
   'What is your notice period (in days)?',
   'Are you an immediate joiner or currently serving notice?',
   'What is your current CTC (in LPA)?',
@@ -13,9 +13,6 @@ export const SEED = [
   'Are you willing to relocate? If yes, to which cities?',
   'Are you open to working from office / hybrid?',
   'Total years of professional experience?',
-  'Years of experience with Java?',
-  'Years of experience with Spring Boot?',
-  'Years of experience with AI / LLM applications?',
   'Do you need visa sponsorship to work in the role\'s country?',
   'What is your gender? (for diversity forms; you may say "prefer not to say")',
   'Short answer to "Why do you want to join us?" that I can adapt per company',
@@ -62,20 +59,21 @@ const LEGAL = /\b(nda|non-?disclosure|confidential(ity)? agreement|e-?signature|
 function direct(label, m) {
   const l = norm(label);
   const [first, ...rest] = m.name.split(' ');
+  const P = m.persona || {};
   const rules = [
     [/country code|dial(l)?ing code|phone country/, 'India (+91)'],
-    // Total experience (no specific skill named): years since Aug 2024 with one decimal, e.g. 2.2.
+    // Total experience (no specific skill named): years since the career start with one decimal, e.g. 2.2.
     [/^(total |overall |relevant )?(years of )?(work |professional |it )?experience( in years)?\??$|total experience|overall experience/,
-      ((Date.now() - Date.UTC(2024, 7, 1)) / (365.25 * 864e5)).toFixed(1)],
+      yearsWorked().toFixed(1)],
     [/^(preferred )?first name|given name/, first], [/last name|surname|family name/, rest.join(' ')],
     [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone.replace(/^\+?91[-\s]?/, '')],   // 10 digits; country code is its own field
-    [/linkedin/, `https://${m.contact.linkedin}`], [/github/, `https://${m.contact.github}`],
-    [/website|portfolio|personal (site|url)/, 'https://site.gumanpratap.workers.dev'],
+    ...(m.contact.linkedin ? [[/linkedin/, `https://${m.contact.linkedin}`]] : []), ...(m.contact.github ? [[/github/, `https://${m.contact.github}`]] : []),
+    ...(P.website ? [[/website|portfolio|personal (site|url)/, P.website]] : []),
     [/current (company|employer|organi[sz]ation)|^company$/, m.experience[0].org], [/current (job )?title|current (role|designation)/, m.experience[0].title],
     [/^(current )?(city|location)$|where are you (currently )?(based|located)/, m.contact.location],
     [/^country( of residence)?$/, 'India'], [/(school|university|college)( name)?$/, m.education[0].school],
-    [/degree|highest (level of )?education|qualification/, "Bachelor's degree (B.Tech, Computer Science)"],
-    [/graduation (date|year)|year of (graduation|passing)/, 'May 2024'], [/field of study|major|discipline/, 'Computer Science'],
+    ...(P.degree_answer ? [[/degree|highest (level of )?education|qualification/, P.degree_answer]] : []),
+    ...(P.graduation ? [[/graduation (date|year)|year of (graduation|passing)/, P.graduation]] : []), ...(P.field ? [[/field of study|major|discipline/, P.field]] : []),
   ];
   for (const [re, v] of rules) if (re.test(l)) return v;
   return null;
@@ -109,14 +107,12 @@ export async function resolve(items, context = '') {
   // One LLM call for everything left: match to known answers or derive from resume facts, else "UNKNOWN".
   const m = master();
   const facts = [
-    `Name: ${m.name}. Email: ${m.contact.email}. Phone: ${m.contact.phone}. LinkedIn: https://${m.contact.linkedin}. GitHub: https://${m.contact.github}.`,
+    `Name: ${m.name}. Email: ${m.contact.email}. Phone: ${m.contact.phone}.${m.contact.linkedin ? ` LinkedIn: https://${m.contact.linkedin}.` : ''}${m.contact.github ? ` GitHub: https://${m.contact.github}.` : ''}`,
     `Education: ${m.education.map((e) => `${e.degree}, ${e.school}, ${e.dates}`).join('; ')}.`,
     `Current location: ${m.contact.location}. Phone country: India (+91).`,
-    `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}; at ${m.experience[0].org} since Aug 2024.`,
+    `Current: ${m.experience[0].title} at ${m.experience[0].org} since ${m.experience[0].dates.split('–')[0].trim()}.${careerStart() ? ` Full-time since ${careerStart().label}.` : ''}`,
     `Employment history (complete): ${m.experience.map((e) => `${e.title}, ${e.org}, ${e.dates}`).join('; ')}. Never worked for or contracted with any other company.`,
-    'Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa. Not a citizen or resident of Cuba, Iran, North Korea, Syria or Crimea.',
-    'Roles: back end and full stack (Java/Spring Boot + Angular). Comfortable with: Java, Python, Go, TypeScript, AWS, REST APIs, microservices, SQL. Not: Kotlin, Kubernetes, Terraform, React.',
-    'Has worked in a fast-paced multi-tenant SaaS fintech (Finzly) and automated processes (batch jobs, AWS Lambda audit logging). Never founded a company.',
+    ...(persona().facts || ['Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa.']),
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');
   let out = {};
@@ -125,9 +121,8 @@ export async function resolve(items, context = '') {
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
 - Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
-  Yes/No options) are answered from FACTS: "Yes" only if FACTS show it (he has built AI agents: the AI Call Assistant
-  and an autonomous job-application agent).
-- Years with a skill in FACTS: use full-time years since Aug 2024 (round down), unless a known answer says otherwise.
+  Yes/No options) are answered from FACTS: "Yes" only if FACTS show it${persona().built_note ? ` (${persona().built_note})` : ''}.
+- Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - Anything personal (salary, notice, visa, relocation, demographics, references, cover letters, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
 - Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
@@ -138,7 +133,7 @@ export async function resolve(items, context = '') {
 - Pronouns and gender: ONLY from KNOWN ANSWERS. Never infer them from the name. Otherwise pick the
   "prefer not to say / decline" option if there is one, else "UNKNOWN".
 - Multi-select questions ("select all that apply"): answer with the matching options separated by " | ".
-- US voluntary self-identification (EEO): veteran status -> the "not a protected veteran" option (he never served in
+- US voluntary self-identification (EEO): veteran status -> the "not a protected veteran" option (the candidate never served in
   the US military); disability, race, ethnicity, Hispanic/Latino -> the "decline to self-identify / don't wish to answer"
   option, unless KNOWN ANSWERS has the owner's own answer. Gender: KNOWN ANSWERS, else the decline option.
 - Privacy-notice acknowledgement / data-processing consent: "Yes" (or the matching agree option) only if KNOWN ANSWERS says the owner allows it; otherwise "UNKNOWN".
@@ -190,5 +185,7 @@ function coerce(answer, it) {
 
 // Answers the owner gave up front live in profile/private.json (gitignored), never in code.
 export const seedKnown = () => { for (const [q, a] of Object.entries(privateProfile().known_answers || {})) if (!one('SELECT answer FROM questions WHERE norm = ?', norm(q))?.answer) remember(q, a, 'owner'); };
-export const seedQuestions = () => SEED.map((q) => unanswered(q, { source: 'setup' })).filter((q) => !q.answer);
+// Setup questions: the common ones plus "years with <skill>" for the person's main skills (persona.seed_skills).
+export const SEED = () => [...SEED_BASE.slice(0, 8), ...(persona().seed_skills || []).map((k) => `Years of experience with ${k}?`), ...SEED_BASE.slice(8)];
+export const seedQuestions = () => SEED().map((q) => unanswered(q, { source: 'setup' })).filter((q) => !q.answer);
 export const minScore = () => config().min_score;

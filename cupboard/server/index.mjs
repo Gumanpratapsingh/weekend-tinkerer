@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { writeFileSync, statSync, createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { db, one, all, run, MEDIA, botId, owner } from './db.mjs';
+import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 
@@ -124,18 +124,22 @@ function updateMessage(id, patch) {
   return msg;
 }
 
-function botConv(ownerUser) {
+// Every person has their own private bot conversation (the owner's is "S20"; a friend's is their job agent).
+function botConv(user) {
   const b = botId();
-  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ?", ownerUser.id);
+  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ?", user.id);
   if (row) return row.id;
-  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', 'S20', ?, ?)", ownerUser.id, Date.now());
-  run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, ownerUser.id, id, b);
+  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", user.role === 'owner' ? 'S20' : 'Job agent', user.id, Date.now());
+  run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, b);
   return Number(id);
 }
-const botSay = async (text, extra = null) => {
-  const o = owner(); if (!o) return null;
-  return postMessage(botConv(o), botId(), { kind: extra ? 'card' : 'text', text, extra });
+const botSay = async (text, extra = null, user = owner()) => {
+  if (!user) return null;
+  return postMessage(botConv(user), botId(), { kind: extra ? 'card' : 'text', text, extra });
 };
+// The local job agent that serves a given person (set when that agent first messages them). Owner: the main agent.
+const agentFor = (user) => (user.role === 'owner' ? 'http://127.0.0.1:8083' : getKv(`agent:${user.id}`));
+const FILES = { 'application/pdf': 'pdf' };
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -295,7 +299,7 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
-      if (conv.kind === 'bot') setImmediate(() => botReply({ text, replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: botSay, update: updateMessage }).catch((e) => log('bot', e.message)));
+      if (conv.kind === 'bot') setImmediate(() => botReply({ text, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
     }
     if (M === 'POST' && sub === '/voice') {
@@ -309,6 +313,29 @@ async function api(req, res, path, query) {
       const file = `${randomBytes(12).toString('hex')}.${AUDIO[type]}`;
       writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
       const msg = await postMessage(convId, me.id, { kind: 'voice', media: `${file}|${type}`, duration, extra: { peaks } });
+      return send(res, 200, { msg });
+    }
+    // A document (PDF resume) in the person's own bot chat: stored like a voice note and handed to their job agent.
+    if (M === 'POST' && sub === '/file') {
+      if (!rateOk(me.id)) throw err(429, 'Slow down a little.');
+      if (conv.kind !== 'bot') throw err(400, 'Files can only be sent to your bot for now.');
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim();
+      if (!FILES[type]) throw err(415, 'Please attach a PDF.');
+      const buf = await readRaw(req, 4 * 1024 * 1024);
+      if (buf.length < 500 || buf.subarray(0, 5).toString() !== '%PDF-') throw err(400, 'That does not look like a PDF.');
+      const name = (() => { try { return decodeURIComponent(String(req.headers['x-filename'] || '')); } catch { return ''; } })().replace(/[^\w .()-]/g, '').slice(0, 80) || 'document.pdf';
+      const file = `${randomBytes(12).toString('hex')}.${FILES[type]}`;
+      writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
+      const msg = await postMessage(convId, me.id, { kind: 'file', media: `${file}|${type}`, extra: { name, size: buf.length } });
+      const agent = agentFor(me);
+      setImmediate(async () => {
+        if (!agent) return botSay('Got it, but no job agent is set up for you yet.', null, me);
+        try {
+          const r = await fetch(`${agent}/internal/cupboard`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
+            body: JSON.stringify({ file: join(MEDIA, file), name, ref: { ref_kind: 'file' } }) });
+          if (!r.ok) throw new Error(`${r.status}`);
+        } catch (e) { botSay(`Couldn't hand that file to your job agent (${e.message}). Try again in a minute.`, null, me); }
+      });
       return send(res, 200, { msg });
     }
     if (M === 'POST' && sub === '/read') {
@@ -328,7 +355,7 @@ async function api(req, res, path, query) {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));
     if (!row || !canSee(me, row.conv_id) || one('SELECT kind FROM convs WHERE id = ?', row.conv_id).kind !== 'bot') throw err(404, 'Not found.');
     const b = await readJson(req, 1000);
-    const msg = await botAction({ row, action: String(b.action || ''), say: botSay, update: updateMessage });
+    const msg = await botAction({ row, action: String(b.action || ''), say: (t, e) => botSay(t, e, me), update: updateMessage });
     return send(res, 200, { msg });
   }
 
@@ -355,8 +382,10 @@ createServer(async (req, res) => {
 }).listen(PORT, '127.0.0.1', () => log(`cupboard on 127.0.0.1:${PORT}`));
 
 // ---------- internal: services on this phone message the owner through the S20 bot ----------
-// POST /notify {title?, text, actions?: [{id, label, style?}], ref?, replyTo?}
+// POST /notify {title?, text, actions?: [{id, label, style?}], ref?, replyTo?, to?, agent?}
 //   replyTo: a local URL (http://127.0.0.1:<port>/...) that receives {text|action, ref} when the owner answers.
+//   to: a username to message instead of the owner (a friend's own job agent); agent: that agent's local base URL,
+//       remembered so the person's free-text questions and attached files reach their agent.
 //   Reply: {id, pushable}; pushable=false means the owner has no device with notifications yet (keep a fallback).
 createServer(async (req, res) => {
   try {
@@ -370,8 +399,14 @@ createServer(async (req, res) => {
       const replyTo = /^http:\/\/127\.0\.0\.1:\d+\//.test(b.replyTo || '') ? b.replyTo : null;
       const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '' })) : [];
       const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo };
-      const msg = await botSay(text, extra);
-      return send(res, 200, { id: msg.id, pushable: push.hasPush(o.id) });
+      let target = o;
+      if (b.to) {
+        target = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to).toLowerCase());
+        if (!target) return send(res, 404, { error: `No Cupboard user ${b.to}`, pushable: false });
+        if (/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') && target.role !== 'owner') setKv(`agent:${target.id}`, b.agent);
+      }
+      const msg = await botSay(text, extra, target);
+      return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
     if (req.url === '/update') {
       const row = one('SELECT * FROM messages WHERE id = ?', Number(b.id));

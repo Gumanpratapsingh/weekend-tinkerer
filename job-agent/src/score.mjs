@@ -1,35 +1,38 @@
 // Scores how well a job fits the owner, 0-100, with an LLM. Cheap filters run before this (sources/common.mjs).
-import { llm, master, config, activity } from './core.mjs';
+import { llm, master, config, activity, persona, careerStart, yearsWorked } from './core.mjs';
 
 let profileCache;
 function profile() {                                  // compact text profile (~350 tokens) to save free-tier budget
   if (profileCache) return profileCache;
   const m = master();
   profileCache = [
-    `Software engineer, ${config().experience_years}+ years full-time (since Aug 2024), B.Tech CS 2024, currently in Chennai; open to any city in India (prefers Gurugram / Delhi NCR) or remote.`,
+    `${m.experience[0]?.title || 'Professional'}, ${config().experience_years}+ years full-time${careerStart() ? ` (since ${careerStart().label})` : ''}, ${m.education?.[0]?.degree || ''} ${persona().graduation || ''}, ${persona().location_line || `currently in ${m.contact.location}`}.`,
     ...m.experience.map((e) => `${e.title} @ ${e.org} (${e.dates}): ${e.bullets.map((b) => b.text).join(' ')}`),
     `Projects: ${m.projects.map((p) => `${p.name} [${p.stack}]`).join('; ')}`,
     `Skills: ${Object.values(m.skills).flat().join(', ')}`,
-    'Does NOT have: Kubernetes, Kafka, React, team leadership.',
+    persona().lacks ? `Does NOT have: ${persona().lacks}.` : '',
   ].join('\n');
   return profileCache;
 }
 
-const SYSTEM = `You screen jobs for one candidate whose goal is to land as many interviews as possible.
+const SYSTEM = () => {
+  const y = yearsWorked(), yrs = Math.floor(y), mos = Math.round((y - yrs) * 12);
+  return `You screen jobs for one candidate whose goal is to land as many interviews as possible.
 Score 0-100 = realistic chance this application gets a recruiter call.
-- Experience: candidate has 2 years 2 months. Roles asking 0-3 years are a match; 3-4 years is a stretch that is still
-  worth applying to (up to ~80 when the skills fit well); 5+ years or clearly senior/lead roles score below 40.
+- Experience: candidate has ${yrs} years ${mos} months. Roles asking 0-${yrs + 1} years are a match; ${yrs + 1}-${yrs + 2} years is a stretch that is still
+  worth applying to (up to ~80 when the skills fit well); ${yrs + 3}+ years or clearly senior/lead roles score below 40.
 - Skills: missing a core must-have language/framework (e.g. the role is Python-only, Go-only, React-only) costs a lot;
   missing nice-to-haves or specific tools costs little.
-- Role type: Java/Spring backend, full-stack Java, or AI/LLM application engineering are all good fits.
-- Salary: if the posting states pay below 12 LPA (or the INR equivalent), score 0.
+- Role type: ${persona().fit_roles || 'roles matching the candidate\'s experience'} are all good fits.
+- Salary: if the posting states pay below ${config().min_salary_lpa || 0} LPA (or the INR equivalent), score 0.
 - Location: any city in India, or remote open to people in India, is fine. Give 0 if it needs living or working authorization outside India.
 Return JSON: {"score":0-100,"track":"backend|ai","reasons":"<=25 words","blockers":["..."]}`;
+};
 
 export async function scoreJob(job) {
   const jd = `${job.title} at ${job.company}\nLocation: ${job.location}\n\n${String(job.description || '').slice(0, 3500)}`;
   const out = await llm([
-    { role: 'system', content: SYSTEM },
+    { role: 'system', content: SYSTEM() },
     { role: 'user', content: `CANDIDATE:\n${profile()}\n\nJOB:\n${jd}` },
   ], { json: true, maxTokens: 300, temperature: 0, small: true, why: `scoring ${job.title} @ ${job.company}` });
   const score = Math.max(0, Math.min(100, Math.round(Number(out.score) || 0)));

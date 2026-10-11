@@ -50,7 +50,7 @@ function when(t) {
   return d.toLocaleDateString('en-IN', now - d < 6 * 86400e3 ? { weekday: 'short' } : { day: 'numeric', month: 'short' });
 }
 const dayLabel = (t) => { const w = when(t); return /\d:\d/.test(w) ? 'Today' : w; };
-const preview = (m) => !m ? '' : m.kind === 'voice' ? '🎤 Voice note' : (m.extra?.title ? `${m.extra.title}: ` : '') + (m.text || '');
+const preview = (m) => !m ? '' : m.kind === 'voice' ? '🎤 Voice note' : m.kind === 'file' ? `📄 ${m.extra?.name || 'File'}` : (m.extra?.title ? `${m.extra.title}: ` : '') + (m.text || '');
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -385,6 +385,7 @@ function bubble(m, prev) {
   if (c.kind === 'group' && !mine && who && prev?.from !== m.from) kids.push(h('span', { class: 'who' }, who.name));
   if (m.extra?.replyTo) { const q = state.msgs.find((x) => x.id === m.extra.replyTo); if (q) kids.push(h('span', { class: 'quote' }, preview(q))); }
   if (m.kind === 'voice') kids.push(voiceBubble(m));
+  else if (m.kind === 'file') kids.push(h('a', { class: 'file', href: m.media, target: '_blank', rel: 'noopener' }, `📄 ${m.extra?.name || 'File'}`, h('small', {}, ` ${Math.max(1, Math.round((m.extra?.size || 0) / 1024))} KB`)));
   else if (m.kind === 'card') {
     if (m.extra?.title) kids.push(h('span', { class: 'h' }, m.extra.title));
     kids.push(m.text || '');
@@ -422,7 +423,7 @@ function drawMessages(stick, typingOnly) {
     if (d !== lastDay) { nodes.push(h('div', { class: 'day' }, d)); lastDay = d; prev = null; }
     nodes.push(bubble(m, prev)); prev = m;
   }
-  if (!state.msgs.length) nodes.push(h('p', { class: 'empty' }, state.cur.kind === 'bot' ? 'Type "help" to see what your S20 can do.' : 'Say hi 👋'));
+  if (!state.msgs.length) nodes.push(h('p', { class: 'empty' }, state.cur.kind === 'bot' ? `Type "help" to see what ${state.me.role === 'owner' ? 'your S20' : 'I'} can do.` : 'Say hi 👋'));
   const t = state.typing[state.cur.id];
   if (t && t.until > Date.now()) nodes.push(h('div', { class: 'typing-dots', 'aria-label': `${t.name} is typing` }, h('i'), h('i'), h('i')));
   box.replaceChildren(...nodes);
@@ -436,7 +437,8 @@ function drawComposer() {
   if (!wrap || !state.cur) return;
   const c = state.cur;
   const parts = [];
-  if (c.kind === 'bot') parts.push(h('div', { class: 'chips' }, ['status', 'room', 'arm', 'disarm', 'spent today', 'spent month', 'help'].map((cmd) => {
+  const cmds = state.me.role === 'owner' ? ['status', 'room', 'arm', 'disarm', 'spent today', 'spent month', 'help'] : ["what's waiting for me?", 'applied today', 'help'];
+  if (c.kind === 'bot') parts.push(h('div', { class: 'chips' }, cmds.map((cmd) => {
     const b = h('button', { type: 'button' }, cmd); b.addEventListener('click', () => sendText(cmd)); return b;
   })));
   if (state.replyTo) {
@@ -451,7 +453,7 @@ function drawComposer() {
     send.addEventListener('click', () => stopRec(true));
     parts.push(h('div', { class: 'compose' }, cancel, h('div', { class: 'rec' }, h('i'), h('span', { id: 'rect' }, '0:00'), h('div', { class: 'lvl' }, h('b', { id: 'recl' }))), send));
   } else {
-    const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? 'Message S20…' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
+    const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
     const btn = h('button', { class: 'send', type: 'button', 'aria-label': 'Record a voice note' }, '🎤');
     let lastTyping = 0;
     const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim(); btn.textContent = has ? '➤' : '🎤'; btn.setAttribute('aria-label', has ? 'Send' : 'Record a voice note'); };
@@ -461,7 +463,24 @@ function drawComposer() {
     });
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !isIOS()) { e.preventDefault(); if (ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); } } });
     btn.addEventListener('click', () => { if (ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); ta.focus(); } else startRec(); });
-    parts.push(h('div', { class: 'compose' }, ta, btn));
+    // 📎 PDF (a resume) for the bot chat: the person's job agent receives it.
+    let clip = null;
+    if (c.kind === 'bot') {
+      const pick = h('input', { type: 'file', accept: 'application/pdf,.pdf', hidden: '' });
+      clip = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach a PDF' }, '📎');
+      clip.addEventListener('click', () => pick.click());
+      pick.addEventListener('change', async () => {
+        const f = pick.files?.[0]; pick.value = '';
+        if (!f) return;
+        if (f.size > 4 * 1024 * 1024) return toast('That PDF is over 4 MB.', true);
+        clip.disabled = true;
+        try { await api(`/convs/${c.id}/file`, { method: 'POST', raw: f, headers: { 'Content-Type': 'application/pdf', 'X-Filename': encodeURIComponent(f.name) } }); }
+        catch (e) { toast(e.message, true); }
+        clip.disabled = false;
+      });
+      clip = [pick, clip];
+    }
+    parts.push(h('div', { class: 'compose' }, ...(clip || []), ta, btn));
   }
   wrap.replaceChildren(...parts);
 }

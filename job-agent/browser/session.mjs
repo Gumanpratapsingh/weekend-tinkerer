@@ -1,13 +1,18 @@
 // Shared browser + per-site login sessions for the worker and its site modules.
 import { createRequire } from 'node:module';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { chromium } = createRequire(process.env.PW_DIR || '/opt/pw/')('playwright');
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SESSIONS = join(ROOT, 'data', 'sessions');
-mkdirSync(SESSIONS, { recursive: true });
+// Whose task is running: {person, data, agent}. The worker runs each task inside person.run(...); outside a task (or on
+// the Mac handoff) it is the owner: data/ in this repo and the agent at AGENT_URL / :8083.
+export const person = new AsyncLocalStorage();
+const OWNER = { person: 'owner', data: join(ROOT, 'data'), agent: process.env.AGENT_URL || 'http://127.0.0.1:8083' };
+export const who = () => person.getStore() || OWNER;
+const sessions = () => { const d = join(who().data, 'sessions'); mkdirSync(d, { recursive: true }); return d; };
 
 let browser;
 // Close the browser after 4 idle minutes so it is not holding memory and processes between tasks.
@@ -38,6 +43,7 @@ export async function getBrowser() {
 // A context per site, carrying that site's saved login (data/sessions/<site>.json, made on the Mac).
 export async function siteContext(site) {
   const b = await getBrowser();
+  const SESSIONS = sessions();
   const state = join(SESSIONS, `${site}.json`);
   const ctx = await b.newContext({
     storageState: existsSync(state) ? state : undefined,
@@ -62,7 +68,7 @@ export function watch(ctx) {
 }
 import { appendFileSync } from 'node:fs';
 export function progress(text) {                      // shows up live on the hub's /jobs/live page
-  try { appendFileSync(join(ROOT, 'data', 'activity.log'), `${new Date().toISOString()} 📱 Phone browser: ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
+  try { appendFileSync(join(who().data, 'activity.log'), `${new Date().toISOString()} 📱 Phone browser: ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
 }
 // Evidence for a failure: screenshot + the page's HTML + URL, side by side (same name, .png / .html).
 export async function capture(page, name, { fullPage = true } = {}) {
@@ -74,7 +80,7 @@ export async function capture(page, name, { fullPage = true } = {}) {
 }
 export function workerError(kind, err, ctx = {}) {
   const row = { at: new Date().toISOString(), src: 'browser', kind, message: String(err?.message || err).slice(0, 600), stack: String(err?.stack || '').slice(0, 2000), ctx };
-  try { appendFileSync(join(ROOT, 'data', 'errors.jsonl'), JSON.stringify(row) + '\n'); } catch { /* best effort */ }
+  try { appendFileSync(join(who().data, 'errors.jsonl'), JSON.stringify(row) + '\n'); } catch { /* best effort */ }
 }
-export const shotPath = (name) => join(ROOT, 'data', 'shots', `${new Date().toISOString().replace(/[:.]/g, '-')}-${name}.png`);
+export const shotPath = (name) => join(who().data, 'shots', `${new Date().toISOString().replace(/[:.]/g, '-')}-${name}.png`);
 

@@ -120,3 +120,6 @@ a{color:inherit}
 .toast.bad{background:var(--accent);color:#fff}
 .loading{color:var(--soft);padding:2rem 1rem}
 @media (prefers-reduced-motion:reduce){.typing-dots i,.rec i{animation:none}}
+
+.m .file{display:inline-flex;align-items:baseline;gap:.2rem;color:inherit;font-weight:600;text-decoration:underline;word-break:break-word}
+.m .file small{font-weight:400;color:var(--soft)}

@@ -2,7 +2,7 @@
 // (SRM alumni first), draft a short note naming the exact job, and ask the owner to approve EVERY message.
 // Approved invites go out slowly (10/day, spaced, 9:00-21:00 IST). When someone accepts, a referral request with the
 // resume follows: by email if they publish one, else a LinkedIn message, again only after approval.
-import { config, log, logError, activity, master, istHour, istDate } from './core.mjs';
+import { config, log, logError, activity, master, persona, istHour, istDate } from './core.mjs';
 import { one, all, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
@@ -31,29 +31,33 @@ function jobAt(company) {
 function note(person, job, company, alumni) {
   const first = String(person).split(/\s+/)[0];
   const m = master();
-  const intro = alumni ? `fellow SRM alum here (B.Tech CS '24)` : `I'm a backend engineer`;
-  const role = job ? `the ${job.title} role${job.id ? ` (job ${String(job.id).split(':').pop()})` : ''}` : `a backend/AI engineering role`;
+  const P = persona();
+  const intro = alumni ? `fellow ${P.school_short || 'school'} alum here${P.alum_tag ? ` (${P.alum_tag})` : ''}` : (P.intro || `I'm a ${m.experience[0]?.title || 'professional'}`);
+  const role = job ? `the ${job.title} role${job.id ? ` (job ${String(job.id).split(':').pop()})` : ''}` : (P.fallback_role || 'a role there');
   // LinkedIn invite notes are capped at 300 characters.
-  return `Hi ${first}, ${intro}. ${alumni ? "I'm a" : 'I build'} Java/Spring Boot payment systems at ${m.experience[0].org} (2+ yrs) and LLM apps. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
+  return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
 }
 
 function followupText(r) {
   const first = String(r.person).split(/\s+/)[0];
   const m = master();
-  return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role` : 'a backend/AI role'} at ${r.company}${r.job_url ? `: ${r.job_url}` : ''}.\n\n`
-    + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}, 2+ years building Java/Spring Boot payment systems for 50+ banks on AWS, `
-    + `plus LLM projects (a real-time AI phone assistant, an autonomous job agent). Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
+  const P = persona();
+  return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role` : (P.fallback_role || 'a role')} at ${r.company}${r.job_url ? `: ${r.job_url}` : ''}.\n\n`
+    + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
+    + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
 }
 
 // 1) Find people at the next target company and queue drafts for approval (a few companies per run).
-export async function prospect() {
+//    { only, jobId }: the owner asked for referrals for one specific job (cites that job, skips the queue checks).
+export async function prospect({ only, jobId } = {}) {
   const done = new Set(all('SELECT DISTINCT company FROM referrals').map((r) => r.company.toLowerCase()));
   const waiting = one("SELECT count(*) n FROM referrals WHERE stage = 'drafted'").n;
-  if (waiting >= 15) return;                                    // don't flood the owner with drafts
-  for (const company of targetCompanies().filter((c) => !done.has(c.toLowerCase())).slice(0, 2)) {
-    const job = jobAt(company);
+  if (!only && waiting >= 15) return;                           // don't flood the owner with drafts
+  const companies = only ? [only] : targetCompanies().filter((c) => !done.has(c.toLowerCase())).slice(0, 2);
+  for (const company of companies) {
+    const job = jobId ? one('SELECT id, title, url, score FROM jobs WHERE id = ?', jobId) : jobAt(company);
     let people;
-    try { people = (await browserTask('linkedin_people', { company, school: R().school || 'SRM' }, 10 * 60e3)).people || []; }
+    try { people = (await browserTask('linkedin_people', { company, school: R().school || persona().school_short || '' }, 10 * 60e3)).people || []; }
     catch (e) { logError('referrals people', e, { company }); continue; }
     const picks = people.filter((p) => p.url && !one('SELECT 1 FROM referrals WHERE profile = ?', p.url))
       .sort((a, b) => b.alumni - a.alumni).slice(0, R().people_per_company || 3);
@@ -65,7 +69,7 @@ export async function prospect() {
         VALUES(?,?,?,?,?,?,?,?,?,?,?)`, company, job?.id || null, job?.title || null, job?.url || null, p.name, p.headline, p.url, p.alumni ? 1 : 0, 'drafted', text, now());
       const id = one('SELECT id FROM referrals WHERE profile = ?', p.url).id;
       if (p.degree === '1st') { set(id, { stage: 'accepted', reason: 'already a connection' }); draftFollowup(id); continue; }
-      tell(`🤝 Referral request #${id}: ${p.name}${p.alumni ? ' (SRM alum)' : ''}\n${p.headline || ''}\n${p.url}\n\nNote:\n${text}\n\n— Send, Skip, or type your own note to send instead.`,
+      tell(`🤝 Referral request #${id}: ${p.name}${p.alumni ? ` (${persona().school_short || 'school'} alum)` : ''}\n${p.headline || ''}\n${p.url}\n\nNote:\n${text}\n\n— Send, Skip, or type your own note to send instead.`,
         { refKind: 'referral', refId: id });
     }
   }
@@ -132,8 +136,8 @@ export async function send() {
 
 async function resumeFor(r) {
   const { join } = await import('node:path');
-  const { ROOT } = await import('./core.mjs');
-  return join(ROOT, 'profile', config().naukri_resume || 'GPS_RESUME_SPRINGBOOT_DEVELOPER.pdf');
+  const { resumeFile } = await import('./core.mjs');
+  return resumeFile();
 }
 
 function draftFollowup(id) {
@@ -190,8 +194,9 @@ export async function scanPosts() {
     const company = employerOf(p.headline, list);
     const job = jobAt(company);
     const first = p.author.split(/\s+/)[0];
-    const role = job ? `the ${job.title} role` : 'a Java backend / AI engineering role';
-    const text = `Hi ${first}, saw your post about referrals at ${company}. I'm a Java/Spring Boot backend engineer (2+ yrs, payment systems at Finzly) who also builds LLM apps. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – Guman`.slice(0, 300);
+    const P = persona();
+    const role = job ? `the ${job.title} role` : (P.post_fallback_role || P.fallback_role || 'a role there');
+    const text = `Hi ${first}, saw your post about referrals at ${company}. ${P.post_pitch || P.intro || ''}. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – ${master().name.split(' ')[0]}`.replace(/\.\. /, '. ').slice(0, 300);
     run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, post, created_at)
       VALUES(?,?,?,?,?,?,?,0,'drafted',?,'post',?,?)`, company, job?.id || null, job?.title || null, job?.url || null, p.author, p.headline, p.profile, text, p.text.slice(0, 600), now());
     const id = one('SELECT id FROM referrals WHERE profile = ?', p.profile).id;

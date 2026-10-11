@@ -1,10 +1,10 @@
 // Naukri, driven through the owner's own logged-in session (data/sessions/naukri.json, from NaukriAutopilot).
 // Search uses Naukri's own JSON API from inside the page (same calls the site makes); applying clicks Apply and
 // answers the recruiter-question chat drawer from memory.
-import { siteContext, shotPath, progress, capture } from './session.mjs';
+import { siteContext, shotPath, progress, capture, who } from './session.mjs';
 
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
-const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
+const AGENT = () => `${who().agent}/internal/resolve`;   // the agent of the person this task is for
 
 let ctxPromise;
 async function ctx() {                                // one Naukri context per browser run; refreshed cookies are saved
@@ -164,7 +164,7 @@ export default {
         const q = await currentQuestion(page);
         if (!q) { await page.waitForTimeout(2000); continue; }
         progress(`Naukri asks: "${q.label.slice(0, 120)}"`);
-        const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const r = await fetch(AGENT(), { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
         if (r.status === 503) throw new Error('AI busy, retry later');
         const { answers, unknown } = await r.json();

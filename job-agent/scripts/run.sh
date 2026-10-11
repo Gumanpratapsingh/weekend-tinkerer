@@ -1,6 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/sh
 # Starts/stops the job agent on the phone: the agent (Termux Node) + the browser worker (Debian proot, Xvfb).
 # "start" is idempotent (used by ~/start.sh at boot). "restart" kills and starts both.
+# Other people: one agent each for every people/<name>/ that has a "port" file (JA_PERSON=<name>, JA_PORT=<port>).
+# They share the one browser worker.
 J=$HOME/jobagent
 RUN=$PREFIX/var/run
 mkdir -p $J/data
@@ -16,7 +18,18 @@ start_agent() {
   nohup node "$J/src/agent.mjs" >> $J/data/agent.out 2>&1 &
   echo $! > $RUN/jobagent.pid
 }
+start_people() {
+  for d in $J/people/*/; do
+    [ -f "$d/port" ] || continue
+    n=$(basename "$d"); mkdir -p "$d/data"
+    kill -0 "$(cat $RUN/jobagent-$n.pid 2>/dev/null)" 2>/dev/null && continue
+    JA_PERSON=$n JA_PORT=$(cat "$d/port") nohup node "$J/src/agent.mjs" >> "$d/data/agent.out" 2>&1 &
+    echo $! > $RUN/jobagent-$n.pid
+  done
+}
+stop_people() { for f in $RUN/jobagent-*.pid; do [ -f "$f" ] && { kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; }; done; true; }
 stop() {
+  stop_people
   for p in jobagent jobworker; do kill "$(cat $RUN/$p.pid 2>/dev/null)" 2>/dev/null; rm -f $RUN/$p.pid; done
   pkill -f "browser/worker.mjs" 2>/dev/null; pkill -f "chrome.*--no-sandbox" 2>/dev/null; pkill -f Xvfb 2>/dev/null
   sleep 1; true
@@ -29,6 +42,7 @@ stop_worker() {
 case "$1" in
   stop) stop ;;
   worker) stop_worker; start_worker ;;                  # used by the agent's watchdog
-  restart) stop; start_worker; [ -f $J/src/agent.mjs ] && start_agent ;;
-  *) start_worker; [ -f $J/src/agent.mjs ] && start_agent ;;
+  restart) stop; start_worker; [ -f $J/src/agent.mjs ] && { start_agent; start_people; } ;;
+  people) stop_people; start_people ;;                   # (re)start everyone else's agent, leaving the owner's running
+  *) start_worker; [ -f $J/src/agent.mjs ] && { start_agent; start_people; } ;;
 esac

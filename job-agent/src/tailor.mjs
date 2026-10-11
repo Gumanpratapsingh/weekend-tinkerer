@@ -2,7 +2,7 @@
 // The LLM chooses order, emphasis and wording; validate() throws out any line that claims something new.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { llm, master, DATA, log } from './core.mjs';
+import { llm, master, DATA, log, persona, yearsWorked } from './core.mjs';
 import { resumeHtml } from './resume-html.mjs';
 import { renderPdf } from './browser.mjs';
 
@@ -19,7 +19,7 @@ const NOT_CLAIMED = ['pytorch', 'tensorflow', 'langchain', 'llamaindex', 'langgr
   'mission-critical', 'industry-leading', 'world-class', 'deep-learning', 'deep learning'];
 
 const yearsOfExperience = () => {
-  const yrs = (Date.now() - Date.UTC(2024, 7, 1)) / (365.25 * 86400e3);  // full-time since Aug 2024
+  const yrs = yearsWorked();                                             // full-time since persona.career_start
   return `${Math.floor(yrs)}+`;
 };
 
@@ -93,11 +93,11 @@ export function validate(plan, m = master()) {
 
   // Summary: must be supported by the facts as a whole; otherwise a plain default.
   const years = yearsOfExperience();
-  const defaultSummary = track === 'ai'
-    ? `Software engineer with ${years} years building Java/Spring Boot payment systems, who ships LLM-powered products: a real-time AI phone assistant and an autonomous job agent.`
-    : `Backend engineer with ${years} years building Java/Spring Boot payment systems for 50+ banks, with a focus on performance, AWS and multi-tenant design.`;
+  const P = persona();
+  const tpl = (track === 'ai' ? P.summary_ai : P.summary_backend) || P.summary_backend || `${master().experience[0]?.title || 'Professional'} with {years} years of experience.`;
+  const defaultSummary = tpl.replace('{years}', years);
   let summary = String(plan.summary || '').trim();
-  const sWhy = summary && checkLine(summary, `${years.replace('+', '')} 50 ${allFacts.join(' ')}`, [], jdTerms);
+  const sWhy = summary && checkLine(summary, `${years.replace('+', '')} ${P.summary_numbers || ''} ${allFacts.join(' ')}`, [], jdTerms);
   if (!summary || sWhy || summary.split(/\s+/).length > 45) { if (summary) issues.push(`summary: ${sWhy || 'too long'}`); summary = defaultSummary; }
 
   return { resume: { ...m, summary, experience, projects, skills, track }, issues };

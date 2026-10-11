@@ -35,6 +35,7 @@ export function locationTier(location, description = '') {
     const text = `${loc} ${String(description).slice(0, 3000).toLowerCase()}`;
     return /\b(india|apac|anywhere in the world|worldwide)\b/.test(text) || !L.remote_blocked.some((k) => text.includes(k)) ? 'remote' : null;
   }
+  if (L.only_listed) return null;                      // the person named specific cities (plus remote) and nothing else
   if (L.other_cities.some((k) => loc.includes(k)) || /\bindia\b/.test(loc)) return 'other';
   return null;
 }

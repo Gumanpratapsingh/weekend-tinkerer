@@ -2,9 +2,10 @@
 // Plain node:http, not fetch: fetch gives up after 5 minutes without response headers, and a full Naukri
 // search takes ~20 minutes (that silently threw away every search result until 2026-10-10).
 import { request } from 'node:http';
+import { PERSON, PORT } from './core.mjs';
 
 export function browserTask(name, body = {}, timeoutMs = 300000) {
-  const payload = JSON.stringify(body);
+  const payload = JSON.stringify({ ...body, _who: { person: PERSON || 'owner', port: PORT } });   // whose logins and folders to use
   return new Promise((resolve, reject) => {
     const req = request({ host: '127.0.0.1', port: 8084, path: `/${name}`, method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (res) => {

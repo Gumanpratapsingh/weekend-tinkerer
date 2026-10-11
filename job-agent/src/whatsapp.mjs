@@ -3,7 +3,7 @@
 // Meta only allows free-form messages within 24h of the owner's last message; outside that window the
 // agent sends the pre-approved hello_world template plus an ntfy push, and holds messages until the owner replies.
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { secret, log, ntfy, istHour, config } from './core.mjs';
+import { secret, log, ntfy, istHour, config, OWNER, AGENT_URL, privateProfile } from './core.mjs';
 import { getKv, setKv, all, run } from './db.mjs';
 
 const API = 'https://graph.facebook.com/v21.0';
@@ -30,12 +30,14 @@ const windowOpen = () => Date.now() - Number(getKv('wa_last_inbound', 0)) < WIND
 const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h = istHour(); return from > to ? h >= from || h < to : h >= from && h < to; };
 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
-export function tell(body, { refKind = null, refId = null, urgent = false, options = null } = {}) {
-  if (!configured()) {
+// toOwner: technical alerts from someone else's agent go to the owner (who maintains it), not to that person.
+export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false } = {}) {
+  if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
     (async () => {
-      if (await toCupboard(body, refKind, refId, options)) return;
+      if (await toCupboard(body, refKind, refId, options, toOwner)) return;
+      if (!OWNER && toOwner) return;
       ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
     })().catch((e) => log(`tell: ${e.message}`));
     return;
@@ -44,14 +46,17 @@ export function tell(body, { refKind = null, refId = null, urgent = false, optio
   flush().catch((e) => log(`wa flush: ${e.message}`));
 }
 
-async function toCupboard(body, refKind, refId, options) {
+async function toCupboard(body, refKind, refId, options, toOwner = false) {
+  const to = OWNER || toOwner ? null : privateProfile().cupboard_user;
+  if (!OWNER && !toOwner && !to) { log('tell: no cupboard_user in private.json, message not sent'); return false; }
   const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
   const actions = refKind === 'draft' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
     : refKind === 'referral' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Skip', value: 'skip' }]
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
   try {
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
-      body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref, actions, replyTo: ref ? 'http://127.0.0.1:8083/internal/cupboard' : null }) });
+      body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
+        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}) }) });
     return r.ok && (await r.json()).pushable === true;
   } catch { return false; }
 }

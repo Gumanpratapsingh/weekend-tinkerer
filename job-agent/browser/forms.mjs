@@ -2,7 +2,8 @@
 // collect() labels every visible field, resolveFields() asks the agent's memory for answers,
 // fill() types/selects/uploads them. Unknown required fields stop the run so the owner can be asked.
 
-const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
+import { who } from './session.mjs';
+const AGENT = () => `${who().agent}/internal/resolve`;   // the agent of the person this task is for
 
 // Runs in the page: tag each visible field with data-ja-key and describe it.
 function describeFields(rootSel) {
@@ -107,7 +108,7 @@ const filled = (f) => f.value && !['checkbox', 'radio', 'file'].includes(f.type)
 export async function resolveFields(fields, job) {
   const ask = fields.filter((f) => f.type !== 'file' && !filled(f));
   if (!ask.length) return { answers: {}, unknown: [] };
-  const r = await fetch(AGENT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const r = await fetch(AGENT(), { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_id: job.id, context: `${job.title} at ${job.company}`, fields: ask }) });
   if (r.status === 503) { const e = new Error('AI busy, retry later'); e.retryLater = true; throw e; }
   if (!r.ok) throw new Error(`agent resolve ${r.status}`);

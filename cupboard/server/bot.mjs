@@ -48,8 +48,14 @@ const HELP = `Things I understand:
 • to answer a question I sent, tap Reply on it (or its buttons)
 • or just ask: "why did Rubrik fail?", "how many applied today?", "what's waiting for me?"`;
 
-/** The owner wrote to the bot. replyTo is the bot message being answered (or null). */
-export async function botReply({ text, replyTo, say, update }) {
+const FRIEND_HELP = `I'm your job agent's chat. I'll message you here when I need something (a question, an approval).
+• to answer a question, tap Reply on it (or its buttons)
+• attach your resume with 📎 when I ask for it
+• or just ask: "how many applied today?", "what's waiting for me?"`;
+
+/** Someone wrote to their bot. replyTo is the bot message being answered (or null). Only the owner gets the phone,
+ *  room and expense commands; anyone else talks only to their own job agent. */
+export async function botReply({ text, user, agent, replyTo, say, update }) {
   const t = text.trim(), low = t.toLowerCase();
   const card = replyTo?.extra ? JSON.parse(replyTo.extra) : null;
   if (card?.replyTo) {
@@ -59,6 +65,10 @@ export async function botReply({ text, replyTo, say, update }) {
       return say('Sent ✓');
     } catch (e) { return say(`Couldn't deliver that answer (${e.message}). Is the service running?`); }
   }
+  if (user && user.role !== 'owner') {
+    if (/^(help|hi|hello|hey|\?)$/.test(low)) return say(FRIEND_HELP);
+    return say(await askAgent(agent, t) || "I couldn't reach your job agent just now. Try again in a minute.");
+  }
   if (/^(help|hi|hello|hey|\?)$/.test(low)) return say(HELP);
   if (low === 'status') return say(status());
   if (low === 'room') { const r = read('room/state.json'); return say(r ? `Lights ${r.lights} (${Math.round(r.lux)} lux) · alerts ${r.armed ? 'ARMED' : 'off'}` : 'No room data yet.'); }
@@ -67,13 +77,16 @@ export async function botReply({ text, replyTo, say, update }) {
   if (sp) { const p = sp[1] || 'today'; const v = spent(p === 'today' ? 1 : p === 'week' ? 7 : 'month'); return say(v ? `Spent ${p === 'today' ? 'today' : `this ${p}`}: ${v}` : 'No expense data yet.'); }
   if (/^₹?\s*\d+(\.\d+)?\s+\S/.test(t)) { await ntfy('-exp', t.replace(/^₹\s*/, '')); return say('Logging it… you\'ll get a confirmation in a moment.'); }
   // Anything else: ask the job agent's assistant (answers from its live data with the free AI).
+  const answer = await askAgent(agent || 'http://127.0.0.1:8083', t);
+  return say(answer || `I couldn't reach the job agent just now. ${HELP}`);
+}
+async function askAgent(base, question) {
+  if (!base) return null;
   try {
-    const r = await fetch('http://127.0.0.1:8083/internal/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: t }), signal: AbortSignal.timeout(90000) });
-    const { answer } = await r.json();
-    if (answer) return say(answer);
-  } catch { /* agent down or slow: fall back to the menu */ }
-  return say(`I couldn't reach the job agent just now. ${HELP}`);
+    const r = await fetch(`${base}/internal/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }), signal: AbortSignal.timeout(90000) });
+    return (await r.json()).answer || null;
+  } catch { return null; }   // agent down or slow
 }
 
 /** The owner tapped a button on a bot card. */
