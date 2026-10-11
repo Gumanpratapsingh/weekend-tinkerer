@@ -155,3 +155,49 @@ export async function checkAccepted() {
     } catch (e) { logError('referral check', e, { id: r.id }); }
   }
 }
+
+// ---------- Referral offers in LinkedIn posts: verified authors at MNCs, spam filtered ----------
+const OFFER = /\b(i|we)('?ll| can| will| am happy to| would be happy to)? ?(refer|be referring)\b|\breferrals? (are )?(open|available)\b|\bdm (me )?for (a )?referral|\bdrop (your )?(resume|cv)|\bsend (me )?(your )?(resume|cv)\b|\b(is|are|we're|we are) hiring\b|\bhiring for\b|\bopenings? (in|at) (my|our)\b|🚀 ?referral/i;
+const SEEKER = /\b(i am|i'm|im) (actively |currently )?(looking|seeking|searching)\b|open to work|immediate joiner|seeking (new )?opportunit|looking for (my first|a new|new) (job|role|opportunit)|day \d+ of|my .{0,20}journey|please (help|refer) me|need (a )?referral/i;
+const SPAM = /₹|\brs\.? ?\d|\binr\b|\bfees?\b|\bpay(ment)?\b|registration|guarantee|100 ?%|placement|\bcourse\b|training|\bbatch\b|telegram|t\.me\/|whatsapp|wa\.me|comment .{0,12}interested|link in (bio|comments)|follow me|job updates|ghost ?writer|content creator/i;
+
+function employerOf(headline, list) {
+  const h = ` ${headline} `.toLowerCase();
+  return list.find((co) => new RegExp(`(@|\\bat |\\b)${co.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(h)) || null;
+}
+
+export function judgePost(p, list) {
+  if (!p.verified) return 'author not verified';
+  if (!OFFER.test(p.text)) return 'not a referral offer';
+  if (SEEKER.test(p.text.slice(0, 600)) && !/\b(i can|i'll|will) refer\b/i.test(p.text)) return 'author is looking for work';
+  if (SPAM.test(`${p.headline} ${p.text}`)) return 'spam signs';
+  if (!employerOf(p.headline, list)) return 'author not at an MNC';
+  return null;
+}
+
+export async function scanPosts() {
+  const c = R();
+  const list = [...new Set([...(c.companies || []), ...(c.mnc || [])])];
+  let posts = [];
+  try { posts = (await browserTask('linkedin_posts', { queries: c.post_queries || [] }, 20 * 60e3)).posts || []; }
+  catch (e) { logError('referral posts', e); return; }
+  let kept = 0;
+  const why = {};
+  for (const p of posts) {
+    const reason = judgePost(p, list);
+    if (reason) { why[reason] = (why[reason] || 0) + 1; continue; }
+    if (one('SELECT 1 FROM referrals WHERE profile = ?', p.profile)) continue;
+    const company = employerOf(p.headline, list);
+    const job = jobAt(company);
+    const first = p.author.split(/\s+/)[0];
+    const role = job ? `the ${job.title} role` : 'a Java backend / AI engineering role';
+    const text = `Hi ${first}, saw your post about referrals at ${company}. I'm a Java/Spring Boot backend engineer (2+ yrs, payment systems at Finzly) who also builds LLM apps. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – Guman`.slice(0, 300);
+    run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, post, created_at)
+      VALUES(?,?,?,?,?,?,?,0,'drafted',?,'post',?,?)`, company, job?.id || null, job?.title || null, job?.url || null, p.author, p.headline, p.profile, text, p.text.slice(0, 600), now());
+    const id = one('SELECT id FROM referrals WHERE profile = ?', p.profile).id;
+    kept++;
+    tell(`🤝 Referral offer in a LinkedIn post (verified, ${company}) #${id}: ${p.author}\n${p.headline}\n${p.profile}\n\nTheir post: "${p.text.replace(/\s+/g, ' ').slice(0, 260)}…"\n\nYour note:\n${text}\n\n— Send, Skip, or type your own note.`,
+      { refKind: 'referral', refId: id });
+  }
+  activity(`🤝 Referral posts: ${posts.length} read, ${kept} kept · skipped: ${Object.entries(why).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}`);
+}

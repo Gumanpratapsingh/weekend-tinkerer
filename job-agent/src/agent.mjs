@@ -182,6 +182,10 @@ every(60, 'referral prospecting', async () => {
   const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1') return;
   const { prospect } = await import('./referrals.mjs'); await prospect();
 }, { delay: 15 * 60e3 });
+every(240, 'referral posts', async () => {                 // LinkedIn posts offering referrals, every 4 h in the daytime
+  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1') return;
+  const { scanPosts } = await import('./referrals.mjs'); await scanPosts();
+}, { delay: 25 * 60e3 });
 every(5, 'referral sending', async () => {
   if (getKv('thermal_pause') === '1') return;
   const { send } = await import('./referrals.mjs'); await send();

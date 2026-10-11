@@ -156,6 +156,46 @@ export default {
     } finally { await ctx.saveSession().catch(() => {}); await ctx.close(); }
   },
 
+  // Recent posts for referral-ish queries -> [{ author, profile, headline, verified, text, postUrl }].
+  async linkedin_posts({ queries }) {
+    const ctx = await siteContext('linkedin');
+    const page = await ctx.newPage();
+    const out = new Map();
+    try {
+      for (const q of queries) {
+        await page.goto(`https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(q)}&datePosted=%22past-24h%22&sortBy=%22date_posted%22`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', posts: [] };
+        await page.waitForTimeout(4500);
+        for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 2200); await page.waitForTimeout(1800); }
+        const posts = await page.evaluate(() => {
+          const prof = (h) => (/\/in\/[^/?#]+/.exec(h) || [''])[0];
+          const res = [];
+          // Each result starts with a hidden "Feed post" heading: its post = the largest ancestor holding just one of them.
+          const isMark = (n) => n.textContent.trim() === 'Feed post';
+          const marks = [...document.querySelectorAll('h2')].filter(isMark);
+          for (const m of marks) {
+            let b = m;
+            while (b.parentElement && b.parentElement !== document.body
+              && [...b.parentElement.querySelectorAll('h2')].filter(isMark).length === 1) b = b.parentElement;
+            const a = b.querySelector('a[href*="/in/"]');
+            if (!a) continue;
+            const text = String(b.innerText || '').replace(/^Feed post\s*/, '');
+            const verified = !!b.querySelector('[aria-label*="Verified Profile"], [id="verified-small"], use[href*="verified"]');
+            const lines = text.split('\n').map((x) => x.trim()).filter(Boolean);
+            const author = (lines[0] || '').replace(/\s*•.*$/, '').replace(/\s*Verified.*$/i, '').trim();
+            const headline = lines.find((x, i) => i > 0 && x.length > 12 && !/^•|^(1st|2nd|3rd)|^Follow$|^\d+\s*[hmdw]\b|^(Just now|Edited)/.test(x)) || '';
+            res.push({ author, profile: `https://www.linkedin.com${prof(a.href)}/`, headline: headline.slice(0, 220), verified, text: text.slice(0, 1800), postUrl: '' });
+          }
+          return res;
+        });
+        for (const p of posts) if (!out.has(p.profile + p.text.slice(0, 60))) out.set(p.profile + p.text.slice(0, 60), p);
+        progress(`LinkedIn posts: "${q}" → ${out.size} so far`);
+        await page.waitForTimeout(5000 + Math.random() * 5000);
+      }
+      return { status: 'ok', posts: [...out.values()] };
+    } finally { await ctx.close(); }
+  },
+
   // Find people at a company: SRM alumni first, then engineers in India. Keeps those whose card mentions the company.
   async linkedin_people({ company, school = 'SRM' }) {
     const ctx = await siteContext('linkedin');
