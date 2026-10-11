@@ -74,6 +74,13 @@ async function formScore(page) {
 export default {
   async apply_external({ job, resume, dryRun = false, keepOpen = false }) {
     const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external');
+    // Record every address the page asks to open in a new tab (LinkedIn's Apply does this): the real company link
+    // can then be opened directly, without chasing tabs or tracker redirects.
+    await ctx.addInitScript(() => {
+      const open = window.open;
+      window.__jaOpened = [];
+      window.open = function (u, ...rest) { try { window.__jaOpened.push(new URL(String(u), location.href).href); } catch { /* bad url */ } return open.call(this, u, ...rest); };
+    });
     let page = await ctx.newPage();
     progress(`Company site: opening ${job.title} @ ${job.company}`);
     const snap = (name) => capture(page, name);
@@ -145,7 +152,19 @@ export default {
             await share.click({ timeout: 8000 }).catch(() => {});
           }
           let p2 = null;
-          for (let w = 0; w < 24 && !p2; w++) {               // up to ~12 s
+          // Best: the company address the page itself tried to open (window.open), followed in this same tab.
+          await page.waitForTimeout(1500);
+          const asked = (await page.evaluate(() => window.__jaOpened || []).catch(() => [])).filter((u) => /^https?:/.test(u) && !TRACKER.test(u) && !/linkedin\.com/.test(u));
+          if (asked.length) {
+            progress(`Company site: following ${asked.at(-1).slice(0, 100)}`);
+            for (const pg of opened) await pg.close().catch(() => {});
+            await page.goto(asked.at(-1), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+            await page.waitForTimeout(2500);
+            opened.length = 0;
+          }
+          // The click itself navigated this tab onto a tracker: step back and treat it as a new-tab click.
+          if (TRACKER.test(page.url())) { await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {}); }
+          for (let w = 0; w < 24 && !p2 && !asked.length; w++) {               // up to ~12 s
             await page.waitForTimeout(500);
             for (const pg of opened) {
               const u = pg.isClosed() ? '' : pg.url();
@@ -161,7 +180,7 @@ export default {
           await page.waitForTimeout(3500);
           const g = await formScore(page);
           // Nothing happened (same page, no form, no new tab): try the next-best Apply control.
-          if (!p2 && page.url() === before && !g.hasFile && !(g.hasEmail && g.hasName)) continue;
+          if (!p2 && !asked.length && page.url() === before && !g.hasFile && !(g.hasEmail && g.hasName)) continue;
           clicked = true;
           break;
         }
