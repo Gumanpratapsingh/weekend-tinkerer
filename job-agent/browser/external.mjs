@@ -130,6 +130,9 @@ export default {
       }
       await submit.click({ timeout: 10000 });
       await page.waitForTimeout(6000);
+      // Emailed "security code" / "confirm you're a human" step (Greenhouse and others): a human check for the owner.
+      if (/security code|verification code (was|has been) sent|confirm you'?re a human/i.test(await page.innerText('body').catch(() => '')))
+        return { status: 'manual', reason: 'captcha (emailed security code)', shot: await snap('ext-securitycode') };
       if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
       const body = await page.innerText('body').catch(() => '');
       if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done') };
