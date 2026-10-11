@@ -237,7 +237,7 @@ const pages = {
           tile('CPU busy', d.cpu != null ? `${d.cpu}%` : '—', `${d.cpus} threads · load ${d.load[0]}`),
           tile('Memory used', gb(used), `of ${gb(d.memory.total)} · ${Math.round((100 * used) / d.memory.total)}%`, d.memory.available < 1073741824),
           tile('Disk', `${d.disk.percent}%`, `${gb(d.disk.used)} of ${gb(d.disk.size)}`, d.disk.percent >= 90),
-          tile('Battery', d.battery ? `${d.battery.percent}%` : '—', d.battery ? `${d.battery.plugged ? 'plugged in' : 'ON BATTERY'} · ${d.battery.status} · wear: ${d.battery.health}% of new` : '', d.battery && !d.battery.plugged),
+          tile('Battery', d.battery ? `${d.battery.percent}%` : '—', d.battery ? `${d.battery.plugged ? 'plugged in' : 'ON BATTERY'} · ${d.battery.status} · holds ${d.battery.health}% of its original charge` : '', d.battery && !d.battery.plugged),
           tile('WiFi', d.wifi.signal != null ? `${d.wifi.signal} dBm` : '—', `${d.wifi.ssid || 'not connected'} · ${d.wifi.ip || ''}`, !d.wifi.ssid || d.wifi.signal < -75),
           tile('Browser', String(d.chromium), 'Chromium processes'),
           tile('Backup to phone', d.lastSync ? ago(d.lastSync) : '—', 'every minute', !d.lastSync || Date.now() - d.lastSync > 10 * 60e3)),

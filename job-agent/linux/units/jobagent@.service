@@ -13,6 +13,7 @@ ExecStart=/bin/sh -c 'JA_PORT=$$(cat @HOME@/jobagent/people/%i/port) exec /usr/l
 StandardOutput=append:@HOME@/jobagent/people/%i/data/agent.out
 StandardError=append:@HOME@/jobagent/people/%i/data/agent.out
 Restart=always
+TimeoutStopSec=15
 RestartSec=10
 
 [Install]

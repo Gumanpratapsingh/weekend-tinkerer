@@ -13,6 +13,7 @@ ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x900x24" /usr/local/bin/node @H
 StandardOutput=append:@HOME@/jobagent/data/worker.log
 StandardError=append:@HOME@/jobagent/data/worker.log
 Restart=always
+TimeoutStopSec=15
 RestartSec=5
 
 [Install]

@@ -12,6 +12,7 @@ ExecStart=/usr/local/bin/node @HOME@/jobagent/src/agent.mjs
 StandardOutput=append:@HOME@/jobagent/data/agent.out
 StandardError=append:@HOME@/jobagent/data/agent.out
 Restart=always
+TimeoutStopSec=15
 RestartSec=10
 
 [Install]
