@@ -1,0 +1,19 @@
+[Unit]
+Description=Job agent for %i (people/%i)
+After=network-online.target jobworker.service phone-link.service
+Wants=network-online.target jobworker.service phone-link.service
+ConditionPathExists=!@HOME@/jobagent/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@/jobagent
+Environment=JA_PERSON=%i
+ExecStart=/bin/sh -c 'JA_PORT=$$(cat @HOME@/jobagent/people/%i/port) exec /usr/local/bin/node @HOME@/jobagent/src/agent.mjs'
+StandardOutput=append:@HOME@/jobagent/people/%i/data/agent.out
+StandardError=append:@HOME@/jobagent/people/%i/data/agent.out
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

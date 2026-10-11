@@ -7,9 +7,13 @@ import { HOME } from '../core.mjs';
 
 const DIR = join(HOME, 'jobagent', 'data');
 const DB = join(DIR, 'agent.db');
-let db;
+let db, dbIno;
 function q(sql, ...p) {
-  if (!db) { if (!existsSync(DB)) return []; db = new DatabaseSync(DB, { readOnly: true }); }
+  // When the agents run on the laptop, its backup (job-agent/linux/sync.sh) replaces this file every few
+  // minutes: reopen when it's a new file, or we'd keep reading the old one.
+  const ino = (() => { try { return statSync(DB).ino; } catch { return null; } })();
+  if (db && ino !== dbIno) { try { db.close(); } catch { /* already gone */ } db = null; }
+  if (!db) { if (!ino) return []; db = new DatabaseSync(DB, { readOnly: true }); dbIno = ino; }
   return db.prepare(sql).all(...p);
 }
 const one = (sql, ...p) => q(sql, ...p)[0];

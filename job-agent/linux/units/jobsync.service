@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the job agents' data to the S20 (also feeds the phone's /jobs hub)
+ConditionPathExists=!@HOME@/jobagent/STANDBY
+
+[Service]
+Type=oneshot
+User=@USER@
+ExecStart=/bin/sh @HOME@/jobagent/linux/sync.sh

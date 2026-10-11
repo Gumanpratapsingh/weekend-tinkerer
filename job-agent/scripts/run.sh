@@ -3,8 +3,13 @@
 # "start" is idempotent (used by ~/start.sh at boot). "restart" kills and starts both.
 # Other people: one agent each for every people/<name>/ that has a "port" file (JA_PERSON=<name>, JA_PORT=<port>).
 # They share the one browser worker.
+# On the laptop (Ubuntu, not Termux) the same commands drive systemd units instead: see linux/.
+[ -d /data/data/com.termux ] || exec sh "$(dirname "$0")/../linux/run.sh" "$@"
 J=$HOME/jobagent
 RUN=$PREFIX/var/run
+# Standby: while the agents run on the laptop, the phone keeps a synced copy and must not start it
+# (not even at boot). linux/failover.sh removes the flag when the phone takes over.
+if [ -f $J/STANDBY ] && [ "$1" != stop ]; then echo "standby: the agents run on the laptop (rm ~/jobagent/STANDBY to take over)"; exit 0; fi
 mkdir -p $J/data
 start_worker() {
   kill -0 "$(cat $RUN/jobworker.pid 2>/dev/null)" 2>/dev/null && return

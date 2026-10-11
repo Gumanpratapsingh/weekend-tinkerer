@@ -1,0 +1,15 @@
+[Unit]
+Description=SSH link to the S20: Cupboard's internal API here (:8086), the job agents' ports there
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/jobagent/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -L 127.0.0.1:8086:127.0.0.1:8086 @FORWARDS@ s20phone
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -10,3 +10,4 @@ profile/*.pdf
 
 # Other people's profiles and data (multi-profile): never in git.
 people/
+.primary-host

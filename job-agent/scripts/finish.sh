@@ -2,8 +2,8 @@
 # CAPTCHA handoff on the Mac: prefilled forms open in a browser; you solve the CAPTCHA and press Submit.
 # Usage: ./scripts/finish.sh [ssh-host]   (default s20phone; s20phone-tunnel if your Terminal can't reach the LAN)
 set -e
-HOST=${1:-s20phone}
 cd "$(dirname "$0")/.."
+HOST=${1:-$(cat .primary-host 2>/dev/null || echo s20phone)}   # where the agents run now (linux/switch-to-laptop.sh)
 # Playwright for the Mac (first run only).
 [ -d mac/node_modules/playwright ] || (cd mac && npm install --silent && npx playwright install chromium)
 # The phone's agent API, through ssh (it only listens on the phone's localhost).

@@ -1,0 +1,18 @@
+[Unit]
+Description=Job agent (owner, :8083)
+After=network-online.target jobworker.service phone-link.service
+Wants=network-online.target jobworker.service phone-link.service
+ConditionPathExists=!@HOME@/jobagent/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@/jobagent
+ExecStart=/usr/local/bin/node @HOME@/jobagent/src/agent.mjs
+StandardOutput=append:@HOME@/jobagent/data/agent.out
+StandardError=append:@HOME@/jobagent/data/agent.out
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

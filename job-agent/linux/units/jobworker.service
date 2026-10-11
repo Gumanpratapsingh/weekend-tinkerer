@@ -1,0 +1,19 @@
+[Unit]
+Description=Job agent browser worker (headed Chromium under Xvfb, 127.0.0.1:8084)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/jobagent/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@/jobagent
+Environment=PW_DIR=/opt/pw/
+ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x900x24" /usr/local/bin/node @HOME@/jobagent/browser/worker.mjs
+StandardOutput=append:@HOME@/jobagent/data/worker.log
+StandardError=append:@HOME@/jobagent/data/worker.log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

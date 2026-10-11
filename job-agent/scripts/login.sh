@@ -5,8 +5,8 @@
 # The person types their own password/OTP in the window; only the session cookies are saved.
 set -e
 SITE=${1:?usage: [PERSON=name] login.sh linkedin|naukri [ssh-host]}
-HOST=${2:-s20phone}
 cd "$(dirname "$0")/.."
+HOST=${2:-$(cat .primary-host 2>/dev/null || echo s20phone)}   # where the agents run now (linux/switch-to-laptop.sh)
 D=data/sessions; [ -n "$PERSON" ] && D=people/$PERSON/data/sessions
 ~/NaukriAutopilot/.venv/bin/python scripts/login.py "$SITE" $PERSON
 [ -s "$D/$SITE.json" ] || exit 1
