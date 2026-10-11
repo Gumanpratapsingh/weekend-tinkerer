@@ -4,11 +4,15 @@
 import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ats from '../browser/ats.mjs';
-import { siteContext } from '../browser/session.mjs';
+import { siteContext, person } from '../browser/session.mjs';
 import external from '../browser/external.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENT = process.env.AGENT_URL;
+// Someone else's agent (PERSON=name): their logins, folders and answers, never the owner's.
+const WHO = process.env.JA_PERSON || '';
+const DATA = WHO ? join(ROOT, 'people', WHO, 'data') : join(ROOT, 'data');
+const main = async () => {
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|applied successfully|you have (successfully )?applied/i;
 const handlers = { greenhouse: ats.apply_greenhouse, lever: ats.apply_lever, ashby: ats.apply_ashby, external: external.apply_external };
 
@@ -22,11 +26,11 @@ async function openForOwner(job, site, applySelector = null) {
 }
 
 const jobs = await (await fetch(`${AGENT}/internal/captcha-jobs`)).json();
-if (!jobs.length) { console.log('No CAPTCHA jobs waiting.'); process.exit(0); }
+if (!jobs.length) { console.log('No CAPTCHA jobs waiting.'); return; }
 console.log(`${jobs.length} job(s) need a CAPTCHA.\n`);
 
 for (const [i, job] of jobs.entries()) {
-  const resume = job.resume_path ? join(ROOT, 'data', 'handoff', basename(job.resume_path)) : null;
+  const resume = job.resume_path ? join(DATA, 'handoff', basename(job.resume_path)) : null;
   const run = handlers[job.apply_type] || handlers.external;
   console.log(`(${i + 1}/${jobs.length}) ${job.title} @ ${job.company} — filling the form…`);
   let res;
@@ -82,4 +86,6 @@ for (const [i, job] of jobs.entries()) {
   } else console.log('   Skipped (no confirmation seen). It stays on the CAPTCHA list.\n');
   await ctx.close().catch(() => {});
 }
+};
+if (WHO) await person.run({ person: WHO, data: DATA, agent: AGENT }, main); else await main();
 process.exit(0);

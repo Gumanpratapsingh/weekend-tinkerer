@@ -132,19 +132,31 @@ export default {
           if (!(await el.isVisible().catch(() => false))) continue;
           progress(`Company site: clicking "${text.slice(0, 40)}"`);
           const before = page.url();
-          const nextTab = () => ctx.waitForEvent('page', { predicate: (pg) => !TRACKER.test(pg.url()), timeout: 12000 }).catch(() => null);
-          let popup = nextTab();
+          // Every tab the click opens (the company site, and often an ad-tracker tab too) is collected; once their real
+          // addresses are known, trackers are closed and the real page is followed.
+          const opened = [];
+          const onPage = (pg) => opened.push(pg);
+          ctx.on('page', onPage);
           await el.click({ timeout: 8000 }).catch(() => {});
           // LinkedIn asks "Share your profile?" before sending people to the company site: Continue opens it.
           const share = page.locator('[role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button').filter({ hasText: /^\s*continue\s*$/i }).first();
           if (/linkedin\.com/.test(page.url()) && await share.isVisible({ timeout: 3000 }).catch(() => false)) {
             progress('Company site: LinkedIn "Share your profile?" → Continue');
-            popup = nextTab();
             await share.click({ timeout: 8000 }).catch(() => {});
           }
-          let p2 = await popup;
-          // A tracker tab can still slip through (its URL is about:blank when the event fires): wait for it to settle.
-          if (p2) { await p2.waitForLoadState('domcontentloaded').catch(() => {}); if (TRACKER.test(p2.url())) { await p2.close().catch(() => {}); p2 = await nextTab(); } }
+          let p2 = null;
+          for (let w = 0; w < 24 && !p2; w++) {               // up to ~12 s
+            await page.waitForTimeout(500);
+            for (const pg of opened) {
+              const u = pg.isClosed() ? '' : pg.url();
+              if (!u || u === 'about:blank') continue;
+              if (TRACKER.test(u)) { await pg.close().catch(() => {}); continue; }
+              p2 = pg;
+            }
+            if (!opened.length && w >= 7) break;               // nothing opened after ~4 s: same-page navigation or a dud
+          }
+          ctx.off('page', onPage);
+          for (const pg of opened) if (pg !== p2 && !pg.isClosed() && TRACKER.test(pg.url())) await pg.close().catch(() => {});
           if (p2) { page = p2; await page.waitForLoadState('domcontentloaded').catch(() => {}); }
           await page.waitForTimeout(3500);
           const g = await formScore(page);

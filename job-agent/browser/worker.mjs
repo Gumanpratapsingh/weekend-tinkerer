@@ -63,6 +63,13 @@ for (const mod of ['naukri', 'linkedin', 'ats', 'external']) {
   if (existsSync(f)) Object.assign(tasks, (await import(f)).default);
 }
 
+// Stop quickly when asked (deploys, systemd stop): close Chromium and exit instead of waiting to be killed.
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => {
+  console.log(`${sig}: closing the browser and exiting`);
+  setTimeout(() => process.exit(0), 5000).unref();     // never hang on a stuck browser
+  session.closeBrowser().finally(() => process.exit(0));
+});
+
 // A page closing mid-click must never take the whole worker down (it did on 2026-10-10 and stalled applying).
 process.on('unhandledRejection', (e) => { console.error('unhandled rejection (kept running):', e?.message || e); session.workerError('unhandled', e); });
 process.on('uncaughtException', (e) => { console.error('uncaught exception (kept running):', e?.message || e); session.workerError('uncaught', e); });
