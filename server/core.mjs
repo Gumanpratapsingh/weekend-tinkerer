@@ -123,7 +123,7 @@ export async function groq(messages, { maxTokens = 900, json = false, temperatur
 // ---------- auth: one owner password (scrypt hash) + server-side sessions ----------
 const AUTH_FILE = join(HOME, 'tinker', 'auth.json');     // {salt, hash}, written by set-password.sh
 const SESSION_DAYS = 30;
-let sessions = load('sessions.json', {});                 // token -> expiry ms
+let sessions = load('sessions.json', {});                 // token -> expiry ms (owner) or {exp, who, full} (a person)
 const attempts = new Map();                               // ip -> [timestamps]
 
 export function passwordSet() { return existsSync(AUTH_FILE); }
@@ -142,10 +142,12 @@ export function loginLocked(ip) {
 }
 export function noteFailure(ip) { attempts.set(ip, [...(attempts.get(ip) || []), Date.now()]); }
 
-export function newSession() {
+const expOf = (v) => (typeof v === 'number' ? v : v?.exp || 0);
+export function newSession(who = '', full = false) {
   const token = randomBytes(32).toString('hex');
-  sessions[token] = Date.now() + SESSION_DAYS * 86400e3;
-  for (const [t, exp] of Object.entries(sessions)) if (exp < Date.now()) delete sessions[t];
+  const exp = Date.now() + SESSION_DAYS * 86400e3;
+  sessions[token] = who ? { exp, who, full: !!full } : exp;
+  for (const [t, v] of Object.entries(sessions)) if (expOf(v) < Date.now()) delete sessions[t];
   save('sessions.json', sessions);
   return token;
 }
@@ -153,7 +155,37 @@ export function endSession(token) { delete sessions[token]; save('sessions.json'
 
 export function sessionOf(req) {
   const m = /(?:^|;\s*)tk=([a-f0-9]{64})/.exec(req.headers.cookie || '');
-  return m && sessions[m[1]] > Date.now() ? m[1] : null;
+  return m && expOf(sessions[m[1]]) > Date.now() ? m[1] : null;
+}
+// '' for the owner; a person's name (people/<name>/ job agent) for their own login. A person sees only their
+// own job agent, unless the owner gave them full access (everything the owner sees).
+export const sessionWho = (token) => (typeof sessions[token] === 'object' ? sessions[token].who : '');
+export const sessionFull = (token) => typeof sessions[token] !== 'object' || !!sessions[token].full;
+
+// ---------- people: their own login, set by themselves through a one-time invite link ----------
+const PEOPLE_AUTH = join(HOME, 'tinker', 'people-auth.json');   // {name: {salt, hash, full}}
+const INVITES = join(HOME, 'tinker', 'invites.json');           // {token: {who, exp, full}}, made by invite-person.sh
+const readJ = (f) => { try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return {}; } };
+const writeJ = (f, v) => writeFileSync(f, JSON.stringify(v), { mode: 0o600 });
+export function checkPerson(who, pw) {
+  const a = readJ(PEOPLE_AUTH)[who];
+  if (!a) return false;
+  return timingSafeEqual(scryptSync(String(pw), Buffer.from(a.salt, 'hex'), 64), Buffer.from(a.hash, 'hex'));
+}
+export const personFull = (who) => !!readJ(PEOPLE_AUTH)[who]?.full;
+export function inviteOf(token) {
+  const i = readJ(INVITES)[String(token)];
+  return i && i.exp > Date.now() ? i : null;
+}
+export function useInvite(token, pw) {          // sets the person's password, the link stops working
+  const i = inviteOf(token);
+  if (!i) return null;
+  const salt = randomBytes(16);
+  const auth = readJ(PEOPLE_AUTH); auth[i.who] = { salt: salt.toString('hex'), hash: scryptSync(String(pw), salt, 64).toString('hex'), full: !!i.full }; writeJ(PEOPLE_AUTH, auth);
+  const inv = readJ(INVITES); delete inv[String(token)]; writeJ(INVITES, inv);
+  for (const [t, v] of Object.entries(sessions)) if (typeof v === 'object' && v.who === i.who) delete sessions[t];   // old logins out
+  save('sessions.json', sessions);
+  return { who: i.who, full: !!i.full };
 }
 export const cookie = (token, maxAge) =>
   `tk=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;

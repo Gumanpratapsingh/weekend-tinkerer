@@ -29,6 +29,8 @@ const clip = (s, n) => (s && s.length > n ? s.slice(0, n - 1).trimEnd() + '…' 
 const who = () => new URLSearchParams(location.search).get('who') || '';
 const withWho = (path) => (who() ? `${path}${path.includes('?') ? '&' : '?'}who=${encodeURIComponent(who())}` : path);
 let people = null;                                  // [{ who, name, online }] from /api/jobs/people
+let me = null;                                      // /api/me: { loggedIn, who, full } (who empty = the owner)
+const limited = () => !!me?.who && !me.full;        // a person who sees only their own job agent
 const loadPeople = async () => (people ??= (await api('/jobs/people').catch(() => ({ people: [] }))).people || []);
 const ago = (t) => { const d = (Date.now() - t) / 1000; return d < 90 ? 'just now' : d < 3600 ? `${Math.round(d / 60)} min ago` : d < 86400 ? `${Math.round(d / 3600)} h ago` : `${Math.round(d / 86400)} d ago`; };
 
@@ -184,7 +186,7 @@ const pages = {
       h('div', { class: 'sub' }, lp?.online ? `CPU ${lp.cpu ?? '—'}% · RAM ${Math.round(100 - (100 * lp.memory.available) / lp.memory.total)}% · 🔋${lp.battery?.percent ?? '—'}%${lp.battery?.plugged ? ' ⚡' : ''}` : 'not reachable'));
 
     return [
-      h('div', { class: 'hello' }, h('h1', {}, `${greet}, Guman`), h('p', { class: 'lede' }, dateLine + up)),
+      h('div', { class: 'hello' }, h('h1', {}, `${greet}, ${me?.who ? ((await loadPeople()).find((x) => x.who === me.who)?.name || me.who).split(' ')[0] : 'Guman'}`), h('p', { class: 'lede' }, dateLine + up)),
       h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW),
       quickAdd('250 swiggy dinner'),
     ];
@@ -314,16 +316,38 @@ const pages = {
   async '/login'() {
     const me = await api('/me');
     if (me.loggedIn) return go('/');
+    const user = h('input', { name: 'username', autocomplete: 'username', placeholder: 'Username (owner: leave empty)', autocapitalize: 'none' });
     const pw = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true, placeholder: 'Password' });
     const err = h('p', { class: 'err' });
     const btn = h('button', { class: 'btn', type: 'submit' }, 'Log in');
-    const form = h('form', { class: 'login' }, pw, btn, err);
+    const form = h('form', { class: 'login' }, user, pw, btn, err);
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); btn.disabled = true; err.textContent = '';
-      try { await api('/login', { method: 'POST', body: { password: pw.value } }); go('/'); }
+      try { await api('/login', { method: 'POST', body: { user: user.value.trim(), password: pw.value } }); me = null; go('/'); }
       catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
     });
-    return [h('h1', {}, 'Log in'), h('p', { class: 'lede' }, me.passwordSet ? 'Private tools. Owner only.' : 'No password set yet. Run set-password.sh from the Mac.'), form];
+    return [h('h1', {}, 'Log in'), h('p', { class: 'lede' }, me.passwordSet ? 'Private tools.' : 'No password set yet. Run set-password.sh from the Mac.'), form];
+  },
+
+  // One-time invite link (?t=): the person chooses their own password, then lands on their job agent.
+  async '/setup'() {
+    const token = new URLSearchParams(location.search).get('t') || '';
+    const ok = await api(`/setup?t=${encodeURIComponent(token)}`).then((r) => r.valid).catch(() => false);
+    if (!ok) return [h('h1', {}, 'Link expired'), h('p', { class: 'lede' }, 'This link has expired or was already used. If you already set your password, log in instead.'),
+      h('a', { class: 'btn', href: '/login', 'data-link': true }, 'Log in')];
+    const pw = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 10, placeholder: 'Choose a password (10+ characters)' });
+    const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, placeholder: 'Repeat it' });
+    const err = h('p', { class: 'err' });
+    const btn = h('button', { class: 'btn', type: 'submit' }, 'Save and open my dashboard');
+    const form = h('form', { class: 'login' }, pw, pw2, btn, err);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault(); err.textContent = '';
+      if (pw.value !== pw2.value) { err.textContent = 'The two passwords are different.'; return; }
+      btn.disabled = true;
+      try { const r = await api('/setup', { method: 'POST', body: { token, password: pw.value } }); me = null; history.replaceState(null, '', '/'); go(r.full ? '/' : `/jobs?who=${encodeURIComponent(r.who)}`, false); }
+      catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
+    });
+    return [h('h1', {}, 'Welcome'), h('p', { class: 'lede' }, 'Choose your password for the Tinker hub. Only you will know it. Next time, log in with your username and this password.'), form];
   },
 
   async '/expenses'() {
@@ -769,7 +793,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/setup': 'Welcome', '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();
@@ -780,6 +804,7 @@ function markTabs() {
     const u = new URL(a.href);
     const on = path.startsWith('/jobs') ? u.pathname === '/jobs' && (u.searchParams.get('who') || '') === who() : u.pathname === path;
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    a.hidden = limited() && !(u.pathname === '/jobs' && u.searchParams.get('who') === me.who);   // a limited person: only their own tab
   });
 }
 // A tab per other person's job agent, next to Jobs (added once, after login).
@@ -805,9 +830,13 @@ async function render() {
   roomStream?.close(); roomStream = null;
   clearInterval(jobsTimer); jobsTimer = null;
   clearInterval(pageTimer); pageTimer = null;
-  const inside = path !== '/login';
+  const inside = path !== '/login' && path !== '/setup';
+  if (inside) {
+    me ??= await api('/me').catch(() => null);
+    if (limited() && (!path.startsWith('/jobs') || who() !== me.who)) return go(`/jobs?who=${encodeURIComponent(me.who)}`, false);   // only their own agent
+  }
   tabs.hidden = !inside; logoutBtn.hidden = !inside;
-  if (!inside) statusEl.hidden = true;
+  if (!inside || limited()) statusEl.hidden = true;
   markTabs();
   if (inside) addPeopleTabs().catch(() => { peopleTabs = false; });
   document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
@@ -816,7 +845,7 @@ async function render() {
   try {
     const nodes = await page();
     if (nodes) view.replaceChildren(...[nodes].flat().filter((n) => n != null && n !== false));
-    if (inside && path !== '/' && statusEl.hidden) refreshStatus();
+    if (inside && path !== '/' && statusEl.hidden && !limited()) refreshStatus();
   } catch (e) {
     if (location.pathname !== '/login') view.replaceChildren(h('p', { class: 'err' }, e.message));
   }
@@ -825,6 +854,6 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
   if (a && a.origin === location.origin && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (a.pathname + a.search !== location.pathname + location.search) { view.replaceChildren(); go(a.pathname + a.search, !a.closest('.tabs')); } }
 });
-logoutBtn.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); go('/login'); });
+logoutBtn.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); me = null; people = null; go('/login'); });
 window.addEventListener('popstate', () => { view.replaceChildren(); render(); });
 render();
