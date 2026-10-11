@@ -25,6 +25,11 @@ const today = () => ist().toISOString().slice(0, 10);
 const monthName = (m) => new Date(m + '-01T00:00:00Z').toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 const shortMonth = (m) => new Date(m + '-01T00:00:00Z').toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
 const clip = (s, n) => (s && s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s || '');
+// Whose job agent the /jobs pages show: ?who= (empty = the owner). Names come from the server, never from this file.
+const who = () => new URLSearchParams(location.search).get('who') || '';
+const withWho = (path) => (who() ? `${path}${path.includes('?') ? '&' : '?'}who=${encodeURIComponent(who())}` : path);
+let people = null;                                  // [{ who, name, online }] from /api/jobs/people
+const loadPeople = async () => (people ??= (await api('/jobs/people').catch(() => ({ people: [] }))).people || []);
 const ago = (t) => { const d = (Date.now() - t) / 1000; return d < 90 ? 'just now' : d < 3600 ? `${Math.round(d / 60)} min ago` : d < 86400 ? `${Math.round(d / 3600)} h ago` : `${Math.round(d / 86400)} d ago`; };
 
 let toastTimer;
@@ -35,6 +40,7 @@ function toast(msg, bad = false) {
 }
 
 async function api(path, { method = 'GET', body } = {}) {
+  if (path.startsWith('/jobs') && who()) { path = withWho(path); if (body) body = { ...body, who: who() }; }   // the person on screen
   const opts = {
     method, credentials: 'same-origin',
     headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-Hub': '1' },
@@ -110,8 +116,8 @@ statusEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') go('/health
 const pages = {
   async '/'() {
     const month = today().slice(0, 7);
-    const [exp, iv, ta, room, li, st, jb] = await Promise.allSettled([
-      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'),
+    const [exp, iv, ta, room, li, st, jb, lp] = await Promise.allSettled([
+      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'), api('/laptop'),
     ]).then((r) => r.map((x) => (x.status === 'fulfilled' ? x.value : null)));
     const hr = ist().getUTCHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -169,11 +175,85 @@ const pages = {
       h('div', { class: 'big' + (hotPhone ? ' accent' : '') }, st?.tempC != null ? `${Math.round(st.tempC)}°C` : '—'),
       h('div', { class: 'sub' }, st ? `🔋${st.battery}%${st.charging ? ' ⚡' : ''}${st.availMB ? ` · ${(st.availMB / 1024).toFixed(1)} GB free` : ''}` : 'unavailable'));
 
+    // Laptop server (runs the job agents)
+    const lpHot = lp?.online && lp.temps?.cpu >= lp.limits?.warn;
+    const lpDown = lp?.online && Object.values(lp.services || {}).some((x) => x !== 'active');
+    const laptopW = h('a', { class: 'w', href: '/laptop', 'data-link': true },
+      h('div', { class: 'label' }, h('span', {}, 'Laptop'), !lp?.online ? h('span', { class: 'accent' }, 'offline') : lpHot ? h('span', { class: 'accent' }, 'hot') : lpDown ? h('span', { class: 'accent' }, 'check') : h('span', { class: 'live' }, 'ok')),
+      h('div', { class: 'big' + (lpHot || !lp?.online ? ' accent' : '') }, lp?.online && lp.temps?.cpu != null ? `${Math.round(lp.temps.cpu)}°C` : '—'),
+      h('div', { class: 'sub' }, lp?.online ? `CPU ${lp.cpu ?? '—'}% · RAM ${Math.round(100 - (100 * lp.memory.available) / lp.memory.total)}% · 🔋${lp.battery?.percent ?? '—'}%${lp.battery?.plugged ? ' ⚡' : ''}` : 'not reachable'));
+
     return [
       h('div', { class: 'hello' }, h('h1', {}, `${greet}, Guman`), h('p', { class: 'lede' }, dateLine + up)),
-      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW),
+      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW),
       quickAdd('250 swiggy dinner'),
     ];
+  },
+
+  async '/laptop'() {
+    const box = h('div', {}, h('p', { class: 'loading' }, 'Asking the laptop'));
+    const gb = (b) => `${(b / 1073741824).toFixed(1)} GB`;
+    const tile = (label, big, sub, red) => h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, label)), h('div', { class: 'big' + (red ? ' accent' : '') }, big), h('div', { class: 'sub' }, sub));
+    const COMMANDS = [
+      ['stop_agents', 'Stop agents', 'Stop both job agents and the browser now? They stay stopped until you press Start.'],
+      ['start_agents', 'Start agents', null],
+      ['restart_agents', 'Restart agents', 'Restart the job agents? An application in progress is cut off.'],
+      ['restart_browser', 'Restart browser', null],
+      ['reboot', 'Reboot laptop', 'Reboot the laptop? Everything is back in about 2 minutes.'],
+      ['shutdown', 'Shut down', 'Shut the laptop down? It stays off until its charger is unplugged and plugged in again (or someone presses power).'],
+    ];
+    const run = (cmd, label, ask) => async () => {
+      if (ask && !confirm(ask)) return;
+      await api('/laptop/command', { method: 'POST', body: { cmd } });
+      toast(`${label}: done`);
+      setTimeout(() => refresh().catch(() => {}), 2000);
+    };
+    const paint = (d) => {
+      if (!d.online) {
+        box.replaceChildren(h('div', { class: 'hello' }, h('h1', {}, 'Laptop'),
+          h('p', { class: 'lede' }, h('span', { class: 'accent' }, 'Not reachable. '), d.lastSeen ? `Last seen ${ago(d.lastSeen)}. ` : '',
+            'It may be restarting, out of battery, or off WiFi. If it stays down, switch the agents to the phone: job-agent/linux/failover.sh --laptop-dead')));
+        return;
+      }
+      const t = d.temps || {}, L = d.limits || {}, used = d.memory.total - d.memory.available;
+      const down = Object.entries(d.services).filter(([, v]) => v !== 'active').map(([k]) => k);
+      const issues = [];
+      if (t.cpu >= L.warn) issues.push(`the CPU is hot (${Math.round(t.cpu)}°C)`);
+      if (d.guard.state !== 'ok') issues.push(d.guard.state === 'held' ? 'the agents are stopped (press Start)' : `the agents were stopped to cool down (${d.guard.reason})`);
+      if (down.length) issues.push(`${down.join(', ')} not running`);
+      if (d.disk.percent >= 90) issues.push('the disk is almost full');
+      if (d.battery && !d.battery.plugged) issues.push(`on battery (${d.battery.percent}%): power cut?`);
+      const btns = h('div', { class: 'btns' }, COMMANDS.map(([cmd, label, ask]) => {
+        const b = h('button', { class: 'btn small' + (['stop_agents', 'reboot', 'shutdown'].includes(cmd) ? '' : ' ghost'), type: 'button', style: 'margin:0 .4rem .4rem 0' }, label);
+        b.addEventListener('click', busy(b, run(cmd, label, ask)));
+        return b;
+      }));
+      box.replaceChildren(
+        h('div', { class: 'hello' }, h('h1', {}, 'Laptop'),
+          h('p', { class: 'lede' }, issues.length ? h('span', { class: 'accent' }, `Needs attention: ${issues.join('; ')}.`) : 'All good: the laptop is running the job agents.',
+            ` · up ${ago(Date.now() - d.uptime * 1000).replace(' ago', '')} · updated ${new Date(d.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`)),
+        h('div', { class: 'grid' },
+          tile('CPU temp', t.cpu != null ? `${Math.round(t.cpu)}°C` : '—', `warns ${L.warn}°C · stops agents ${L.danger}°C`, t.cpu >= L.warn),
+          tile('CPU busy', d.cpu != null ? `${d.cpu}%` : '—', `${d.cpus} threads · load ${d.load[0]}`),
+          tile('Memory used', gb(used), `of ${gb(d.memory.total)} · ${Math.round((100 * used) / d.memory.total)}%`, d.memory.available < 1073741824),
+          tile('Disk', `${d.disk.percent}%`, `${gb(d.disk.used)} of ${gb(d.disk.size)}`, d.disk.percent >= 90),
+          tile('Battery', d.battery ? `${d.battery.percent}%` : '—', d.battery ? `${d.battery.plugged ? 'plugged in' : 'ON BATTERY'} · ${d.battery.status} · wear: ${d.battery.health}% of new` : '', d.battery && !d.battery.plugged),
+          tile('WiFi', d.wifi.signal != null ? `${d.wifi.signal} dBm` : '—', `${d.wifi.ssid || 'not connected'} · ${d.wifi.ip || ''}`, !d.wifi.ssid || d.wifi.signal < -75),
+          tile('Browser', String(d.chromium), 'Chromium processes'),
+          tile('Backup to phone', d.lastSync ? ago(d.lastSync) : '—', 'every minute', !d.lastSync || Date.now() - d.lastSync > 10 * 60e3)),
+        h('div', { class: 'sec' }, 'Temperatures'),
+        h('p', { class: 'lede' }, [['CPU', t.cpu], ['cores', t.cores?.length ? t.cores.map(Math.round).join(' / ') : null], ['chipset', t.chipset], ['WiFi card', t.wifi], ['case surface', t.surface]]
+          .filter(([, v]) => v != null).map(([k, v]) => `${k} ${typeof v === 'number' ? Math.round(v) : v}°C`).join(' · ')),
+        h('div', { class: 'sec' }, 'Services'),
+        ...Object.entries(d.services).map(([k, v]) => h('div', { class: 'item' }, h('div', { class: 'main' }, k), h('span', { class: v === 'active' ? 'live' : 'accent' }, v))),
+        h('p', { class: 'lede' }, `Heat guard: ${d.guard.state === 'ok' ? 'watching' : d.guard.state === 'held' ? 'agents stopped by you' : `agents stopped since ${ago(d.guard.since)} (${d.guard.reason})`}. It stops the agents by itself at ${L.danger}°C and starts them again after 10 minutes below ${L.cool}°C.`),
+        h('div', { class: 'sec' }, 'Commands'), btns,
+      );
+    };
+    const refresh = async () => paint(await api('/laptop'));
+    await refresh();
+    pageTimer = setInterval(() => refresh().catch(() => {}), 10e3);
+    return box;
   },
 
   async '/health'() {
@@ -377,8 +457,8 @@ const pages = {
   },
 
   async '/jobs'() {
-    const d = await api('/jobs');
-    if (!d.installed) return [h('h1', {}, 'Jobs'), h('p', { class: 'lede' }, 'The job agent has not started on the phone yet.')];
+    const [d, bar] = await Promise.all([api('/jobs'), personBar()]);
+    if (!d.installed) return [bar, h('h1', {}, 'Jobs'), h('p', { class: 'lede' }, 'This job agent has not started yet.')];
     const params = new URLSearchParams(location.search);
     const filter = params.get('show') || 'matches';
     const term = params.get('q') || '';
@@ -445,7 +525,8 @@ const pages = {
 
     const learned = d.total.learned;
     return [
-      h('div', { class: 'hello' }, h('h1', {}, 'Jobs'),
+      bar,
+      h('div', { class: 'hello' }, h('h1', {}, who() && d.name ? `Jobs · ${d.name}` : 'Jobs'),
         h('p', { class: 'lede' }, h('span', { class: 'live' }, 'live'), ' ', nowText, nowAgo, ' · ', h('a', { href: '/jobs/live', 'data-link': true }, 'open terminal')),
         h('p', { class: 'lede' }, d.dryRun ? h('span', { class: 'accent' }, 'Dry run: forms are filled but never submitted. ') : `Live: applying to jobs scoring ${d.minScore || 65}+. `,
           `${d.total.found} jobs seen · ${d.total.applied} applied · ${d.total.interviews} in interview stage · ${learned} answers learned`)),
@@ -473,7 +554,7 @@ const pages = {
         h('div', { class: 'main' }, e.text, h('small', {}, `${e.kind} · ${when(e.at)}`))))) : h('p', { class: 'muted' }, 'Nothing yet.'),
       h('div', { class: 'sec' }, 'Sources'),
       h('div', { class: 'list' }, d.bySource.map((s) => h('div', { class: 'item' }, h('div', { class: 'main' }, s.source), h('span', { class: 'num' }, `${s.applied || 0} / ${s.n}`)))),
-      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/live', 'data-link': true }, 'Live terminal: what the phone is doing →')),
+      h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/live', 'data-link': true }, 'Live: what the agent is doing right now (log and browser) →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/referrals', 'data-link': true }, 'Referrals: people asked at target companies →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/errors', 'data-link': true }, 'Errors: what failed and why →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
@@ -517,7 +598,7 @@ const pages = {
   },
 
   async '/jobs/errors'() {
-    const d = await api('/jobs/errors');
+    const [d, bar] = await Promise.all([api('/jobs/errors'), personBar()]);
     const when = (t) => new Date(typeof t === 'number' ? t : Date.parse(t)).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
     const evidence = (shot) => {
       if (!shot) return null;
@@ -532,6 +613,7 @@ const pages = {
     };
     return [
       h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      bar,
       h('div', { class: 'hello' }, h('h1', {}, 'Errors'),
         h('p', { class: 'lede' }, `${d.total} errors in the last 7 days · last 24 h: ${d.attempts24h} application attempts, ${d.applied24h} applied`)),
       h('div', { class: 'sec' }, 'By type · newest first'),
@@ -550,8 +632,9 @@ const pages = {
 
   async '/jobs/live'() {
     const term = h('div', { class: 'term', role: 'log', 'aria-live': 'off' });
-    const screenImg = h('img', { class: 'screen', alt: "Live view of the phone's browser" });
-    const screenCap = h('p', { class: 'muted', style: 'font-size:.8rem;margin:.4rem 0 0' }, 'Waiting for the phone…');
+    const bar = await personBar();
+    const screenImg = h('img', { class: 'screen', alt: "Live view of the agent's browser" });
+    const screenCap = h('p', { class: 'muted', style: 'font-size:.8rem;margin:.4rem 0 0' }, 'Waiting for the agent…');
     let shotAt = 0;
     const paintScreen = async () => {
       const r = await api(`/jobs/screen?since=${shotAt}`);
@@ -587,10 +670,11 @@ const pages = {
     const tile = (label, el) => h('div', { class: 'w' }, h('div', { class: 'label' }, h('span', {}, label)), el);
     return [
       h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      bar,
       h('div', { class: 'hello' }, h('h1', {}, 'Live'), h('p', { class: 'lede' }, h('span', { class: 'live' }, 'now'), ' ', now)),
       h('div', { class: 'grid' }, tile('Searches today', stat.searches), tile('Sources today', stat.boards), tile('Jobs found today', stat.found), tile('Applied today', stat.applied)),
-      h('div', { class: 'sec' }, "Phone's browser · live"), screenImg, screenCap,
-      h('div', { class: 'sec' }, 'What the phone is doing'), term,
+      h('div', { class: 'sec' }, 'Browser · live'), screenImg, screenCap,
+      h('div', { class: 'sec' }, 'What the agent is doing'), term,
     ];
   },
 
@@ -685,8 +769,37 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
-function go(path) { history.pushState(null, '', path); render(); }
+const TITLES = { '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+function go(path, keepWho = true) {
+  if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
+  history.pushState(null, '', path); render();
+}
+function markTabs() {
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  tabs.querySelectorAll('a').forEach((a) => {
+    const u = new URL(a.href);
+    const on = path.startsWith('/jobs') ? u.pathname === '/jobs' && (u.searchParams.get('who') || '') === who() : u.pathname === path;
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+}
+// A tab per other person's job agent, next to Jobs (added once, after login).
+let peopleTabs = false;
+async function addPeopleTabs() {
+  if (peopleTabs) return;
+  peopleTabs = true;
+  const list = (await loadPeople()).filter((p) => p.who);
+  const jobsTab = tabs.querySelector('a[href="/jobs"]');
+  for (const p of [...list].reverse()) jobsTab?.after(h('a', { href: `/jobs?who=${encodeURIComponent(p.who)}`, 'data-link': true }, h('b', {}, p.name[0]), p.name));
+  markTabs();
+}
+// "You · <name>" switch on the /jobs pages: same page, another person's agent.
+async function personBar() {
+  const list = await loadPeople();
+  if (list.length < 2) return null;
+  return h('div', { class: 'chips', style: 'margin-bottom:1rem' }, list.map((p) => h('a', {
+    href: `${location.pathname}?who=${encodeURIComponent(p.who)}`, 'data-link': true, class: 'chip' + (p.who === who() ? ' on' : ''),
+  }, p.who ? p.name : `${p.name} (you)`, p.online ? '' : ' · offline')));
+}
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   roomStream?.close(); roomStream = null;
@@ -695,9 +808,8 @@ async function render() {
   const inside = path !== '/login';
   tabs.hidden = !inside; logoutBtn.hidden = !inside;
   if (!inside) statusEl.hidden = true;
-  tabs.querySelectorAll('a').forEach((a) => {
-    if (a.getAttribute('href') === path || (path.startsWith('/jobs') && a.getAttribute('href') === '/jobs')) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
-  });
+  markTabs();
+  if (inside) addPeopleTabs().catch(() => { peopleTabs = false; });
   document.title = path === '/' ? 'Tinker hub' : `${TITLES[path] || 'Not found'} · Tinker hub`;
   if (!view.firstChild) view.replaceChildren(h('p', { class: 'loading' }, 'Loading'));
   const page = pages[path] || (async () => [h('h1', {}, 'Not found'), h('p', {}, h('a', { href: '/', 'data-link': true }, 'Back to the hub'))]);
@@ -711,7 +823,7 @@ async function render() {
 }
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
-  if (a && a.origin === location.origin && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (a.pathname + a.search !== location.pathname + location.search) { view.replaceChildren(); go(a.pathname + a.search); } }
+  if (a && a.origin === location.origin && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (a.pathname + a.search !== location.pathname + location.search) { view.replaceChildren(); go(a.pathname + a.search, !a.closest('.tabs')); } }
 });
 logoutBtn.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); go('/login'); });
 window.addEventListener('popstate', () => { view.replaceChildren(); render(); });

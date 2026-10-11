@@ -1,5 +1,5 @@
 #!/bin/sh
-# Laptop -> S20 every 3 minutes (jobsync.timer): the phone keeps a ready-to-run copy of every agent's data
+# Laptop -> S20 every minute, and right after each hub action (jobsync.timer): the phone keeps a ready-to-run copy of every agent's data
 # and secrets, and its /jobs hub reads that copy. Databases go as consistent snapshots. Nothing on the
 # phone writes them while ~/jobagent/STANDBY is there (see linux/failover.sh for the way back).
 set -e

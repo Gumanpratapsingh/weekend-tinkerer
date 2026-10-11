@@ -9,7 +9,7 @@ U=$(id -un)
 mkdir -p "$J/data"
 
 # The phone reaches each agent on its own port through phone-link's reverse forwards.
-FWD="-R 127.0.0.1:8083:127.0.0.1:8083"
+FWD="-R 127.0.0.1:8083:127.0.0.1:8083 -R 127.0.0.1:8095:127.0.0.1:8095"   # 8095: laptop health API (laptop/server.mjs)
 for d in "$J"/people/*/; do
   [ -f "$d/port" ] || continue
   p=$(cat "$d/port"); mkdir -p "$d/data"
