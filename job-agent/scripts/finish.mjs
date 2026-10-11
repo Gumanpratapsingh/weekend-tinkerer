@@ -52,7 +52,14 @@ for (const [i, job] of jobs.entries()) {
       const body = await res.page.innerText('body').catch(() => '');
       if (/security code|verification code was sent/i.test(body)) {
         const r = await fetch(`${AGENT}/internal/security-code?company=${encodeURIComponent(job.company)}`).then((x) => x.json()).catch(() => ({}));
-        if (r.code) { console.log(`   📧 Security code from your inbox: ${r.code}   (type it into the boxes, then Submit)`); shownCode = true; }
+        if (r.code) {
+          // You enter it (it's a human check): the code goes to your clipboard and the cursor into the first box.
+          const { execFileSync } = await import('node:child_process');
+          try { execFileSync('pbcopy', { input: r.code }); } catch { /* not on a Mac */ }
+          await res.page.locator('input[maxlength="1"], input[autocomplete="one-time-code"], input[name*="security" i], input[id*="security" i]').first().focus().catch(() => {});
+          console.log(`   📧 Security code ${r.code} is on your clipboard: click the first box if needed, press ⌘V, then Submit.`);
+          shownCode = true;
+        }
       }
     }                 // up to 15 minutes per job
     const pages = ctx.pages();
