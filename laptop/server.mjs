@@ -94,7 +94,7 @@ const COMMANDS = {
 };
 
 // ---- heat guard
-const guard = { state: 'ok', since: Date.now(), reason: '', held: false, hot: 0, coolSince: null, restartsToday: 0, day: '', warnedAt: 0 };
+const guard = { state: 'ok', since: Date.now(), reason: '', held: false, hot: 0, warm: 0, coolSince: null, restartsToday: 0, day: '', warnedAt: 0 };
 async function checkHeat() {
   const t = temps().cpu;
   if (t == null) return;
@@ -102,11 +102,12 @@ async function checkHeat() {
   if (guard.day !== day) { guard.day = day; guard.restartsToday = 0; }
   if (guard.state === 'ok') {
     guard.hot = t >= DANGER_C ? guard.hot + 1 : 0;
+    guard.warm = t >= WARN_C ? guard.warm + 1 : 0;      // short spikes (a browser starting) are normal: warn after a minute
     if (guard.hot >= 2) {
       Object.assign(guard, { state: 'stopped_hot', since: Date.now(), reason: `CPU ${t} °C`, coolSince: null });
       await agentsDown();
       await tell(`🔥 CPU reached ${t} °C. I stopped the job agents and the browser to cool down. They start again after 10 minutes below ${COOL_C} °C (or press Start in the hub /laptop page).`);
-    } else if (t >= WARN_C && Date.now() - guard.warnedAt > 3600e3) {
+    } else if (guard.warm >= 2 && Date.now() - guard.warnedAt > 3600e3) {
       guard.warnedAt = Date.now();
       await tell(`🌡️ CPU is hot: ${t} °C (it stops the agents at ${DANGER_C} °C). Is the laptop's air vent blocked?`);
     }
