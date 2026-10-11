@@ -29,6 +29,10 @@ export async function handleOwner(text, ref) {
   const lc = t.toLowerCase();
 
   if (ref?.ref_kind === 'question') return onAnswered(+ref.ref_id, t);
+  if (ref?.ref_kind === 'referral') {
+    const { decide } = await import('./referrals.mjs');
+    return tell(decide(+ref.ref_id, t));
+  }
   if (ref?.ref_kind === 'draft') {
     if (/^(ok|okay|yes|send|👍)$/i.test(t)) return tell(await sendDraft(+ref.ref_id));
     if (/^(no|discard|cancel|skip)$/i.test(t)) { run("UPDATE drafts SET status = 'discarded' WHERE id = ?", +ref.ref_id); return tell('🗑 Draft discarded.'); }

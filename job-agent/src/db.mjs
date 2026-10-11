@@ -69,6 +69,13 @@ CREATE TABLE IF NOT EXISTS attempts (
   status TEXT, reason TEXT, shot TEXT, filled INTEGER, unknown INTEGER, result TEXT
 );
 CREATE INDEX IF NOT EXISTS attempts_job ON attempts(job_id);
+-- Referral outreach: one row per person asked, through every stage. Nothing is sent without the owner's approval.
+CREATE TABLE IF NOT EXISTS referrals (
+  id INTEGER PRIMARY KEY, company TEXT NOT NULL, job_id TEXT, job_title TEXT, job_url TEXT,
+  person TEXT, headline TEXT, profile TEXT UNIQUE, alumni INTEGER DEFAULT 0, email TEXT,
+  stage TEXT NOT NULL DEFAULT 'drafted',   -- drafted, approved, invited, accepted, followup_drafted, followup_approved, followup_sent, replied, referred, skipped, failed
+  note TEXT, followup TEXT, reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT, text TEXT);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 `);

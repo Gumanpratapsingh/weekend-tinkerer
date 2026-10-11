@@ -283,5 +283,45 @@
     "resume_battery_c": 37,
     "resume_cpu_c": 48
   },
-  "mail_check_hours": 2
+  "mail_check_hours": 2,
+  "referrals": {
+    "companies": [
+      "Optum",
+      "Fidelity",
+      "UnitedHealth Group",
+      "JPMorgan Chase",
+      "Goldman Sachs",
+      "Morgan Stanley",
+      "Wells Fargo",
+      "American Express",
+      "Visa",
+      "Mastercard",
+      "PayPal",
+      "Walmart Global Tech",
+      "Target",
+      "Intuit",
+      "Salesforce",
+      "Adobe",
+      "Fiserv",
+      "FIS",
+      "Broadridge",
+      "Deutsche Bank",
+      "Barclays",
+      "BNY",
+      "Citi"
+    ],
+    "auto_min_score": 80,
+    "per_day": 10,
+    "per_week": 70,
+    "hours": [
+      9,
+      21
+    ],
+    "gap_min": [
+      20,
+      40
+    ],
+    "people_per_company": 3,
+    "school": "SRM"
+  }
 }

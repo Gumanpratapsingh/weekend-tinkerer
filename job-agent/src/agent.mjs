@@ -68,6 +68,14 @@ createServer((req, res) => {
             return ok();
           }
           case 'applied': run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = 'applied by you' WHERE id = ?", Date.now(), String(b.id)); return ok();
+          case 'ref_decide': { const { decide } = await import('./referrals.mjs'); return ok({ message: decide(Number(b.id), String(b.answer || 'ok')) }); }
+          case 'ref_companies': {                             // owner edits the target list on the hub
+            const c = JSON.parse(readFileSync(join(ROOT, 'profile', 'config.json'), 'utf8'));
+            c.referrals = { ...(c.referrals || {}), companies: String(b.answer || '').split(/[\n,]+/).map((x) => x.trim()).filter(Boolean).slice(0, 200) };
+            const { writeFileSync } = await import('node:fs');
+            writeFileSync(join(ROOT, 'profile', 'config.json'), JSON.stringify(c, null, 2));
+            return ok({ companies: c.referrals.companies.length });
+          }
           case 'forget': run('UPDATE questions SET answer = NULL WHERE id = ?', Number(b.id)); return ok();
         }
         return reply(400, '{"error":"unknown action"}', 'application/json');
@@ -168,6 +176,22 @@ every(30, 'housekeeping', async () => {
   }
   log(`housekeeping: logs rotated if over 5 MB, ${removed} old screenshot(s) removed`);
 });
+
+// Referral outreach: find people + queue drafts hourly (daytime), send approved ones in spaced slots, check acceptances daily.
+every(60, 'referral prospecting', async () => {
+  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1') return;
+  const { prospect } = await import('./referrals.mjs'); await prospect();
+}, { delay: 15 * 60e3 });
+every(5, 'referral sending', async () => {
+  if (getKv('thermal_pause') === '1') return;
+  const { send } = await import('./referrals.mjs'); await send();
+}, { delay: 4 * 60e3 });
+every(60, 'referral acceptances', async () => {
+  const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
+  if (n.getUTCHours() < 10 || getKv('ref_check_day') === day) return;
+  setKv('ref_check_day', day);
+  const { checkAccepted } = await import('./referrals.mjs'); await checkAccepted();
+}, { delay: 20 * 60e3 });
 
 // Thermal guard: the phone runs 24/7 on a charger. Too hot -> pause all browser work and close Chromium; resume when cool.
 every(1, 'thermal guard', async () => {

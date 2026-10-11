@@ -136,3 +136,13 @@ export async function sendDraft(draftId, overrideBody) {
   event('reply', `Replied to ${mail.from_addr}: ${subject}`);
   return `✅ Sent to ${mail.from_addr}.`;
 }
+
+// Referral follow-up by email (only to an address the person publishes themselves), with the resume attached.
+export async function sendReferralEmail(to, subject, text) {
+  const { join } = await import('node:path');
+  const { ROOT } = await import('./core.mjs');
+  const smtp = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: config().mailbox, pass: secret('gmail_app_password') } });
+  const resume = join(ROOT, 'profile', config().naukri_resume || 'GPS_RESUME_SPRINGBOOT_DEVELOPER.pdf');
+  await smtp.sendMail({ from: `${master().name} <${config().mailbox}>`, to, subject, text,
+    attachments: [{ filename: resume.split('/').pop(), path: resume }] });
+}

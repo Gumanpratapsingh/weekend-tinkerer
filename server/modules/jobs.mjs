@@ -152,12 +152,21 @@ export default {
       return { name: path.split('/').pop(), type: path.endsWith('.html') ? 'text/html' : 'image/png', data: readFileSync(path).toString('base64') };
     },
 
+    // Referral outreach: target companies, every person asked and their stage.
+    'GET /api/jobs/referrals': () => {
+      const cfg = (() => { try { return JSON.parse(readFileSync(join(HOME, 'jobagent', 'profile', 'config.json'), 'utf8')).referrals || {}; } catch { return {}; } })();
+      const rows = q(`SELECT id, company, job_title, job_url, person, headline, profile, alumni, email, stage, note, followup, reason, created_at, updated_at
+        FROM referrals WHERE person IS NOT NULL ORDER BY (stage IN ('drafted','followup_drafted')) DESC, updated_at DESC, created_at DESC LIMIT 300`);
+      const byStage = Object.fromEntries(q('SELECT stage, count(*) n FROM referrals WHERE person IS NOT NULL GROUP BY stage').map((r) => [r.stage, r.n]));
+      return { companies: cfg.companies || [], perDay: cfg.per_day || 10, rows, byStage };
+    },
+
     'GET /api/jobs/memory': () => ({
       answers: q('SELECT id, question, answer, source, uses, updated_at FROM questions WHERE answer IS NOT NULL ORDER BY updated_at DESC'),
     }),
 
     'POST /api/jobs/action': async ({ body }) => {
-      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget'].includes(body.action)) throw fail(400, 'Unknown action.');
+      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies'].includes(body.action)) throw fail(400, 'Unknown action.');
       return agent({ action: body.action, id: body.id, answer: body.answer });
     },
   },

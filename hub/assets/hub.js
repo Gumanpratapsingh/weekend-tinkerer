@@ -474,8 +474,45 @@ const pages = {
       h('div', { class: 'sec' }, 'Sources'),
       h('div', { class: 'list' }, d.bySource.map((s) => h('div', { class: 'item' }, h('div', { class: 'main' }, s.source), h('span', { class: 'num' }, `${s.applied || 0} / ${s.n}`)))),
       h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/live', 'data-link': true }, 'Live terminal: what the phone is doing →')),
+      h('p', { class: 'lede' }, h('a', { href: '/jobs/referrals', 'data-link': true }, 'Referrals: people asked at target companies →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/errors', 'data-link': true }, 'Errors: what failed and why →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
+    ];
+  },
+
+  async '/jobs/referrals'() {
+    const d = await api('/jobs/referrals');
+    const act = (body, msg) => async () => { const r = await api('/jobs/action', { method: 'POST', body }); toast(r.message || msg); render(); };
+    const STAGES = { drafted: 'waiting for you', approved: 'approved, sending soon', invited: 'invite sent', accepted: 'accepted',
+      followup_drafted: 'referral message waiting for you', followup_approved: 'message approved', followup_sent: 'referral asked',
+      replied: 'replied', referred: 'referred 🎉', skipped: 'skipped', failed: 'failed' };
+    const companies = h('textarea', { 'aria-label': 'Target companies, one per line', style: 'min-height:7rem' }, d.companies.join('\n'));
+    const saveCo = h('button', { class: 'btn small', type: 'button' }, 'Save companies');
+    saveCo.addEventListener('click', busy(saveCo, act({ action: 'ref_companies', answer: companies.value }, 'Companies saved')));
+    const row = (r) => {
+      const waiting = r.stage === 'drafted' || r.stage === 'followup_drafted';
+      const original = ((r.stage === 'drafted' ? r.note : r.followup) || '').trim();
+      const text = h('textarea', { style: 'min-height:6rem;margin-top:.4rem' }, waiting ? original : '');
+      const send = h('button', { class: 'btn small', type: 'button' }, '✓ Send');
+      send.addEventListener('click', busy(send, act({ action: 'ref_decide', id: r.id, answer: text.value.trim() === original ? 'ok' : text.value }, 'Approved')));
+      const skip = h('button', { class: 'btn ghost small', type: 'button' }, 'Skip');
+      skip.addEventListener('click', busy(skip, act({ action: 'ref_decide', id: r.id, answer: 'skip' }, 'Skipped')));
+      return h('div', { class: 'item', style: 'display:block' },
+        h('div', { class: 'main' }, h('a', { href: r.profile, target: '_blank', rel: 'noopener noreferrer' }, r.person),
+          r.alumni ? h('span', { class: 'tag red' }, 'SRM alum') : null, h('span', { class: 'tag' }, STAGES[r.stage] || r.stage),
+          h('small', {}, `${r.company}${r.job_title ? ` · ${r.job_title}` : ''}${r.headline ? ` · ${clip(r.headline, 90)}` : ''}${r.email ? ` · ${r.email}` : ''}${r.reason ? ` · ${r.reason}` : ''}`)),
+        waiting ? h('div', {}, text, h('div', { class: 'btns' }, send, skip)) : null);
+    };
+    const s = d.byStage;
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      h('div', { class: 'hello' }, h('h1', {}, 'Referrals'),
+        h('p', { class: 'lede' }, `Every message waits for your OK. Up to ${d.perDay} a day, spaced out, 9 AM–9 PM. `
+          + `${(s.drafted || 0) + (s.followup_drafted || 0)} waiting for you · ${s.invited || 0} invites out · ${s.followup_sent || 0} referral asks sent · ${s.referred || 0} referred`)),
+      h('div', { class: 'sec' }, 'Waiting for you, then everything else'),
+      d.rows.length ? h('div', { class: 'list' }, d.rows.map(row)) : h('p', { class: 'muted' }, 'Nothing yet: the agent searches companies hourly between 9 AM and 9 PM.'),
+      h('div', { class: 'sec' }, 'Target companies (plus any company where a job scores 80%+)'),
+      companies, h('div', { class: 'btns' }, saveCo),
     ];
   },
 
