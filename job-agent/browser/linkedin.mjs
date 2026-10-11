@@ -1,6 +1,6 @@
 // LinkedIn Easy Apply with the owner's session (data/sessions/linkedin.json, saved by scripts/login.sh on the Mac).
 // Steps through the modal: upload the tailored resume, answer fields from memory, Next/Review/Submit.
-import { siteContext, shotPath, progress } from './session.mjs';
+import { siteContext, shotPath, progress, capture } from './session.mjs';
 import { collect, resolveFields, fill, captchaVisible } from './forms.mjs';
 
 // Easy Apply is a pop-up on the old UI and an in-page panel ("Apply to X · 1/5 pages") on the new one.
@@ -110,4 +110,4 @@ async function discard(page, result) {
   await page.locator('button[data-control-name="discard_application_confirm_btn"], button:has-text("Discard")').first().click({ timeout: 3000 }).catch(() => {});
   return result;
 }
-const snap = async (page, name) => { const p = shotPath(name); await page.screenshot({ path: p }); return p; };
+const snap = (page, name) => capture(page, name, { fullPage: false });

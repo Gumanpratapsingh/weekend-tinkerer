@@ -63,8 +63,8 @@ for (const mod of ['naukri', 'linkedin', 'ats', 'external']) {
 }
 
 // A page closing mid-click must never take the whole worker down (it did on 2026-10-10 and stalled applying).
-process.on('unhandledRejection', (e) => console.error('unhandled rejection (kept running):', e?.message || e));
-process.on('uncaughtException', (e) => console.error('uncaught exception (kept running):', e?.message || e));
+process.on('unhandledRejection', (e) => { console.error('unhandled rejection (kept running):', e?.message || e); session.workerError('unhandled', e); });
+process.on('uncaughtException', (e) => { console.error('uncaught exception (kept running):', e?.message || e); session.workerError('uncaught', e); });
 
 // Snapshot of the browser for the hub's live screen, every 2.5 s while a task runs (JPEG, ~50 KB).
 let current = null;                                   // { task, since }
@@ -100,7 +100,12 @@ createServer((req, res) => {
         const ms = LIMITS[name] || TASK_LIMIT;
         const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over ${ms / 60e3} minutes`)), ms); });
         reply(200, await Promise.race([tasks[name](raw ? JSON.parse(raw) : {}), limit]));
-      } catch (e) { console.error(name, e?.message || e); reply(500, { error: e?.message || String(e) }); }
+      } catch (e) {
+        console.error(name, e?.stack || e?.message || e);
+        let job = null; try { job = JSON.parse(raw || '{}').job?.id || null; } catch { /* not json */ }
+        session.workerError(`task ${name}`, e, { job, url: session.livePage?.url?.() || null });
+        reply(500, { error: e?.message || String(e) });
+      }
       finally {
         clearTimeout(timer); end(); current = null;
         try { writeFileSync(join(ROOT, 'data', 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}

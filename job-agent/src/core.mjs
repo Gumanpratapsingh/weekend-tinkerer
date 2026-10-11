@@ -30,6 +30,13 @@ export function log(line) {
 export function activity(text) {
   try { appendFileSync(join(DATA, 'activity.log'), `${new Date().toISOString()} ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
 }
+// Every error, structured, in one file (data/errors.jsonl): the hub's /jobs/errors page groups and shows these.
+export function logError(kind, err, ctx = {}) {
+  const e = err instanceof Error ? err : new Error(String(err));
+  const row = { at: new Date().toISOString(), src: 'agent', kind, message: String(e.message).slice(0, 600), stack: String(e.stack || '').slice(0, 2000), ctx };
+  try { appendFileSync(join(DATA, 'errors.jsonl'), JSON.stringify(row) + '\n'); } catch { /* best effort */ }
+  log(`${kind} error: ${e.message}`);
+}
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- time (IST) ----------
@@ -43,7 +50,7 @@ export function every(minutes, name, fn, { delay = 5000 } = {}) {
   const tick = async () => {
     if (running) return;
     running = true;
-    try { await fn(); } catch (e) { log(`${name} error: ${e.stack || e.message}`); }
+    try { await fn(); } catch (e) { logError(name, e); }
     running = false;
   };
   setTimeout(tick, delay);

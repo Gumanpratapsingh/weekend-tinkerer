@@ -1,6 +1,6 @@
 // Apply queue: takes queued jobs (score >= min_score), tailors the resume, and applies through the browser worker,
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
-import { config, log, istDate, istHour, activity } from './core.mjs';
+import { config, log, logError, istDate, istHour, activity } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
@@ -61,15 +61,26 @@ export async function applyJob(job, { dryRun = false } = {}) {
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
     }
-    const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 30 * 60e3);   // may wait behind a search task
+    const t0 = Date.now();
+    const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 30 * 60e3)   // may wait behind a search task
+      .catch((e) => { record(job, t0, { status: 'error', reason: e.message }); throw e; });
+    record(job, t0, res);
     log(`apply ${job.id}: ${JSON.stringify({ ...res, unknown: res.unknown?.length })}`);
     return settle(job, res);
   } catch (e) {
-    log(`apply ${job.id} error: ${e.message}`);
+    logError('apply', e, { job: job.id, type: job.apply_type });
     if (e.rateLimited || /AI busy/.test(e.message)) { run("UPDATE jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ?", job.id); return { status: 'later' }; }
     run("UPDATE jobs SET status = ?, status_note = ? WHERE id = ?", (job.attempts || 0) + 1 >= 3 ? 'failed' : 'queued', e.message.slice(0, 300), job.id);
     return { status: 'error', reason: e.message };
   }
+}
+
+function record(job, t0, res) {
+  try {
+    run('INSERT INTO attempts(job_id, at, ms, task, status, reason, shot, filled, unknown, result) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      job.id, Date.now(), Date.now() - t0, `apply_${job.apply_type}`, res.status, String(res.reason || '').slice(0, 500), res.shot || null,
+      res.filled?.length ?? null, res.unknown?.length ?? null, JSON.stringify(res).slice(0, 4000));
+  } catch (e) { log(`record attempt: ${e.message}`); }
 }
 
 function settle(job, res) {

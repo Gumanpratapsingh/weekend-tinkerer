@@ -64,5 +64,17 @@ import { appendFileSync } from 'node:fs';
 export function progress(text) {                      // shows up live on the hub's /jobs/live page
   try { appendFileSync(join(ROOT, 'data', 'activity.log'), `${new Date().toISOString()} 📱 Phone browser: ${String(text).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400)}\n`); } catch { /* best effort */ }
 }
+// Evidence for a failure: screenshot + the page's HTML + URL, side by side (same name, .png / .html).
+export async function capture(page, name, { fullPage = true } = {}) {
+  const png = shotPath(name);
+  await page.screenshot({ path: png, fullPage }).catch(() => {});
+  try { const { writeFileSync } = await import('node:fs');
+    writeFileSync(png.replace(/\.png$/, '.html'), `<!-- ${page.url()} -->\n${await page.content()}`); } catch { /* page gone */ }
+  return png;
+}
+export function workerError(kind, err, ctx = {}) {
+  const row = { at: new Date().toISOString(), src: 'browser', kind, message: String(err?.message || err).slice(0, 600), stack: String(err?.stack || '').slice(0, 2000), ctx };
+  try { appendFileSync(join(ROOT, 'data', 'errors.jsonl'), JSON.stringify(row) + '\n'); } catch { /* best effort */ }
+}
 export const shotPath = (name) => join(ROOT, 'data', 'shots', `${new Date().toISOString().replace(/[:.]/g, '-')}-${name}.png`);
 

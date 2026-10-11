@@ -128,6 +128,30 @@ export default {
       return { working: true, ...meta, shotAt: mtime, image: readFileSync(img).toString('base64') };
     },
 
+    // Errors grouped by kind + message shape, newest first, and recent attempts that didn't apply.
+    'GET /api/jobs/errors': () => {
+      let rows = [];
+      try { rows = readFileSync(join(DIR, 'errors.jsonl'), 'utf8').trim().split('\n').slice(-4000).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { /* none yet */ }
+      const week = rows.filter((r) => Date.now() - Date.parse(r.at) < 7 * 864e5);
+      const sig = (r) => `${r.src}|${r.kind}|${String(r.message).replace(/\d{3,}/g, 'N').replace(/https?:\/\/\S+/g, 'URL').slice(0, 90)}`;
+      const groups = new Map();
+      for (const r of week) { const k = sig(r); const g = groups.get(k) || { count: 0, last: r, first: r.at, lastHour: 0 }; g.count++; g.last = r;
+        if (Date.now() - Date.parse(r.at) < 3600e3) g.lastHour++; groups.set(k, g); }
+      const attempts = q(`SELECT a.id, a.job_id, a.at, a.ms, a.status, a.reason, a.shot, a.filled, a.unknown, j.title, j.company FROM attempts a
+        LEFT JOIN jobs j ON j.id = a.job_id WHERE a.status != 'applied' ORDER BY a.at DESC LIMIT 60`);
+      const totals = one(`SELECT count(*) n, sum(status = 'applied') ok FROM attempts WHERE at > ?`, Date.now() - 864e5) || {};
+      return { groups: [...groups.values()].sort((a, b) => Date.parse(b.last.at) - Date.parse(a.last.at)).slice(0, 80),
+        total: week.length, attempts, attempts24h: totals.n || 0, applied24h: totals.ok || 0 };
+    },
+
+    // Evidence saved with a failure: the screenshot (png) or the page's HTML, by its path under data/shots.
+    'GET /api/jobs/evidence': ({ query }) => {
+      const png = String(query.shot || '');
+      const path = query.kind === 'html' ? png.replace(/\.png$/, '.html') : png;
+      if (!path.startsWith(join(DIR, 'shots') + '/') || path.includes('..') || !existsSync(path)) throw fail(404, 'Not saved for this one.');
+      return { name: path.split('/').pop(), type: path.endsWith('.html') ? 'text/html' : 'image/png', data: readFileSync(path).toString('base64') };
+    },
+
     'GET /api/jobs/memory': () => ({
       answers: q('SELECT id, question, answer, source, uses, updated_at FROM questions WHERE answer IS NOT NULL ORDER BY updated_at DESC'),
     }),

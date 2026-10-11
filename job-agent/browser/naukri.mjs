@@ -1,7 +1,7 @@
 // Naukri, driven through the owner's own logged-in session (data/sessions/naukri.json, from NaukriAutopilot).
 // Search uses Naukri's own JSON API from inside the page (same calls the site makes); applying clicks Apply and
 // answers the recruiter-question chat drawer from memory.
-import { siteContext, shotPath, progress } from './session.mjs';
+import { siteContext, shotPath, progress, capture } from './session.mjs';
 
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
 const AGENT = `${process.env.AGENT_URL || 'http://127.0.0.1:8083'}/internal/resolve`;
@@ -220,4 +220,4 @@ async function uploadProfileResume(c, pdf) {
     await p.waitForTimeout(8000);
   } finally { await p.close(); }
 }
-const snap = async (page, name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: false }); return p; };
+const snap = (page, name) => capture(page, name, { fullPage: false });

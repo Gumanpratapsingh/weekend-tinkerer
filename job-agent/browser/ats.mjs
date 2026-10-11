@@ -1,5 +1,5 @@
 // Company career boards: Greenhouse, Lever, Ashby. No login needed; one form per job.
-import { siteContext, shotPath, progress } from './session.mjs';
+import { siteContext, shotPath, progress, capture } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 
 const SITES = {
@@ -48,7 +48,7 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     return { status: 'failed', reason: errors.filter(Boolean).slice(0, 5).join(' | ') || 'no confirmation seen', shot: await snap(page, `${kind}-unsure`) };
   } finally { if (!keepOpen) await ctx.close(); }
 }
-const snap = async (page, name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }); return p; };
+const snap = (page, name) => capture(page, name);
 
 export default {
   apply_greenhouse: (b) => applyAts('greenhouse', b),

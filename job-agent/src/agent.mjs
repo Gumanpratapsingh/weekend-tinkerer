@@ -1,7 +1,7 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
 import { createServer } from 'node:http';
-import { log, every, istHour, config, activity, ROOT, HOME } from './core.mjs';
+import { log, logError, every, istHour, config, activity, ROOT, HOME } from './core.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserTask } from './browser.mjs';
@@ -157,9 +157,9 @@ every(30, 'housekeeping', async () => {
   if (n.getUTCHours() !== 3 || getKv('housekeeping_day') === day) return;
   setKv('housekeeping_day', day);
   const { statSync, renameSync, readdirSync, unlinkSync } = await import('node:fs');
-  for (const f of ['activity.log', 'agent.log', 'worker.log']) {
+  for (const f of ['activity.log', 'agent.log', 'worker.log', 'errors.jsonl']) {
     const p = join(ROOT, 'data', f);
-    try { if (statSync(p).size > 5e6) renameSync(p, `${p}.1`); } catch { /* missing */ }
+    try { if (statSync(p).size > 5e6) { for (let i = 6; i >= 1; i--) { try { renameSync(`${p}.${i}`, `${p}.${i + 1}`); } catch {} } renameSync(p, `${p}.1`); } } catch { /* missing */ }
   }
   let removed = 0;
   for (const f of readdirSync(join(ROOT, 'data', 'shots'))) {
@@ -197,4 +197,24 @@ every(2, 'worker watchdog', async () => {
   spawn('sh', [join(ROOT, 'scripts', 'run.sh'), 'worker'], { detached: true, stdio: 'ignore' }).unref();
 }, { delay: 90e3 });
 
-process.on('unhandledRejection', (e) => log(`unhandled: ${e?.stack || e}`));
+process.on('unhandledRejection', (e) => logError('unhandled', e));
+process.on('uncaughtException', (e) => logError('uncaught', e));   // recorded, and the agent keeps running
+
+// Error alerts: a brand-new kind of error, or a spike (20+ in an hour) -> one message to the owner.
+every(30, 'error alerts', async () => {
+  const { readFileSync } = await import('node:fs');
+  let rows = [];
+  try { rows = readFileSync(join(ROOT, 'data', 'errors.jsonl'), 'utf8').trim().split('\n').slice(-3000).map((l) => JSON.parse(l)); } catch { return; }
+  const sig = (r) => `${r.kind}: ${String(r.message).replace(/\d{3,}/g, 'N').replace(/https?:\/\/\S+/g, 'URL').slice(0, 80)}`;
+  const known = new Set(JSON.parse(getKv('error_sigs', '[]')));
+  const hour = rows.filter((r) => Date.now() - Date.parse(r.at) < 3600e3);
+  const fresh = [...new Set(hour.map(sig))].filter((x) => !known.has(x));
+  if (fresh.length) {
+    tell(`🐞 New kind of error in the job agent:\n${fresh.slice(0, 3).map((x) => `• ${x}`).join('\n')}\nDetails: hub → Jobs → Errors.`);
+    setKv('error_sigs', JSON.stringify([...known, ...fresh].slice(-300)));
+  }
+  if (hour.length >= 20 && getKv('error_spike_hour') !== new Date().toISOString().slice(0, 13)) {
+    setKv('error_spike_hour', new Date().toISOString().slice(0, 13));
+    tell(`🐞 ${hour.length} errors in the last hour in the job agent. Details: hub → Jobs → Errors.`);
+  }
+}, { delay: 120e3 });

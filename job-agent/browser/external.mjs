@@ -1,7 +1,7 @@
 // Any other careers site: follow the Apply links to the real application form and fill it with the generic engine.
 // Hands the job back to the owner only for account walls (we never create accounts), CAPTCHAs (never bypassed),
 // or questions only the owner can answer.
-import { siteContext, shotPath, progress } from './session.mjs';
+import { siteContext, shotPath, progress, capture } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 import ats from './ats.mjs';
 
@@ -39,7 +39,7 @@ export default {
     const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external');
     let page = await ctx.newPage();
     progress(`Company site: opening ${job.title} @ ${job.company}`);
-    const snap = async (name) => { const p = shotPath(name); await page.screenshot({ path: p, fullPage: true }).catch(() => {}); return p; };
+    const snap = (name) => capture(page, name);
     try {
       await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await page.waitForTimeout(3000);

@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS drafts (
   wa_msg_id TEXT, created_at INTEGER NOT NULL, sent_at INTEGER
 );
 
+-- Every application attempt (success or not): what happened, how long, what was filled/left, evidence paths.
+CREATE TABLE IF NOT EXISTS attempts (
+  id INTEGER PRIMARY KEY, job_id TEXT NOT NULL, at INTEGER NOT NULL, ms INTEGER, task TEXT,
+  status TEXT, reason TEXT, shot TEXT, filled INTEGER, unknown INTEGER, result TEXT
+);
+CREATE INDEX IF NOT EXISTS attempts_job ON attempts(job_id);
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT, text TEXT);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 `);

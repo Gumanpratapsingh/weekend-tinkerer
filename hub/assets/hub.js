@@ -474,7 +474,40 @@ const pages = {
       h('div', { class: 'sec' }, 'Sources'),
       h('div', { class: 'list' }, d.bySource.map((s) => h('div', { class: 'item' }, h('div', { class: 'main' }, s.source), h('span', { class: 'num' }, `${s.applied || 0} / ${s.n}`)))),
       h('p', { class: 'lede', style: 'margin-top:1.5rem' }, h('a', { href: '/jobs/live', 'data-link': true }, 'Live terminal: what the phone is doing →')),
+      h('p', { class: 'lede' }, h('a', { href: '/jobs/errors', 'data-link': true }, 'Errors: what failed and why →')),
       h('p', { class: 'lede' }, h('a', { href: '/jobs/memory', 'data-link': true }, 'What the agent knows about you →')),
+    ];
+  },
+
+  async '/jobs/errors'() {
+    const d = await api('/jobs/errors');
+    const when = (t) => new Date(typeof t === 'number' ? t : Date.parse(t)).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const evidence = (shot) => {
+      if (!shot) return null;
+      const box = h('div', {});
+      const btn = (label, kind) => { const b = h('button', { class: 'btn ghost small', type: 'button', style: 'margin:.3rem .3rem 0 0' }, label);
+        b.addEventListener('click', busy(b, async () => {
+          const f = await api(`/jobs/evidence?kind=${kind}&shot=${encodeURIComponent(shot)}`);
+          if (kind === 'png') box.replaceChildren(h('img', { src: `data:image/png;base64,${f.data}`, alt: 'Screenshot', style: 'max-width:100%;border:1px solid var(--line);margin-top:.5rem' }));
+          else { const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)); h('a', { href: URL.createObjectURL(new Blob([bytes], { type: 'text/plain' })), download: f.name.replace(/\.html$/, '.txt') }).click(); }
+        })); return b; };
+      return h('div', {}, btn('Screenshot', 'png'), btn('Page HTML ↓', 'html'), box);
+    };
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      h('div', { class: 'hello' }, h('h1', {}, 'Errors'),
+        h('p', { class: 'lede' }, `${d.total} errors in the last 7 days · last 24 h: ${d.attempts24h} application attempts, ${d.applied24h} applied`)),
+      h('div', { class: 'sec' }, 'By type · newest first'),
+      d.groups.length ? h('div', { class: 'list' }, d.groups.map((g) => h('div', { class: 'item', style: 'display:block' },
+        h('div', { class: 'main' }, h('b', {}, `${g.count}× `), `${g.last.kind}: ${clip(g.last.message, 220)}`,
+          h('span', { class: 'tag' + (g.lastHour ? ' red' : '') }, g.last.src), g.lastHour ? h('span', { class: 'tag red' }, `${g.lastHour} in the last hour`) : null,
+          h('small', {}, `last ${when(g.last.at)} · first ${when(g.first)}${g.last.ctx?.job ? ` · job ${g.last.ctx.job}` : ''}`)),
+        g.last.stack ? h('details', {}, h('summary', {}, 'Stack trace'), h('pre', { class: 'term', style: 'height:auto;max-height:18rem' }, g.last.stack)) : null))) : h('p', { class: 'muted' }, 'No errors recorded. 🎉'),
+      h('div', { class: 'sec' }, 'Recent attempts that did not apply'),
+      d.attempts.length ? h('div', { class: 'list' }, d.attempts.map((a) => h('div', { class: 'item', style: 'display:block' },
+        h('div', { class: 'main' }, h('a', { href: `/jobs/job?id=${encodeURIComponent(a.job_id)}`, 'data-link': true }, `${a.title || a.job_id}${a.company ? ` · ${a.company}` : ''}`),
+          h('span', { class: 'tag' }, a.status), h('small', {}, `${when(a.at)} · ${Math.round((a.ms || 0) / 1000)} s${a.filled != null ? ` · filled ${a.filled}` : ''}${a.unknown ? ` · ${a.unknown} unanswered` : ''}${a.reason ? ` · ${clip(a.reason, 160)}` : ''}`)),
+        evidence(a.shot)))) : h('p', { class: 'muted' }, 'None yet.'),
     ];
   },
 
