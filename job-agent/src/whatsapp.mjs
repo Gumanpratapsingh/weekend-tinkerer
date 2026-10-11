@@ -57,8 +57,19 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
         replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}) }) });
-    return r.ok && (await r.json()).pushable === true;
+    if (!r.ok) return false;
+    const out = await r.json();
+    if (ref && out.id) setKv(`cupcard:${refKind}:${refId}`, String(out.id));   // so the card can be closed later
+    return out.pushable === true;
   } catch { return false; }
+}
+
+// A question/draft was settled some other way (dashboard, hub): close its Cupboard card so no stale Reply button remains.
+export function cardDone(kind, id, text) {
+  const msg = getKv(`cupcard:${kind}:${id}`);
+  if (!msg) return;
+  fetch('http://127.0.0.1:8086/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
+    body: JSON.stringify({ id: Number(msg), done: String(text).slice(0, 60) }) }).catch(() => {});
 }
 
 let flushing = false;

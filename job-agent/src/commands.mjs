@@ -3,7 +3,7 @@ import { one, all, run, setKv } from './db.mjs';
 import { answerQuestion, openQuestions } from './asks.mjs';
 import { composeDraft, sendDraft } from './mail.mjs';
 import { todayStats } from './apply.mjs';
-import { tell } from './whatsapp.mjs';
+import { tell, cardDone } from './whatsapp.mjs';
 
 const HELP = `Job agent commands:
 • status — today's numbers
@@ -19,6 +19,7 @@ Reply to any ❓ message to answer it, or to a ✍️ draft with ok / no / your 
 export async function onAnswered(qid, text) {
   const r = answerQuestion(qid, text);
   if (!r) return tell(`I don't have a question Q${qid}.`);
+  cardDone('question', qid, `Answered: ${text}`);
   for (const d of r.drafts) await composeDraft(d);
   const left = openQuestions().length;
   tell(`✅ Saved Q${qid}.${r.jobs.length ? ` ${r.jobs.length} application(s) back in the queue.` : ''}${left ? ` ${left} question(s) still open.` : ''}`);
