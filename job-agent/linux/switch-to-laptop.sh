@@ -25,8 +25,9 @@ idle=0; n=0
 while [ $idle -lt 2 ]; do
   h=$(ssh "$P" 'curl -s -m5 127.0.0.1:8084/health' || echo '{}')
   # Searches may be cut off (they run again); applications, LinkedIn messages/invites, profile updates and sign-ins may not.
+  # Any lane (the worker runs one per person) counts: task names anywhere in /health.
   case "$h" in
-    *'"running":"'*apply*|*'"running":"'*message*|*'"running":"'*connect*|*'"running":"'*refresh*|*'"signin":"'*|'{}') idle=0 ;;
+    *apply*|*message*|*connect*|*refresh*|*'"signin":"'*|'{}') idle=0 ;;
     *) idle=$((idle + 1)) ;;
   esac
   n=$((n + 1)); [ $n -gt 90 ] && { echo "   still busy after 15 min: giving up, run again later"; exit 1; }
