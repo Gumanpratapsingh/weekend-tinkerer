@@ -118,8 +118,13 @@ export async function fill(page, fields, answers, { resume } = {}) {
   page.setDefaultTimeout(6000);
   for (const f of fields) {
     let el = page.locator(`[data-ja-key="${f.key}"]`);
-    // React forms re-render and drop our marker: fall back to the field's visible label.
-    if (!await el.count() && f.label) el = page.getByLabel(f.label.slice(0, 80), { exact: false });
+    // React forms re-render and drop our marker: fall back to the field's visible label (a text box first:
+    // "Phone" can also match the country-code picker next to it).
+    if (!await el.count() && f.label) {
+      const name = f.label.slice(0, 80);
+      el = page.getByRole('textbox', { name, exact: false }).first();
+      if (!await el.count()) el = page.getByLabel(name, { exact: false }).first();
+    }
     try {
       if (isResume(f) && resume) { await el.first().setInputFiles(resume); await page.waitForTimeout(1500); continue; }
       if (isCover(f)) continue;
@@ -153,10 +158,22 @@ export async function fill(page, fields, answers, { resume } = {}) {
         const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
         await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));
       } else {
-        await el.fill(String(v));
+        const isPicker = /location|city|address|town|where.*based|college|school|university/i.test(f.label);
+        try {
+          if (isPicker) { await el.fill(''); await el.pressSequentially(String(v), { delay: 70 }); }   // key by key: pickers only suggest on keystrokes
+          else await el.fill(String(v));
+        } catch (e) {
+          // Looks like a field but is a custom dropdown ("How did you hear…"): open it and pick the option by text.
+          if (!/not an <input>|not editable/i.test(e.message)) throw e;
+          await el.click({ timeout: 5000 });
+          await page.waitForTimeout(600);
+          const opt = page.getByRole('option', { name: String(v), exact: false }).first();
+          if (await opt.count()) await opt.click(); else await page.getByText(String(v), { exact: false }).first().click({ timeout: 4000 });
+          continue;
+        }
         // Autocomplete fields (city/location pickers): a suggestion must be chosen or the site treats it as empty.
-        if (/location|city|address|town|where.*based|college|school|university/i.test(f.label)) {
-          await page.waitForTimeout(1500);
+        if (isPicker) {
+          await page.waitForTimeout(2000);
           const opts = page.locator('[role="option"]:visible, .pac-item:visible, li[class*="suggestion"]:visible, li[class*="option"]:visible');
           if (await opts.count()) {
             const want = String(v).split(',')[0].trim().toLowerCase();

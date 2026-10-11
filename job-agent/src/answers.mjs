@@ -64,6 +64,9 @@ function direct(label, m) {
   const [first, ...rest] = m.name.split(' ');
   const rules = [
     [/country code|dial(l)?ing code|phone country/, 'India (+91)'],
+    // Total experience (no specific skill named): years since Aug 2024 with one decimal, e.g. 2.2.
+    [/^(total |overall |relevant )?(years of )?(work |professional |it )?experience( in years)?\??$|total experience|overall experience/,
+      ((Date.now() - Date.UTC(2024, 7, 1)) / (365.25 * 864e5)).toFixed(1)],
     [/^(preferred )?first name|given name/, first], [/last name|surname|family name/, rest.join(' ')],
     [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone.replace(/^\+?91[-\s]?/, '')],   // 10 digits; country code is its own field
     [/linkedin/, `https://${m.contact.linkedin}`], [/github/, `https://${m.contact.github}`],

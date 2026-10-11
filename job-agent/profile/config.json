@@ -282,5 +282,6 @@
     "pause_cpu_c": 55,
     "resume_battery_c": 37,
     "resume_cpu_c": 48
-  }
+  },
+  "mail_check_hours": 2
 }
