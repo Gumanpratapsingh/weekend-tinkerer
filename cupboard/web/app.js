@@ -155,6 +155,7 @@ function route() {
   let m;
   if ((m = /^\/c\/(\d+)$/.exec(p))) return { name: 'chat', id: Number(m[1]) };
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
+  if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
   return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me' }[p] || 'list' };
 }
 function go(path, replace) { if (location.pathname !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
@@ -217,6 +218,44 @@ const screens = {
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
       h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
         h('p', { class: 'lede' }, inv.owner ? 'Set up the owner account for your phone server.' : 'Cupboard is a private chat that runs on Guman\'s phone server. Messages are stored on that phone (not end-to-end encrypted).')), f));
+  },
+
+  // Sign in to LinkedIn/Naukri on the phone's browser: live screen, tap to click, type below. Polls while open.
+  async signin(r) {
+    const base = `/signin/${r.token}`;
+    let info;
+    try { info = await api(base); } catch (e) { app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Sign in')), h('div', { class: 'page' }, h('p', { class: 'lede' }, e.message))); return; }
+    const site = { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
+    const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, '←');
+    const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the phone browser…');
+    const img = h('img', { class: 'screen', alt: `${site} on the phone's browser`, draggable: 'false' });
+    const box = h('input', { type: 'text', autocapitalize: 'none', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false', placeholder: 'Type here, then Send' });
+    const show = h('label', { class: 'show' }, h('input', { type: 'checkbox' }), ' hide what I type');
+    show.firstChild.addEventListener('change', () => { box.type = show.firstChild.checked ? 'password' : 'text'; });
+    const input = (body) => api(`${base}/input`, { method: 'POST', body }).catch((e) => toast(e.message, true));
+    const sendBtn = h('button', { class: 'btn', type: 'button' }, 'Send');
+    sendBtn.addEventListener('click', () => { if (box.value) { input({ kind: 'type', text: box.value }); box.value = ''; } box.focus(); });
+    box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
+    const keys = ['Enter', 'Tab', 'Backspace'].map((k) => { const b = h('button', { type: 'button', class: 'key' }, k === 'Backspace' ? '⌫' : k); b.addEventListener('click', () => input({ kind: 'key', key: k })); return b; });
+    img.addEventListener('click', (e) => {
+      const rect = img.getBoundingClientRect();
+      input({ kind: 'tap', x: Math.round((e.clientX - rect.left) * (img.naturalWidth / rect.width)), y: Math.round((e.clientY - rect.top) * (img.naturalHeight / rect.height)) });
+    });
+    app.replaceChildren(h('div', { class: 'bar' }, back, h('div', { class: 't' }, h('h1', {}, `${site} sign-in`), h('small', {}, 'on your job agent\'s phone browser'))),
+      h('div', { class: 'scroll signin' }, status, img, h('div', { class: 'srow' }, box, sendBtn), h('div', { class: 'srow' }, ...keys, show),
+        h('p', { class: 'note' }, `Tap the screen to click. What you type goes straight into ${site}'s page; your job agent keeps only the signed-in session, never your password.`)));
+    await api(`${base}/start`, { method: 'POST' }).catch((e) => toast(e.message, true));
+    const tick = async () => {
+      if (route().name !== 'signin') return;
+      try {
+        const s = await api(base);
+        status.textContent = s.signedIn ? `✅ Signed in to ${site}. You can close this page.` : s.mine ? 'Your turn: sign in below.' : s.busy ? 'Waiting for the phone browser (it is finishing another task)…' : 'Starting…';
+        if (s.signedIn) return;
+        if (s.mine) { const r2 = await fetch(`/api${base}/frame?t=${Date.now()}`, { credentials: 'same-origin' }); if (r2.status === 200) { const u = URL.createObjectURL(await r2.blob()); const old = img.src; img.src = u; if (old.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(old), 2000); } }
+      } catch { /* keep trying */ }
+      setTimeout(tick, 1000);
+    };
+    tick();
   },
 
   list() {
@@ -396,6 +435,7 @@ function bubble(m, prev) {
         b.addEventListener('click', async () => { b.disabled = true; try { await api(`/messages/${m.id}/action`, { method: 'POST', body: { action: a.id } }); } catch (e) { toast(e.message, true); b.disabled = false; } });
         return b;
       });
+      if (m.extra?.link) { const l = h('button', { type: 'button', class: 'go' }, m.extra.link.label); l.addEventListener('click', () => go(m.extra.link.path)); acts.unshift(l); }
       if (m.extra?.replyTo) { const r = h('button', { type: 'button' }, '↩ Reply'); r.addEventListener('click', () => { state.replyTo = m; drawComposer(); document.querySelector('.compose textarea')?.focus(); }); acts.push(r); }
       if (acts.length) kids.push(h('div', { class: 'acts' }, acts));
     }

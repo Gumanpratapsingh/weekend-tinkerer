@@ -1,7 +1,7 @@
 // Shared browser + per-site login sessions for the worker and its site modules.
 import { createRequire } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,35 +27,41 @@ export function touch() {
   idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
 }
 export async function closeBrowser() { const b = browser; browser = null; await b?.close().catch(() => {}); }
-export async function getBrowser() {
-  touch();
-  if (browser?.isConnected()) return browser;
-  browser = await chromium.launch({
+const LAUNCH = () => chromium.launch({
     headless: false,
     // Few processes: Android 13's phantom-process killer stops Termux when its children pass 32.
     args: ['--no-sandbox', '--no-zygote', '--disable-gpu', '--renderer-process-limit=1', '--disable-features=site-per-process,Translate,MediaRouter',
       '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--mute-audio',
       '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled', '--window-size=1366,900'],
   });
+export async function getBrowser() {
+  touch();
+  if (browser?.isConnected()) return browser;
+  browser = await LAUNCH();
   return browser;
 }
+// A short-lived second browser for a live sign-in, so the person doesn't wait behind a long search. Closed when done.
+export const launchSeparate = () => LAUNCH();
 
 // A context per site, carrying that site's saved login (data/sessions/<site>.json, made on the Mac).
-export async function siteContext(site) {
-  const b = await getBrowser();
+export async function siteContext(site, { images = false, viewport = { width: 1366, height: 900 }, browser: own = null } = {}) {
+  const b = own || await getBrowser();
   const SESSIONS = sessions();
   const state = join(SESSIONS, `${site}.json`);
   const ctx = await b.newContext({
     storageState: existsSync(state) ? state : undefined,
-    viewport: { width: 1366, height: 900 }, locale: 'en-IN', timezoneId: 'Asia/Kolkata',
+    viewport, locale: 'en-IN', timezoneId: 'Asia/Kolkata',
     // Same browser identity the session was created with (saved by scripts/login.sh), else a desktop Linux Chrome.
     userAgent: existsSync(join(SESSIONS, `${site}.ua`)) ? readFileSync(join(SESSIONS, `${site}.ua`), 'utf8').trim()
       : 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
   });
-  ctx.saveSession = () => ctx.storageState({ path: state });
+  ctx.saveSession = async () => {
+    await ctx.storageState({ path: state });
+    if (!existsSync(join(SESSIONS, `${site}.ua`))) writeFileSync(join(SESSIONS, `${site}.ua`), await ctx.pages()[0]?.evaluate(() => navigator.userAgent).catch(() => '') || '');
+  };
   // Phone only: skip images and video. Much less CPU/heat; application forms don't need them.
-  if (!process.env.KEEP_BROWSER) await ctx.route('**/*', (r) => (['image', 'media'].includes(r.request().resourceType()) ? r.abort() : r.continue()));
-  watch(ctx);
+  if (!process.env.KEEP_BROWSER && !images) await ctx.route('**/*', (r) => (['image', 'media'].includes(r.request().resourceType()) ? r.abort() : r.continue()));
+  if (!own) watch(ctx);                                 // the live screen follows queued tasks only
   return ctx;
 }
 

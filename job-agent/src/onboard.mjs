@@ -1,11 +1,12 @@
 // First-time setup for a person other than the owner, entirely in their own Cupboard chat:
-// 1) they attach their resume (PDF) -> their own free Gemini key reads it into master.json (facts only, nothing invented),
-// 2) they confirm roles, cities and minimum salary, 3) the usual setup questions follow (notice period, CTC...).
-// Logins (Naukri, LinkedIn) and the Gmail app password are added later by the owner, not here.
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+// resume (PDF) -> their own free Gemini key reads it (facts only) -> they check EVERY detail and correct it -> roles,
+// cities, minimum salary -> Gmail (app password, tested, then hidden in the chat) -> LinkedIn and Naukri sign-in on the
+// phone's browser through a live sign-in page (they type into the real site; we keep only the session) -> setup questions.
+// Any login step can be skipped and done later by sending "login linkedin" / "login naukri" / "login gmail".
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { spawn } from 'node:child_process';
-import { ROOT, PROFILE, OWNER, log, logError, secret, readJson, privateProfile } from './core.mjs';
+import { ROOT, PROFILE, OWNER, HOME, PERSON, AGENT_URL, log, logError, secret, readJson, privateProfile, llm, gate, hasSession } from './core.mjs';
+import { browserTask } from './browser.mjs';
 import { getKv, setKv } from './db.mjs';
 import { tell } from './whatsapp.mjs';
 
@@ -101,10 +102,42 @@ export async function receiveFile({ file, name }) {
   writeFileSync(join(PROFILE, 'private.json'), JSON.stringify({ ...priv, mailbox: priv.mailbox || x.contact?.email || '', known_answers: priv.known_answers || {} }, null, 2));
   log(`onboard: resume read for ${x.name}`);
 
-  const exp = x.experience?.[0];
-  say(`✅ Read it. ${x.name}${exp ? `, ${exp.title} at ${exp.org}` : ''}${years ? `, about ${years} year(s) full-time` : ''}. `
-    + `Skills I'll use: ${Object.values(x.skills || {}).flat().slice(0, 12).join(', ')}.`);
-  if (getKv('onboard') === 'resume' || !getKv('onboard')) { setKv('onboard', 'roles'); ask('roles'); }
+  if (['resume', 'review', null, ''].includes(getKv('onboard'))) setKv('onboard', 'review');
+  review('✅ Read it. Please check every detail below. Every application and message I send is built only from this.');
+}
+
+// ---------- 1b) the person checks every detail (and fixes anything) before it is used ----------
+function review(head) {
+  const m = readJson(join(PROFILE, 'master.json'), {}), P = m.persona || {}, c = m.contact || {};
+  const exp = (m.experience || []).map((e) => `▸ ${e.title} — ${e.org}${e.place ? `, ${e.place}` : ''} (${e.dates})\n${(e.bullets || []).map((b) => `   • ${b.text}`).join('\n')}`).join('\n');
+  const proj = (m.projects || []).map((p) => `▸ ${p.name}${p.stack ? ` [${p.stack}]` : ''}${p.link ? ` ${p.link}` : ''}\n${(p.bullets || []).map((b) => `   • ${b.text}`).join('\n')}`).join('\n');
+  const parts = [
+    `${head}\n\n👤 ${m.name}\n📞 ${c.phone || '—'} · ✉️ ${c.email || '—'}\n📍 ${c.location || '—'}\n🔗 ${c.linkedin || '—'} · ${c.github || '—'}\n\n🎓 ${(m.education || []).map((e) => `${e.degree}, ${e.school}${e.place ? `, ${e.place}` : ''} (${e.dates})`).join('\n🎓 ')}`
+      + `\nCollege short name: ${P.school_short || '—'} · Graduated: ${P.graduation || '—'} · Full-time since: ${P.career_start || '—'}`,
+    `💼 Experience\n${exp || '—'}`,
+    `🛠 Projects\n${proj || '—'}\n\n🧰 Skills\n${Object.entries(m.skills || {}).map(([k, v]) => `${k}: ${v.join(', ')}`).join('\n')}`,
+    `✍️ How I'll describe you\nIn referral notes: "${P.intro}. ${P.pitch}."\nResume summary: "${String(P.summary_backend || '').replace('{years}', 'N+')}"\nFor forms: ${(P.facts || []).slice(1).join(' · ')}`,
+  ];
+  for (const t of parts.slice(0, -1)) say(t);
+  say(`${parts.at(-1)}\n\nAll correct? Reply "ok". Otherwise reply with what to change, in your own words, e.g. "phone is +91 98xxxxxx, Acme dates are Jun 2024 – Present, add skill Python, remove the second project".`, 'review');
+}
+
+async function applyFix(text) {
+  const path = join(PROFILE, 'master.json');
+  const m = readJson(path, {});
+  say('✏️ Updating…');
+  let out;
+  try {
+    out = await llm([
+      { role: 'system', content: 'You edit a resume JSON. Apply ONLY the changes the person asks for, exactly as they state them. '
+        + 'Keep every other field, id and value unchanged. Never add anything they did not state. Return the complete JSON object.' },
+      { role: 'user', content: `JSON:\n${JSON.stringify(m)}\n\nCHANGES:\n${text}` },
+    ], { json: true, maxTokens: 6000, temperature: 0, why: 'applying your corrections to your profile' });
+  } catch (e) { return say(`I couldn't apply that right now (${e.message.slice(0, 80)}). Send it again in a few minutes.`, 'review'); }
+  if (!out?.name || !Array.isArray(out.experience) || !out.contact) return say("I couldn't apply that cleanly. Could you say it another way?", 'review');
+  out.persona = { ...m.persona, ...(out.persona || {}) };
+  writeFileSync(path, JSON.stringify(out, null, 2));
+  review('Updated. Here is everything again; please check it once more.');
 }
 
 // ---------- 2) preferences ----------
@@ -113,11 +146,105 @@ function ask(step) {
   if (step === 'roles') return say(`🔎 I'll search for these roles:\n${(c.tracks?.backend?.queries || []).map((q) => `• ${q}`).join('\n')}\n\nReply "ok", or send your own list (comma-separated).`, 'roles');
   if (step === 'cities') return say('📍 Which cities? Reply "anywhere" (any city in India + remote), or list them, e.g. "Bengaluru, Hyderabad, remote".', 'cities');
   if (step === 'salary') return say("💰 What's the lowest salary you'd accept, in LPA? I skip jobs that state less. (e.g. 8, or 0 for no limit)", 'salary');
+  if (step === 'review') return review('Please check these details once more.');
+  if (step === 'mailbox') return say(`✉️ Which Gmail gets your job emails (recruiter replies, interview invites)? Reply "ok" for ${privateProfile().mailbox || 'the one on your resume'}, or send the address. ("skip" to do this later.)`, 'mailbox');
+  if (step === 'gmail') return say(`🔑 To read job replies I need a Gmail app password: a 16-letter code that only allows mail access. You can delete it anytime and your real password stays private.\n\n`
+    + `1. Open myaccount.google.com/apppasswords (signed in as ${privateProfile().mailbox}). If it says the setting isn't available, first turn on 2-Step Verification under Security.\n2. Name it "Job agent", tap Create.\n3. Reply here with the 16-letter code.\n\nI test it, save it on the phone, and hide your message here. ("skip" to do this later.)`, 'gmail');
+  if (step === 'linkedin' || step === 'naukri') return signinCard(step);
 }
 
-export function onboardReply(step, text) {
+const SITES = { linkedin: 'LinkedIn', naukri: 'Naukri' };
+async function signinCard(site) {
+  let link = null;
+  try {
+    const r = await fetch('http://127.0.0.1:8086/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ to: privateProfile().cupboard_user, agent: AGENT_URL, site }) });
+    link = (await r.json()).path;
+  } catch (e) { log(`signin link: ${e.message}`); }
+  if (!link) return say(`I couldn't open the ${SITES[site]} sign-in page just now. Send "login ${site}" to try again.`);
+  tell(`🔐 Sign in to ${SITES[site]}\nTap "Open sign-in". You'll see the phone's browser on ${SITES[site]}'s real login page: tap the boxes and type in the box below the screen. `
+    + `Your password goes straight to ${SITES[site]}; I only keep the signed-in session so I can apply for you. If ${SITES[site]} sends a code (OTP), type it there too.\n\n("skip" to do this later.)`,
+    { refKind: 'onboard', refId: site, link: { label: `Open ${SITES[site]} sign-in`, path: link } });
+}
+
+// The sign-in page is open: run the browser task (waits its turn on the shared browser), report back here.
+export async function startSignin(site) {
+  if (!SITES[site]) throw new Error('unknown site');
+  if (getKv(`signin_running_${site}`) && Date.now() - Number(getKv(`signin_running_${site}`)) < 20 * 60e3) return { ok: true, already: true };
+  setKv(`signin_running_${site}`, Date.now());
+  browserTask('signin', { site }, 20 * 60e3).then((r) => {   // runs right away in its own browser (not queued)
+    setKv(`signin_running_${site}`, '');
+    if (r.ok) { setKv(`session_${site}`, 'ok'); setKv(`signin_done_${site}`, Date.now()); say(`✅ Signed in to ${SITES[site]}. I'll take it from here.`); if (getKv('onboard') === site) next(site); }
+    else say(`${SITES[site]} sign-in didn't finish (${r.reason || 'timed out'}). Send "login ${site}" to try again.`);
+  }).catch((e) => { setKv(`signin_running_${site}`, ''); logError('signin', e, { site }); say(`${SITES[site]} sign-in stopped (${e.message.slice(0, 80)}). Send "login ${site}" to try again.`); });
+  return { ok: true };
+}
+
+const ORDER = ['resume', 'review', 'roles', 'cities', 'salary', 'mailbox', 'gmail', 'linkedin', 'naukri', 'done'];
+function next(step) {
+  const n = ORDER[ORDER.indexOf(step) + 1] || 'done';
+  setKv('onboard', n);
+  if (n !== 'done') return ask(n);
+  gate.open = true;                                       // the job search starts now; setup questions follow
+  say("🎉 All set! I'm starting the job search now. A few standard questions come next, the ones almost every application asks. Answer each with Reply; I remember them for every future application.\n\n"
+    + 'Anytime: ask me "what\'s waiting for me?" or "applied today", or send "login linkedin" / "login naukri" / "login gmail".');
+}
+
+async function saveGmail(text, msgId) {
+  const code = String(text).replace(/\s+/g, '');
+  if (!/^[a-z]{16}$/i.test(code)) return say('That should be 16 letters (spaces are fine). Try again, or "skip".', 'gmail');
+  const { ImapFlow } = await import('imapflow');
+  const imap = new ImapFlow({ host: 'imap.gmail.com', port: 993, secure: true, logger: false, auth: { user: privateProfile().mailbox, pass: code } });
+  try { await imap.connect(); await imap.logout(); }
+  catch { hide(msgId); return say(`Gmail didn't accept that code for ${privateProfile().mailbox}. Check the address and create a new code, or "skip".`, 'gmail'); }
+  const dir = join(HOME, `.jobagent-${PERSON}`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, 'gmail_app_password'), code, { mode: 0o600 });
+  hide(msgId);
+  say(`✅ Gmail connected. I check ${privateProfile().mailbox} every 2 hours for replies and never send anything without your OK.`);
+  next('gmail');
+}
+// Replace a message that carried a secret with a placeholder (Cupboard keeps chat history).
+function hide(msgId) {
+  if (!msgId) return;
+  fetch('http://127.0.0.1:8086/redact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+    body: JSON.stringify({ id: Number(msgId), text: '🔒 (hidden: saved securely on the phone)' }) }).catch(() => {});
+}
+
+/** "login linkedin" / "login naukri" / "login gmail" at any time. Returns true if handled. */
+export function loginCommand(text) {
+  const m = /^(?:login|sign ?in|connect)\s+(linkedin|naukri|gmail)$/i.exec(String(text).trim());
+  if (!m) return false;
+  const site = m[1].toLowerCase();
+  if (site === 'gmail') ask(privateProfile().mailbox ? 'gmail' : 'mailbox'); else signinCard(site);
+  return true;
+}
+/** Is the person in a setup step that takes free text (so a plain message is an answer, never sent to the AI)? */
+export const pendingStep = () => (needsSetup() ? getKv('onboard') || 'resume' : null);
+
+export function onboardReply(step, text, msgId = null) {
   const t = String(text).trim(), path = join(PROFILE, 'config.json');
   const c = readJson(path, {});
+  const skip = /^(skip|later|not now)$/i.test(t);
+  if (step === 'resume') return say('Please attach your resume as a PDF with 📎.', 'resume');
+  if (step === 'review') {
+    if (/^(ok|okay|yes|correct|all good|👍)$/i.test(t)) return next('review');
+    return applyFix(t).catch((e) => logError('onboard fix', e));
+  }
+  if (step === 'mailbox') {
+    if (skip) { setKv('onboard', 'gmail'); return next('gmail'); }
+    if (!/^(ok|okay|yes|👍)$/i.test(t)) {
+      if (!/^[^\s@]+@gmail\.com$/i.test(t)) return say('Send a Gmail address (…@gmail.com), "ok", or "skip".', 'mailbox');
+      const priv = privateProfile(); priv.mailbox = t.toLowerCase();
+      writeFileSync(join(PROFILE, 'private.json'), JSON.stringify(priv, null, 2));
+    }
+    return next('mailbox');
+  }
+  if (step === 'gmail') { if (skip) { hide(msgId); return next('gmail'); } return saveGmail(t, msgId).catch((e) => logError('onboard gmail', e)); }
+  if (step === 'linkedin' || step === 'naukri') {
+    if (skip) return getKv('onboard') === step ? next(step) : say('OK, later.');
+    return say(`Tap "Open ${SITES[step]} sign-in" above to sign in (or "skip").`);
+  }
   if (step === 'roles') {
     if (!/^(ok|okay|yes|👍)$/i.test(t)) {
       const roles = t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 12);
@@ -125,7 +252,7 @@ export function onboardReply(step, text) {
       c.tracks = { backend: { queries: roles } };
     }
     writeFileSync(path, JSON.stringify(c, null, 2));
-    setKv('onboard', 'cities'); return ask('cities');
+    return next('roles');
   }
   if (step === 'cities') {
     const base = readJson(join(ROOT, 'profile', 'config.json'), {}).locations;
@@ -142,17 +269,13 @@ export function onboardReply(step, text) {
         linkedin: [...cities.map((x) => ({ location: `${x.replace(/\b\w/g, (m) => m.toUpperCase())}, India` })), ...(remote ? [{ location: 'India', remote: true }] : [])] };
     }
     writeFileSync(path, JSON.stringify(c, null, 2));
-    setKv('onboard', 'salary'); return ask('salary');
+    return next('cities');
   }
   if (step === 'salary') {
     const n = Number((/\d+(\.\d+)?/.exec(t) || [])[0]);
     if (!Number.isFinite(n)) return say('Just the number in LPA, e.g. 8 (or 0 for no limit).', 'salary');
     c.min_salary_lpa = n;
     writeFileSync(path, JSON.stringify(c, null, 2));
-    setKv('onboard', 'done');
-    say('👍 Saved. A few standard questions next, the ones almost every application asks. Answer each with Reply; I remember them for every future application.');
-    // Restart this agent so the job search schedules start with the new profile; it asks the setup questions on start.
-    setTimeout(() => { spawn('sh', [join(ROOT, 'scripts', 'run.sh'), 'people'], { detached: true, stdio: 'ignore' }).unref(); }, 3000);
-    return;
+    return next('salary');
   }
 }

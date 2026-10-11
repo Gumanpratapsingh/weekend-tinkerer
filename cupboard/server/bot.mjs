@@ -15,7 +15,8 @@ async function ntfy(suffix, message) {
   if (!r.ok) throw new Error(`ntfy ${r.status}`);
 }
 async function forward(url, payload) {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });
+  if (!url) throw new Error('no agent');
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(100000) });
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json().catch(() => ({}));
 }
@@ -55,19 +56,21 @@ const FRIEND_HELP = `I'm your job agent's chat. I'll message you here when I nee
 
 /** Someone wrote to their bot. replyTo is the bot message being answered (or null). Only the owner gets the phone,
  *  room and expense commands; anyone else talks only to their own job agent. */
-export async function botReply({ text, user, agent, replyTo, say, update }) {
+export async function botReply({ text, msgId, user, agent, replyTo, say, update }) {
   const t = text.trim(), low = t.toLowerCase();
   const card = replyTo?.extra ? JSON.parse(replyTo.extra) : null;
   if (card?.replyTo) {
     try {
-      await forward(card.replyTo, { text: t, ref: card.ref });
+      await forward(card.replyTo, { text: t, ref: card.ref, msgId });
       update(replyTo.id, { done: `Answered: ${t.slice(0, 40)}` });
       return say('Sent ✓');
     } catch (e) { return say(`Couldn't deliver that answer (${e.message}). Is the service running?`); }
   }
   if (user && user.role !== 'owner') {
     if (/^(help|hi|hello|hey|\?)$/.test(low)) return say(FRIEND_HELP);
-    return say(await askAgent(agent, t) || "I couldn't reach your job agent just now. Try again in a minute.");
+    // Their agent decides: a setup answer (never shown to the AI) or a question about their job search.
+    try { const r = await forward(`${agent}/internal/chat`, { text: t, msgId }); return r.answer ? say(r.answer) : null; }
+    catch { return say("I couldn't reach your job agent just now. Try again in a minute."); }
   }
   if (/^(help|hi|hello|hey|\?)$/.test(low)) return say(HELP);
   if (low === 'status') return say(status());

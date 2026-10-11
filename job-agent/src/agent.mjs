@@ -15,7 +15,7 @@ import { webhook, flush, tell, configured as waConfigured } from './whatsapp.mjs
 import { handleOwner, onAnswered } from './commands.mjs';
 import { one, run } from './db.mjs';
 
-import { needsSetup, startOnboarding, receiveFile, onboardReply } from './onboard.mjs';
+import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin } from './onboard.mjs';
 
 gate.open = !needsSetup();                          // a new person: only the chat + setup run until their profile exists
 seedKnown();
@@ -57,9 +57,47 @@ createServer((req, res) => {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (b.file) { receiveFile({ file: String(b.file), name: String(b.name || '') }).catch((e) => logError('onboard file', e)); return reply(200, '{"ok":true}', 'application/json'); }
         const ref = b.ref?.ref_kind ? { ref_kind: String(b.ref.ref_kind), ref_id: String(b.ref.ref_id) } : null;
-        if (ref?.ref_kind === 'onboard') { onboardReply(ref.ref_id, String(b.text || '').slice(0, 2000)); return reply(200, '{"ok":true}', 'application/json'); }
+        if (ref?.ref_kind === 'onboard') { onboardReply(ref.ref_id, String(b.text || '').slice(0, 2000), b.msgId); return reply(200, '{"ok":true}', 'application/json'); }
         await handleOwner(String(b.text || '').trim().slice(0, 2000), ref);
         return reply(200, '{"ok":true}', 'application/json');
+      }
+      // A person's free text in their Cupboard bot chat (not the owner's): a setup answer or a question about their search.
+      // Setup answers (they may carry a Gmail app password) are handled here and never go to the AI.
+      if (url.pathname === '/internal/chat' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
+        const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const text = String(b.text || '').trim().slice(0, 2000);
+        const json = (x) => reply(200, JSON.stringify(x), 'application/json');
+        if (loginCommand(text)) return json({});
+        const step = pendingStep();
+        if (step) { onboardReply(step, text, b.msgId); return json({}); }
+        const { ask } = await import('./assistant.mjs');
+        try { return json({ answer: await ask(text) }); }
+        catch (e) { return json({ answer: /rate limited/i.test(e.message) ? 'The free AI is busy right now. Ask again in a few minutes.' : `Couldn't answer: ${e.message}` }); }
+      }
+      // Live sign-in page (Cupboard -> here -> browser worker): status, screen, taps/keys. Input bodies are never logged.
+      if (url.pathname.startsWith('/internal/signin/') && !req.headers['x-visitor-ip']) {
+        const site = url.searchParams.get('site') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').site;
+        if (!['linkedin', 'naukri'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
+        const json = (x, code = 200) => reply(code, JSON.stringify(x), 'application/json');
+        const health = await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => ({}));
+        const mine = health.signin === (PERSON || 'owner');
+        const what = url.pathname.slice('/internal/signin/'.length);
+        if (what === 'status') return json({ mine, busy: !!health.signin && !mine, signedIn: !!getKv(`signin_done_${site}`) && !mine });
+        if (what === 'start') { setKv(`signin_done_${site}`, ''); return json(await startSignin(site)); }
+        if (what === 'frame') {
+          const { writeFileSync, statSync } = await import('node:fs');
+          writeFileSync(join(DATA, 'live-watch'), String(Date.now()));
+          try { if (!mine || Date.now() - statSync(join(DATA, 'live.jpg')).mtimeMs > 15e3) return reply(204, ''); } catch { return reply(204, ''); }
+          res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(readFileSync(join(DATA, 'live.jpg')));
+        }
+        if (what === 'input' && req.method === 'POST') {
+          if (!mine) return json({ error: 'The sign-in page is not open on the phone yet.' }, 409);
+          const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const r = await fetch('http://127.0.0.1:8084/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
+            body: JSON.stringify({ kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key, _who: { person: PERSON || 'owner', port: PORT } }) }).catch(() => null);
+          return json(r ? await r.json() : { error: 'phone browser not reachable' }, r?.status || 502);
+        }
+        return reply(404, 'not found');
       }
       // Dashboard actions from the tinker hub server (same phone, localhost only, owner already logged in there).
       if (url.pathname === '/internal/action' && req.method === 'POST' && !req.headers['x-visitor-ip']) {

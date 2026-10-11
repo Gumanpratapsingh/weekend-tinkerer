@@ -299,7 +299,7 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
-      if (conv.kind === 'bot') setImmediate(() => botReply({ text, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
+      if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
     }
     if (M === 'POST' && sub === '/voice') {
@@ -359,6 +359,29 @@ async function api(req, res, path, query) {
     return send(res, 200, { msg });
   }
 
+  // ----- live sign-in page: the person signs in to LinkedIn/Naukri on the phone's browser, through their own agent -----
+  // The token is single-person and short-lived; taps and keystrokes go to that person's agent only and are never logged.
+  if ((m = /^\/api\/signin\/([a-f0-9]{32})(\/[a-z]+)?$/.exec(path))) {
+    const s = JSON.parse(getKv(`signin:${m[1]}`) || 'null');
+    if (!s || s.uid !== me.id || s.exp < Date.now()) throw err(404, 'This sign-in link has expired. Ask your job agent for a new one ("login linkedin").');
+    const sub = m[2] || '', to = (p, init) => fetch(`${s.agent}/internal/signin/${p}`, { signal: AbortSignal.timeout(20000), ...init });
+    if (M === 'GET' && sub === '') { const st = await to(`status?site=${s.site}`).then((r) => r.json()).catch(() => ({})); return send(res, 200, { site: s.site, ...st }); }
+    if (M === 'POST' && sub === '/start') { const r = await to('start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site }) }); return send(res, r.status, await r.json().catch(() => ({}))); }
+    if (M === 'GET' && sub === '/frame') {
+      const r = await to(`frame?site=${s.site}`).catch(() => null);
+      if (!r?.ok) { res.writeHead(204, { 'Cache-Control': 'no-store' }); return res.end(); }
+      const buf = Buffer.from(await r.arrayBuffer());
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'Content-Length': buf.length }); return res.end(buf);
+    }
+    if (M === 'POST' && sub === '/input') {
+      if (!rateOk(me.id)) throw err(429, 'Slow down a little.');
+      const b = await readJson(req, 2000);
+      const r = await to('input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site, kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key }) });
+      return send(res, r.status, await r.json().catch(() => ({})));
+    }
+    throw err(404, 'Not found.');
+  }
+
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));
     if (!row?.media || !canSee(me, row.conv_id)) throw err(404, 'Not found.');
@@ -398,7 +421,8 @@ createServer(async (req, res) => {
       if (!text) return send(res, 400, { error: 'text required' });
       const replyTo = /^http:\/\/127\.0\.0\.1:\d+\//.test(b.replyTo || '') ? b.replyTo : null;
       const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '' })) : [];
-      const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo };
+      const link = b.link && /^\/signin\/[a-f0-9]{32}$/.test(b.link.path || '') ? { label: String(b.link.label || 'Open').slice(0, 40), path: b.link.path } : null;
+      const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo, link };
       let target = o;
       if (b.to) {
         target = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to).toLowerCase());
@@ -407,6 +431,21 @@ createServer(async (req, res) => {
       }
       const msg = await botSay(text, extra, target);
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
+    }
+    if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
+      const u = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to || '').toLowerCase());
+      if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
+      const token = randomBytes(16).toString('hex');
+      setKv(`signin:${token}`, JSON.stringify({ uid: u.id, agent: b.agent, site: b.site, exp: Date.now() + 2 * 3600e3 }));
+      return send(res, 200, { path: `/signin/${token}` });
+    }
+    if (req.url === '/redact') {                       // a message carried a secret: keep the bubble, drop the text
+      const row = one("SELECT * FROM messages WHERE id = ? AND kind = 'text'", Number(b.id));
+      if (!row) return send(res, 404, { error: 'Not found' });
+      run('UPDATE messages SET text = ? WHERE id = ?', String(b.text || '🔒 (hidden)').slice(0, 200), row.id);
+      const msg = rowToMsg(one('SELECT * FROM messages WHERE id = ?', row.id));
+      for (const uid of memberIds(row.conv_id)) emit(uid, 'update', { msg });
+      return send(res, 200, { ok: true });
     }
     if (req.url === '/update') {
       const row = one('SELECT * FROM messages WHERE id = ?', Number(b.id));
@@ -418,5 +457,6 @@ createServer(async (req, res) => {
 }).listen(INTERNAL, '127.0.0.1', () => log(`cupboard internal on 127.0.0.1:${INTERNAL}`));
 
 // Keep the database tidy: expired invites and sessions.
-setInterval(() => { run('DELETE FROM sessions WHERE expires < ?', Date.now()); run('DELETE FROM invites WHERE used_by IS NULL AND expires < ?', Date.now()); }, 6 * 3600e3);
+setInterval(() => { run('DELETE FROM sessions WHERE expires < ?', Date.now()); run('DELETE FROM invites WHERE used_by IS NULL AND expires < ?', Date.now());
+  for (const r of all("SELECT k, v FROM kv WHERE k LIKE 'signin:%'")) if (JSON.parse(r.v).exp < Date.now()) run('DELETE FROM kv WHERE k = ?', r.k); }, 6 * 3600e3);
 export { db };

@@ -31,12 +31,12 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
 // toOwner: technical alerts from someone else's agent go to the owner (who maintains it), not to that person.
-export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false } = {}) {
+export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null } = {}) {
   if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
     (async () => {
-      if (await toCupboard(body, refKind, refId, options, toOwner)) return;
+      if (await toCupboard(body, refKind, refId, options, toOwner, link)) return;
       if (!OWNER && toOwner) return;
       ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
     })().catch((e) => log(`tell: ${e.message}`));
@@ -46,7 +46,7 @@ export function tell(body, { refKind = null, refId = null, urgent = false, optio
   flush().catch((e) => log(`wa flush: ${e.message}`));
 }
 
-async function toCupboard(body, refKind, refId, options, toOwner = false) {
+async function toCupboard(body, refKind, refId, options, toOwner = false, link = null) {
   const to = OWNER || toOwner ? null : privateProfile().cupboard_user;
   if (!OWNER && !toOwner && !to) { log('tell: no cupboard_user in private.json, message not sent'); return false; }
   const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
@@ -56,7 +56,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false) {
   try {
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
-        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}) }) });
+        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}) }) });
     return r.ok && (await r.json()).pushable === true;
   } catch { return false; }
 }

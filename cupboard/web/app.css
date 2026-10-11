@@ -123,3 +123,10 @@ a{color:inherit}
 
 .m .file{display:inline-flex;align-items:baseline;gap:.2rem;color:inherit;font-weight:600;text-decoration:underline;word-break:break-word}
 .m .file small{font-weight:400;color:var(--soft)}
+.signin{padding:.8rem 1rem 1.5rem;display:flex;flex-direction:column;gap:.6rem}
+.signin .screen{width:100%;max-width:520px;border:1px solid var(--line);background:#fff;min-height:12rem;cursor:pointer;touch-action:manipulation}
+.signin .srow{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
+.signin .srow input[type=text],.signin .srow input[type=password]{flex:1;min-width:0;font:inherit;padding:.55rem .6rem;border:1px solid var(--ink);background:var(--bg);color:var(--ink)}
+.signin .key{border:1px solid var(--ink);background:none;color:var(--ink);padding:.4rem .7rem;font:inherit;cursor:pointer}
+.signin .show{font-size:.8rem;color:var(--soft);display:flex;align-items:center;gap:.3rem}
+.signin .note{font-size:.78rem;color:var(--soft)}
