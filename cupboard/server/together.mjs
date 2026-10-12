@@ -263,7 +263,25 @@ export function install({ postMessage, updateMessage, emit, memberIds, canSee, r
     if (e) { run('DELETE FROM events WHERE id = ?', e.id); emitEvent(e, true); }
   }
 
-  return { route, action, isRemind, fromChat, tick, setEvent, removeEvent };
+  // For the assistant: a reminder in a chat, and items added to a list found by name (or a new list).
+  function addReminder({ conv, title, at, forAll = true, repeat = null, by }) {
+    const id = Number(run("INSERT INTO events(conv_id, title, starts, all_day, remind_at, for_all, kind, repeat, created_by, created) VALUES(?,?,?,0,?,?,'reminder',?,?,?)",
+      conv, String(title).slice(0, 120), at, at, forAll ? 1 : 0, REPEATS.includes(repeat) ? repeat : null, by, Date.now()).lastInsertRowid);
+    emitEvent(one('SELECT * FROM events WHERE id = ?', id));
+    return id;
+  }
+  function addToList({ convs, conv, name, emoji, items, by }) {
+    const q = convs.map(() => '?').join(',');
+    let l = one(`SELECT * FROM lists WHERE conv_id IN (${q}) AND lower(title) = lower(?) AND archived = 0 ORDER BY updated DESC`, ...convs, String(name).trim());
+    const now = Date.now();
+    if (!l) l = one('SELECT * FROM lists WHERE id = ?', run('INSERT INTO lists(conv_id, title, emoji, created_by, created, updated) VALUES(?,?,?,?,?,?)',
+      conv, String(name).trim().slice(0, 60) || 'List', emoji ? String(emoji).slice(0, 8) : null, by, now, now).lastInsertRowid);
+    for (const t of items.map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 50)) run('INSERT INTO list_items(list_id, text, created_by, created) VALUES(?,?,?,?)', l.id, t, by, now);
+    touch(l.id); emitList(l.id);
+    return l;
+  }
+
+  return { route, action, isRemind, fromChat, tick, setEvent, removeEvent, addReminder, addToList };
 }
 
 // ---------- reading "Sunday 10am call Mom" ----------

@@ -12,6 +12,7 @@ import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
 import { install as installWedding } from './wedding.mjs';
+import { install as installAssistant } from './assistant.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -140,8 +141,9 @@ function emitConv(convId) {
 const PUSH_LABEL = { voice: '🎤 Voice note', image: '📷 Photo', video: '🎥 Video', file: '📄 File' };
 
 /** Save a message and fan it out: live update to every member, push to members who are not looking.
- *  force: push even to muted chats and open apps (reminders); pushAs: {title, body} instead of the sender's name. */
-async function postMessage(convId, fromId, { kind = 'text', text = null, media = null, duration = null, extra = null }, { force = false, pushAs = null } = {}) {
+ *  force: push even to muted chats and open apps (reminders); pushAs: {title, body} instead of the sender's name;
+ *  pushOnly: push only to these user ids (the others still see it live). */
+async function postMessage(convId, fromId, { kind = 'text', text = null, media = null, duration = null, extra = null }, { force = false, pushAs = null, pushOnly = null } = {}) {
   const now = Date.now();
   const { lastInsertRowid: id } = run('INSERT INTO messages(conv_id, user_id, kind, text, media, duration, extra, created) VALUES(?,?,?,?,?,?,?,?)',
     convId, fromId, kind, text, media, duration, extra ? JSON.stringify(extra) : null, now);
@@ -154,7 +156,7 @@ async function postMessage(convId, fromId, { kind = 'text', text = null, media =
     if (u.role === 'bot') continue;
     emit(uid, 'msg', { msg, conv: convSummary(convId, u) });
     const muted = (one('SELECT muted_until FROM members WHERE conv_id = ? AND user_id = ?', convId, uid)?.muted_until || 0) > now;
-    if (uid !== fromId && (force || (!isActive(uid) && !muted))) {
+    if (uid !== fromId && (!pushOnly || pushOnly.includes(uid)) && (force || (!isActive(uid) && !muted))) {
       if (pushAs) { push.notify(uid, { title: pushAs.title.slice(0, 80), body: String(pushAs.body || '').slice(0, 180), url: `/c/${convId}`, tag: `r${id}` }); continue; }
       const label = PUSH_LABEL[kind] ? `${PUSH_LABEL[kind]}${kind === 'file' && extra?.name ? ` · ${extra.name}` : ''}${text ? `: ${text}` : ''}` : null;
       const body = label || (extra?.title ? `${extra.title}: ` : '') + (text || '');
@@ -192,6 +194,7 @@ const FILES = { 'application/pdf': 'pdf' };
 const together = installTogether({ postMessage, updateMessage, emit, memberIds, canSee, readJson, send, err, log, botConv,
   convTitle: (id, me) => convSummary(id, me).title });
 const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, postMessage, together });
+const assistant = installAssistant({ postMessage, emit, memberIds, together, log });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -406,7 +409,8 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
-      if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
+      if (assistant.isAssistant(convId)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
+      else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
     }
@@ -464,6 +468,7 @@ async function api(req, res, path, query) {
       writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
       const msg = await postMessage(convId, me.id, { kind, text: caption, media: `${file}|${type}`,
         extra: { name, size: buf.length, w: dim('x-width'), h: dim('x-height'), ...(Number(query.replyTo) ? { replyTo: Number(query.replyTo) } : {}) } });
+      if (kind === 'image' && assistant.isAssistant(convId)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
       return send(res, 200, { msg });
     }
     if (M === 'GET' && sub === '/media') {                  // the chat's gallery: photos and videos, and documents
