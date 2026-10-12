@@ -45,7 +45,7 @@ a{color:inherit}
 .banner .btn{margin-top:.5rem}
 
 /* ---------- conversation ---------- */
-.msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:.75rem .8rem 1rem;display:flex;flex-direction:column;gap:.3rem;background:var(--tint)}
+.msgs{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:.75rem .8rem 1rem;display:flex;flex-direction:column;gap:.3rem;background:var(--tint)}
 .day{align-self:center;font-size:.65rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--soft);margin:.6rem 0 .25rem}
 .sys{align-self:center;font-size:.75rem;color:var(--soft);margin:.25rem 0}
 .m{max-width:82%;padding:.5rem .7rem .35rem;font-size:.95rem;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;position:relative}
@@ -300,3 +300,7 @@ mark{background:none;color:var(--accent);font-weight:700}
 .tray .tx{position:absolute;top:-.4rem;right:-.4rem;width:1.35rem;height:1.35rem;border:0;border-radius:50%;background:var(--ink);color:var(--bg);font-size:.65rem;line-height:1;cursor:pointer}
 .tray .tadd2{flex:none;width:4.4rem;height:4.4rem;border:2px dashed var(--ink);background:none;color:var(--ink);font-size:1.5rem;cursor:pointer;margin-top:0}
 .traywrap + .compose{border-top:0}
+
+/* swipe right on a message to reply */
+.m .swic{position:absolute;left:-2.6rem;top:50%;margin-top:-.95rem;width:1.9rem;height:1.9rem;border-radius:50%;background:var(--line);color:var(--ink);
+  display:grid;place-items:center;font-size:1rem;line-height:1;opacity:var(--sw,0);transform:scale(calc(.5 + var(--sw,0) * .5));pointer-events:none;white-space:normal}

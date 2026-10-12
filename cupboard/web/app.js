@@ -533,6 +533,42 @@ function onHold(el, fn) {
   el.addEventListener('touchend', (e) => { clearTimeout(t); if (held) e.preventDefault(); });
   el.addEventListener('click', (e) => { if (held) { e.preventDefault(); e.stopPropagation(); held = false; } }, true);
 }
+// Swipe a bubble to the right to reply, like WhatsApp: it follows the finger, a ↩ appears, and letting go past the
+// threshold starts a reply. Mostly-vertical drags (scrolling) and swipes that start at the screen's left edge
+// (the browser's back gesture) are left alone.
+function onSwipe(el, fn) {
+  const TRIGGER = 56, MAX = 72;
+  let x0 = 0, y0 = 0, dx = 0, live = false, locked = false, fired = false;
+  el.style.touchAction = 'pan-y';
+  el.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    live = e.touches.length === 1 && t.clientX > 28;
+    locked = false; fired = false; dx = 0; x0 = t.clientX; y0 = t.clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (!live) return;
+    const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+    if (!locked) {
+      if (Math.abs(my) > 10 && Math.abs(my) >= Math.abs(mx) * 0.7) { live = false; return; }     // scrolling
+      if (mx > 12 && mx > Math.abs(my) * 1.5) { locked = true; el.style.transition = 'none'; } else return;
+    }
+    dx = Math.max(0, Math.min(MAX, (mx - 12) * 0.85));
+    el.style.transform = `translateX(${dx}px)`;
+    el.style.setProperty('--sw', String(Math.min(1, dx / TRIGGER)));
+    if (dx >= TRIGGER && !fired) { fired = true; navigator.vibrate?.(12); }
+  }, { passive: true });
+  const end = () => {
+    if (!locked) { live = false; return; }
+    const go = dx >= TRIGGER;
+    el.style.transition = 'transform .18s ease';
+    el.style.transform = '';
+    el.style.setProperty('--sw', '0');
+    live = false; locked = false;
+    if (go) fn();
+  };
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', end);
+}
 // Bottom sheet with a list of buttons: [label, fn, {danger}] or a ready element.
 function sheet(title, items) {
   const box = h('div', { class: 'sheet' }), close = () => box.remove();
@@ -702,6 +738,8 @@ function bubble(m, prev) {
   })));
   const el = h('div', { class: `m ${mine ? 'out' : 'in'}${m.kind === 'card' ? ' card' : ''}${m.extra?.list ? ' lc' : ''}${m.kind === 'image' || m.kind === 'video' ? ' media' : ''}`, 'data-id': String(m.id) }, kids);
   onHold(el, () => msgMenu(m));
+  el.append(h('span', { class: 'swic', 'aria-hidden': 'true' }, '↩'));
+  onSwipe(el, () => { state.editing = null; state.replyTo = m; drawComposer(); document.querySelector('.compose textarea')?.focus(); });
   return el;
 }
 
