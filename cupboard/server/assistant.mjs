@@ -13,7 +13,8 @@ const NAME = 'Assistant ✨';
 const keyOf = (f) => { try { return readFileSync(join(HOME, f), 'utf8').trim(); } catch { return ''; } };
 const PROVIDERS = () => [
   { name: 'gemini', key: keyOf('.cupboard_gemini_key'), url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-    models: ['gemini-flash-latest', 'gemini-flash-lite-latest'], images: true, extra: { reasoning_effort: 'low' } },
+    // Free-tier daily limits differ a lot per model (some only 20 a day); a model that says "quota used up" rests for an hour.
+    models: ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'], images: true, extra: { reasoning_effort: 'low' } },
   { name: 'groq', key: keyOf('.cupboard_groq_key'), url: 'https://api.groq.com/openai/v1/chat/completions',
     models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], images: false, extra: { reasoning_effort: 'low', include_reasoning: false } },
 ].filter((p) => p.key).concat(process.env.CUPBOARD_AI_TEST_URL   // tests only: a local stand-in for the AI
@@ -48,13 +49,16 @@ export function install({ postMessage, emit, memberIds, together, log }) {
   const used = new Map();                                     // userId -> timestamps (40 questions an hour each)
   const allowed = (uid) => { const r = (used.get(uid) || []).filter((t) => Date.now() - t < 3600e3); r.push(Date.now()); used.set(uid, r); return r.length <= 40; };
 
+  const resting = new Map();                                  // "provider/model" -> until
   async function ask(messages, hasImage) {
     for (const p of PROVIDERS()) {
       if (hasImage && !p.images) continue;
       for (const model of p.models) {
+        if ((resting.get(`${p.name}/${model}`) || 0) > Date.now()) continue;
         try {
           const r = await fetch(p.url, { method: 'POST', headers: { Authorization: `Bearer ${p.key}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(60000),
             body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 1500, response_format: { type: 'json_object' }, ...p.extra }) });
+          if (r.status === 429) resting.set(`${p.name}/${model}`, Date.now() + 3600e3);
           if (!r.ok) { log(`assistant ${p.name}/${model} ${r.status}`); continue; }
           const text = (await r.json()).choices?.[0]?.message?.content || '';
           return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
