@@ -123,9 +123,14 @@ export async function resolve(items, context = '') {
 - Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
   Yes/No options) are answered from FACTS: "Yes" only if FACTS show it${persona().built_note ? ` (${persona().built_note})` : ''}.
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
-- A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on it", or "describe your
-  experience with it"): "UNKNOWN", so the person is asked (they may know it even if the resume doesn't say). Never claim it.
+- A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
+  experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
+  used it for ..."), answer from that: the years number, Yes/No, or for open-ended fields 2-4 first-person sentences built
+  ONLY from that short answer plus FACTS. Otherwise answer exactly "SKILL: <short skill name>" (one short question is asked).
 - Open-ended "describe your experience with X" where FACTS do show X: 2-3 sentences written only from FACTS.
+- Other open-ended fields that need the person's own input (how they work, examples, motivations): if KNOWN ANSWERS has a
+  short note on that topic, expand it into 2-4 first-person sentences (only what it says, plus FACTS). Otherwise answer
+  exactly "SHORT: <one short question for the person, under 12 words>" (they answer briefly; you write the long version).
 - "How did you hear about us / where did you find this job / source": KNOWN ANSWERS if present, else the option meaning the
   company's careers website (or "Company careers website").
 - Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
@@ -146,7 +151,7 @@ export async function resolve(items, context = '') {
 - For choice fields the answer must be exactly one of the options, or "UNKNOWN". Fields marked "long_list" (countries etc.)
   have too many options to show: answer with the plain value (e.g. "India") and it will be matched.
 - "Have you worked for / been employed by <company>?": answer from the employment history in FACTS.
-Return JSON {"<key>": "<answer or UNKNOWN>"}.` },
+Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
       { role: 'user', content: `FACTS:\n${facts}\n\nKNOWN ANSWERS:\n${known.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n')}\n\n`
         + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) =>
           (options?.length > 40 ? { key, label, type: 'long_list' } : { key, label, type, options })))}` },
@@ -158,8 +163,17 @@ Return JSON {"<key>": "<answer or UNKNOWN>"}.` },
   }
 
   const unknown = [...legalUnknown];
+  const asked = new Set();
   for (const it of pending) {
-    const a = out[it.key];
+    const a = String(out[it.key] ?? '').trim();
+    // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
+    // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
+    const short = /^SKILL:\s*(.+)$/i.exec(a)?.[1] ? `Do you have experience with ${/^SKILL:\s*(.+)$/i.exec(a)[1].trim().slice(0, 60)}? (yes/no, roughly how many years)`
+      : /^SHORT:\s*(.+)$/i.exec(a)?.[1]?.trim().slice(0, 140);
+    if (short) {
+      if (!asked.has(norm(short))) { asked.add(norm(short)); unknown.push({ ...it, label: short, type: 'text', options: null, original: it.label }); }
+      continue;
+    }
     if (a && a !== 'UNKNOWN' && fits(a, it)) { answers[it.key] = coerce(a, it); remember(it.label, String(answers[it.key]), 'derived'); }
     else unknown.push(it);
   }
