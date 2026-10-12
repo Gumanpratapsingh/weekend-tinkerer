@@ -71,7 +71,9 @@ function direct(label, m) {
     [/^(total |overall |relevant )?(years of )?(work |professional |it )?experience( in years)?\??$|total experience|overall experience/,
       yearsWorked().toFixed(1)],
     [/^(preferred )?first name|given name/, first], [/last name|surname|family name/, rest.join(' ')],
-    [/^(full |your |legal )?name$|^name /, m.name], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone.replace(/^\+?91[-\s]?/, '')],   // 10 digits; country code is its own field
+    [/^(full |your |legal )?name$|^name /, m.name],
+    [/how (should|can|do) we (communicate|contact|reach)|best way to (reach|contact)|preferred (method|mode|way) of (contact|communication)|contact preference/,
+      `Email: ${m.contact.email} · Phone: ${m.contact.phone}`], [/e ?mail/, m.contact.email], [/phone|mobile|contact number/, m.contact.phone.replace(/^\+?91[-\s]?/, '')],   // 10 digits; country code is its own field
     ...(m.contact.linkedin ? [[/linkedin/, `https://${m.contact.linkedin}`]] : []), ...(m.contact.github ? [[/github/, `https://${m.contact.github}`]] : []),
     ...(P.website ? [[/website|portfolio|personal (site|url)/, P.website]] : []),
     [/current (company|employer|organi[sz]ation)|^company$/, m.experience[0].org], [/current (job )?title|current (role|designation)/, m.experience[0].title],
@@ -136,6 +138,8 @@ export async function resolve(items, context = '') {
 - Other open-ended fields that need the person's own input (how they work, examples, motivations): if KNOWN ANSWERS has a
   short note on that topic, expand it into 2-4 first-person sentences (only what it says, plus FACTS). Otherwise answer
   exactly "SHORT: <one short question for the person, under 12 words>" (they answer briefly; you write the long version).
+- Contact preference ("How should we communicate with you?", best way to reach you): select Email and Phone Call (both, as
+  " | " when several may be ticked), else whichever of them is offered; for free text give the email and phone from FACTS.
 - "How did you hear about us / where did you find this job / source": KNOWN ANSWERS if present, else the option meaning the
   company's careers website (or "Company careers website").
 - Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
