@@ -29,8 +29,18 @@ function describeFields(rootSel) {
     if (el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
     const wrap = el.closest('label'); if (wrap && clean(wrap.innerText || wrap.textContent)) return clean(wrap.innerText || wrap.textContent);
     const fs = el.closest('fieldset'); if (fs?.querySelector('legend')) return clean(fs.querySelector('legend').innerText);
+    // A label sitting just before the field ("<label>Notice period</label><span><select>"): the nearest one, so a container
+    // holding many fields gives each its own label.
+    for (let n = el, k = 0; n && n !== root && k < 3; n = n.parentElement, k++) {
+      for (let s = n.previousElementSibling; s; s = s.previousElementSibling) {
+        if (s.matches('label, legend, [class*="label"]') && !s.querySelector('input, select, textarea')) { const t = clean(s.innerText); if (t) return t; }
+        if (s.querySelector('input, select, textarea')) break;        // that is another field's block
+      }
+    }
     let p = el.parentElement;
-    for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
+    // Only while the ancestor holds just this field: higher up, a label belongs to another field (nelgates.com's
+    // name and email boxes got the "Position" label and were all filled with one answer).
+    for (let i = 0; i < 4 && p && [...p.querySelectorAll('input:not([type="hidden"]), select, textarea')].length <= 1; i++, p = p.parentElement) {
       const l = p.querySelector('label, legend, .label, [class*="label"], [class*="question"]');
       if (l && !l.contains(el) && clean(l.innerText)) return clean(l.innerText);
     }
@@ -131,6 +141,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
       if (isCover(f)) continue;
       const v = answers[f.key];
       if (v == null || v === '') continue;
+      if (f.type === 'email' && !/^\S+@\S+\.\S+$/.test(String(v).trim())) { console.error(`fill ${f.key} "${f.label}": not an email, left empty`); continue; }
       if (f.type === 'select') { await el.selectOption({ label: v }).catch(() => el.selectOption(v)); }
       else if (f.type === 'combobox') {
         await el.click(); await el.fill(String(v)).catch(() => page.keyboard.type(String(v)));
@@ -153,7 +164,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
         const tick = async (loc) => { if (await loc.isChecked().catch(() => false)) return;
           await loc.evaluate((e) => (e.labels?.[0] || e.closest('label') || e).click()).catch(() => {});
           if (!await loc.isChecked().catch(() => true)) await loc.check({ force: true }).catch(() => {}); };
-        if (f.options.length === 1) { if (/^(yes|true|agree|i agree|acknowledge)/i.test(v)) await tick(el.first()); }
+        if (f.options.length <= 1) { if (/^(yes|true|agree|i agree|acknowledge)/i.test(v)) await tick(el.first()); }   // a lone box has no option list
         else for (const w of wanted) await tick(page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first());
       } else if (f.type === 'date') {
         const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
@@ -185,6 +196,14 @@ export async function fill(page, fields, answers, { resume } = {}) {
         }
       }
     } catch (e) { console.error(`fill ${f.key} "${f.label}": ${e.message}`); }
+  }
+  // Forms that re-render after a choice (Protionix: picking "Experienced" emptied "Years of Experience") lose typed
+  // values: refill any text box that came back empty.
+  for (const f of fields) {
+    const v = answers[f.key];
+    if (v == null || v === '' || !['text', 'textarea', 'number', 'tel', 'email', 'url'].includes(f.type)) continue;
+    const el = page.locator(`[data-ja-key="${f.key}"]`).first();
+    if (await el.count() && await el.inputValue().catch(() => 'x') === '') await el.fill(String(v)).catch(() => {});
   }
 }
 

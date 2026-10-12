@@ -1,6 +1,8 @@
 // Apply queue: takes queued jobs (score >= min_score), tailors the resume, and applies through the browser worker,
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
-import { config, log, logError, istDate, istHour, activity, hasSession } from './core.mjs';
+import { existsSync } from 'node:fs';
+import { join, basename } from 'node:path';
+import { config, log, logError, istDate, istHour, activity, hasSession, DATA } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
@@ -57,6 +59,13 @@ export async function applyJob(job, { dryRun = false } = {}) {
   setKv('now', JSON.stringify({ text: `${dryRun ? 'Dry run: filling' : 'Applying to'} ${job.title} @ ${job.company} (${job.source}, ${job.score}%)`, at: Date.now(), job: job.id }));
   try {
     let resume = job.resume_path;
+    // Paths saved on the phone (/data/data/com.termux/…) don't exist on the laptop: same file name in this resumes folder,
+    // else make it again. (One application went out without its resume before this check.)
+    if (resume && !existsSync(resume)) {
+      const here = join(DATA, 'resumes', basename(resume));
+      resume = existsSync(here) ? here : null;
+      run('UPDATE jobs SET resume_path = ? WHERE id = ?', resume, job.id);
+    }
     if (!resume && job.apply_type !== 'naukri') {      // Naukri sends the profile resume: no tailoring needed
       const t = (job.score || 0) >= (config().tailor_min_score || 0) ? await tailor(job) : await baseResume(job.track || 'backend');
       resume = t.pdf;
