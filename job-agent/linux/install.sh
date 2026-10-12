@@ -10,6 +10,9 @@ mkdir -p "$J/data"
 
 # The phone reaches each agent on its own port through phone-link's reverse forwards.
 FWD="-R 127.0.0.1:8083:127.0.0.1:8083 -R 127.0.0.1:8095:127.0.0.1:8095"   # 8095: laptop health API (laptop/server.mjs)
+# Cupboard's internal API (:8086): runs on the laptop unless the web stack is on standby here (~/STANDBY,
+# laptop/failover-web.sh); then it is the phone's, and the agents reach it through this link.
+if [ -f "$HOME/STANDBY" ]; then FWD="$FWD -L 127.0.0.1:8086:127.0.0.1:8086"; else FWD="$FWD -R 127.0.0.1:8086:127.0.0.1:8086"; fi
 for d in "$J"/people/*/; do
   [ -f "$d/port" ] || continue
   p=$(cat "$d/port"); mkdir -p "$d/data"

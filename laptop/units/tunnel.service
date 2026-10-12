@@ -1,0 +1,20 @@
+[Unit]
+Description=Cloudflare tunnel to nginx (127.0.0.1:8080)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate run
+StandardOutput=append:@HOME@/cloudflared.log
+StandardError=append:@HOME@/cloudflared.log
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Hub and Cupboard backup to the S20 every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

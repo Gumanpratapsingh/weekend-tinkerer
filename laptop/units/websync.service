@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the hub's and Cupboard's data to the S20 (standby copy)
+ConditionPathExists=!@HOME@/STANDBY
+
+[Service]
+Type=oneshot
+User=@USER@
+ExecStart=/bin/sh @HOME@/laptop/web-sync.sh

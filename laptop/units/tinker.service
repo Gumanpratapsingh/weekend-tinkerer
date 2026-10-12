@@ -1,0 +1,20 @@
+[Unit]
+Description=Tinker hub server (127.0.0.1:8082)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/usr/local/bin/node @HOME@/tinker/server/index.mjs
+StandardOutput=append:@HOME@/tinker/server.out
+StandardError=append:@HOME@/tinker/server.out
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

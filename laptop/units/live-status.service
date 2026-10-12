@@ -1,0 +1,17 @@
+[Unit]
+Description=Website status file (~/live/status.json) for the live badge and uptime monitor
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/bin/sh @HOME@/laptop/live-status.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

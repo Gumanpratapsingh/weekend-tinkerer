@@ -1,0 +1,20 @@
+[Unit]
+Description=Ask API for the website (127.0.0.1:8081)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/usr/local/bin/node @HOME@/ai/server.mjs
+StandardOutput=append:@HOME@/ai/ask.log
+StandardError=append:@HOME@/ai/ask.log
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

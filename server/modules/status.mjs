@@ -1,15 +1,20 @@
 // Phone health for the hub: battery, temperatures, memory, storage, what each service uses, and a 24-hour
 // history. Battery/temperature come from the file phone-server/status.sh writes every minute; the rest is read
 // from /proc and statfs. A sampler every 5 minutes keeps the history and pushes an alert when something is off.
-import { readFileSync, statfsSync } from 'node:fs';
+import { readFileSync, statfsSync, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { HOME, load, save, push, log } from '../core.mjs';
 
-const FILE = join(HOME, 'live', 'status.json');
+// When the hub runs on the laptop, the phone's health arrives as ~/live/phone.json (laptop/from-phone.sh), with
+// its memory and storage in it; ~/live/status.json is then the laptop's own (website badge) and is not used here.
+const PHONE = join(HOME, 'live', 'phone.json');
+const REMOTE = existsSync(PHONE);
+const FILE = REMOTE ? PHONE : join(HOME, 'live', 'status.json');
 const live = () => { try { return JSON.parse(readFileSync(FILE, 'utf8')); } catch { return null; } };
 
 function memory() {
+  if (REMOTE) { const s = live(); return { totalMB: s?.memTotalMB ?? 0, availMB: s?.memAvailMB ?? 0, swapTotalMB: 0, swapUsedMB: 0 }; }
   const m = {};
   for (const line of readFileSync('/proc/meminfo', 'utf8').split('\n')) {
     const [k, v] = line.split(':');
@@ -18,6 +23,7 @@ function memory() {
   return { totalMB: Math.round(m.MemTotal), availMB: Math.round(m.MemAvailable), swapTotalMB: Math.round(m.SwapTotal), swapUsedMB: Math.round(m.SwapTotal - m.SwapFree) };
 }
 function disk() {
+  if (REMOTE) { const s = live(); return { totalGB: s?.diskTotalGB ?? 0, freeGB: s?.diskFreeGB ?? 0 }; }
   const s = statfsSync(HOME);
   return { totalGB: +(s.blocks * s.bsize / 1e9).toFixed(1), freeGB: +(s.bavail * s.bsize / 1e9).toFixed(1) };
 }
@@ -42,6 +48,7 @@ const ticks = (pid) => { try { const f = readFileSync(`/proc/${pid}/stat`, 'utf8
 
 /** Memory now, and CPU measured over one second (percent of one core; the phone has 8). */
 async function services() {
+  if (REMOTE) return [];                              // the phone's processes can't be seen from the laptop
   const list = await ps();
   const t0 = new Map(list.map((p) => [p.pid, ticks(p.pid)]));
   await new Promise((r) => setTimeout(r, 1000));

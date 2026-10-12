@@ -1,0 +1,17 @@
+[Unit]
+Description=Room watcher state and phone health from the S20
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/bin/sh @HOME@/laptop/from-phone.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

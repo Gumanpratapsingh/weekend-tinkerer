@@ -1,0 +1,20 @@
+[Unit]
+Description=Cupboard chat server (127.0.0.1:8085, internal 8086)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!@HOME@/STANDBY
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@
+ExecStart=/usr/local/bin/node --no-warnings @HOME@/cupboard/server/index.mjs
+StandardOutput=append:@HOME@/cupboard/server.out
+StandardError=append:@HOME@/cupboard/server.out
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
