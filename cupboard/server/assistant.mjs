@@ -14,7 +14,7 @@ const keyOf = (f) => { try { return readFileSync(join(HOME, f), 'utf8').trim(); 
 const PROVIDERS = () => [
   { name: 'gemini', key: keyOf('.cupboard_gemini_key'), url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     // Free-tier daily limits differ a lot per model (some only 20 a day); a model that says "quota used up" rests for an hour.
-    models: ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'], images: true, extra: { reasoning_effort: 'low' } },
+    models: ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest'], images: true, extra: { reasoning_effort: 'low' } },
   { name: 'groq', key: keyOf('.cupboard_groq_key'), url: 'https://api.groq.com/openai/v1/chat/completions',
     models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], images: false, extra: { reasoning_effort: 'low', include_reasoning: false } },
 ].filter((p) => p.key).concat(process.env.CUPBOARD_AI_TEST_URL   // tests only: a local stand-in for the AI
