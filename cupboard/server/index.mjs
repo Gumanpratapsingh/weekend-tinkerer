@@ -132,7 +132,8 @@ function convSummary(convId, forUser) {
   const pins = all('SELECT m.* FROM pins p JOIN messages m ON m.id = p.msg_id WHERE p.conv_id = ? ORDER BY p.at DESC LIMIT 10', convId).map(rowToMsg);
   return { id: c.id, kind: c.kind, title, people: people.map(({ last_read, ...p }) => ({ ...p, lastRead: last_read })),
     last: last ? rowToMsg(last) : null, unread, created: c.created,
-    muted: set.muted_until > Date.now() ? set.muted_until : 0, archived: !!set.archived, pins };
+    muted: set.muted_until > Date.now() ? set.muted_until : 0, archived: !!set.archived, pins,
+    ...(assistant.isAssistant(convId) ? { assistant: { quiet: assistant.quiet() } } : {}) };
 }
 // Tell every member that a chat's settings or pins changed (each gets their own view of it).
 function emitConv(convId) {
@@ -409,7 +410,7 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
-      if (assistant.isAssistant(convId)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
+      if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
@@ -468,7 +469,7 @@ async function api(req, res, path, query) {
       writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
       const msg = await postMessage(convId, me.id, { kind, text: caption, media: `${file}|${type}`,
         extra: { name, size: buf.length, w: dim('x-width'), h: dim('x-height'), ...(Number(query.replyTo) ? { replyTo: Number(query.replyTo) } : {}) } });
-      if (kind === 'image' && assistant.isAssistant(convId)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
+      if (kind === 'image' && assistant.isAssistant(convId) && assistant.shouldReply(caption)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
       return send(res, 200, { msg });
     }
     if (M === 'GET' && sub === '/media') {                  // the chat's gallery: photos and videos, and documents
@@ -493,6 +494,12 @@ async function api(req, res, path, query) {
       run('UPDATE members SET last_read = max(last_read, ?) WHERE conv_id = ? AND user_id = ?', upTo, convId, me.id);
       for (const uid of memberIds(convId)) emit(uid, 'read', { conv: convId, user: me.id, upTo });
       return send(res, 200, { ok: true });
+    }
+    if (M === 'POST' && sub === '/assistant') {            // the 🤫 button: quiet / wake the assistant (for everyone in the chat)
+      if (!assistant.isAssistant(convId)) throw err(404, 'Not found.');
+      await assistant.setQuiet(me, convId, !!(await readJson(req, 200)).quiet);
+      emitConv(convId);
+      return send(res, 200, { conv: convSummary(convId, me) });
     }
     if (M === 'POST' && sub === '/typing') {
       for (const uid of memberIds(convId)) if (uid !== me.id) emit(uid, 'typing', { conv: convId, user: me.id, name: me.name });

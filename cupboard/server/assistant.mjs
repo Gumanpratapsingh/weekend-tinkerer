@@ -45,6 +45,13 @@ export function install({ postMessage, emit, memberIds, together, log }) {
   }
   ensureConv();
   const isAssistant = (convId) => Number(getKv('assistant_conv')) === convId;
+  // Quiet mode (the 🤫 button): it only answers messages that start with "@ai" (or "assistant").
+  const quiet = () => getKv('assistant_quiet') === '1';
+  const shouldReply = (text) => !quiet() || /^\s*@?(ai|assistant)\b/i.test(String(text || ''));
+  async function setQuiet(me, convId, on) {
+    setKv('assistant_quiet', on ? '1' : '');
+    await postMessage(convId, botId(), { kind: 'text', text: on ? `🤫 Okay, I'll stay quiet (${me.name.split(' ')[0]} pressed mute). Start a message with @ai when you need me.` : `✨ I'm back (${me.name.split(' ')[0]} woke me up). I'll answer every message again.` }, { pushOnly: [] });
+  }
 
   const used = new Map();                                     // userId -> timestamps (40 questions an hour each)
   const allowed = (uid) => { const r = (used.get(uid) || []).filter((t) => Date.now() - t < 3600e3); r.push(Date.now()); used.set(uid, r); return r.length <= 40; };
@@ -140,5 +147,5 @@ Coming up: ${events.map((e) => `${fmt(e.remind_at)} ${e.title}`).join('; ') || '
     return say(done.length ? `${text}\n\n${done.join('\n')}` : text);
   }
 
-  return { isAssistant, reply, ensureConv };
+  return { isAssistant, reply, ensureConv, quiet, shouldReply, setQuiet };
 }

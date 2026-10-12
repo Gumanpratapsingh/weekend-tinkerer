@@ -575,7 +575,15 @@ function drawHeader() {
   title.addEventListener('click', () => chatMenu(state.cur));
   const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, '⋮');
   more.addEventListener('click', () => chatMenu(state.cur));
-  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, more);
+  // The assistant chat: 🤫 quiets it (it then answers only "@ai …"), ✨ wakes it.
+  let ai = null;
+  if (c.assistant) {
+    ai = h('button', { class: 'icon', type: 'button', title: c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant', 'aria-label': c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant' }, c.assistant.quiet ? '✨' : '🤫');
+    ai.addEventListener('click', () => api(`/convs/${c.id}/assistant`, { method: 'POST', body: { quiet: !c.assistant.quiet } })
+      .then(({ conv }) => { upsertConv(conv); state.cur = conv; drawHeader(); }).catch((e) => toast(e.message, true)));
+    if (c.assistant.quiet && !(t && t.until > Date.now())) sub.textContent = 'assistant is quiet · start with @ai to ask';
+  }
+  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, ai, more);
 }
 
 // Pinned messages: a bar under the header; a tap jumps to the message (and on to the next pin).
