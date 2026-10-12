@@ -290,11 +290,15 @@ every(60, 'referral acceptances', async () => {
 every(1, 'thermal guard', async () => {
   const st = (() => { try { return JSON.parse(readFileSync(join(HOME, 'live', 'status.json'), 'utf8')); } catch { return null; } })();
   if (!st) return;
-  const t = config().thermal || {};
+  // Limits per device: the phone's (config.thermal) would keep a laptop paused forever (its battery reads ~48 °C while
+  // charging, normal for it). On the laptop: config.thermal_laptop, else 90/80 °C CPU and 60/55 °C battery.
+  const t = /laptop/i.test(st.device || '')
+    ? { pause_cpu_c: 90, resume_cpu_c: 80, pause_battery_c: 60, resume_battery_c: 55, ...(config().thermal_laptop || {}) }
+    : (config().thermal || {});
   const paused = getKv('thermal_pause') === '1';
   if (!paused && (st.batteryTempC >= t.pause_battery_c || st.cpuTempC >= t.pause_cpu_c)) {
     setKv('thermal_pause', '1');
-    activity(`🌡️ Phone is hot (battery ${st.batteryTempC}°C, CPU ${st.cpuTempC}°C): pausing the browser to cool down`);
+    activity(`🌡️ ${/laptop/i.test(st.device || '') ? 'Laptop' : 'Phone'} is hot (battery ${st.batteryTempC}°C, CPU ${st.cpuTempC}°C): pausing the browser to cool down`);
     await browserTask('rest', {}, 60e3).catch(() => {});
   } else if (paused && st.batteryTempC <= t.resume_battery_c && st.cpuTempC <= t.resume_cpu_c) {
     setKv('thermal_pause', '0');
