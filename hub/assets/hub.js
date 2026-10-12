@@ -5,6 +5,9 @@ const view = document.getElementById('view');
 const logoutBtn = document.querySelector('.logout');
 const tabs = document.querySelector('.tabs');
 const statusEl = document.getElementById('status');
+// The phone's tab row sticks just below the header, whatever the header's height.
+const setTopHeight = () => document.documentElement.style.setProperty('--toph', `${document.querySelector('.top')?.offsetHeight || 64}px`);
+setTopHeight(); addEventListener('resize', setTopHeight);
 
 // ---------- tiny helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -804,6 +807,7 @@ function markTabs() {
     const u = new URL(a.href);
     const on = path.startsWith('/jobs') ? u.pathname === '/jobs' && (u.searchParams.get('who') || '') === who() : u.pathname === path;
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (on && tabs.scrollWidth > tabs.clientWidth) a.scrollIntoView({ inline: 'center', block: 'nearest' });   // phone: bring the tab into view
     a.hidden = limited() && !(u.pathname === '/jobs' && u.searchParams.get('who') === me.who);   // a limited person: only their own tab
   });
 }

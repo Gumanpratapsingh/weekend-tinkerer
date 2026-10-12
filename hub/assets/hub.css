@@ -26,12 +26,12 @@ a{color:inherit}
 @media (max-width:47.99rem){
   .top{padding-top:calc(.9rem + env(safe-area-inset-top))}
   .logout{padding:.25rem .5rem}
-  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--bg);border-top:2px solid var(--ink);border-bottom:0;
-    gap:0;padding:.45rem .25rem calc(.6rem + env(safe-area-inset-bottom))}
-  .tabs a{flex:1;text-align:center;font-size:.66rem;padding:0;border:0}
-  .tabs a b{display:block;font-size:1.1rem;font-weight:900;line-height:1.5;color:var(--c3)}
-  .tabs a[aria-current="page"],.tabs a[aria-current="page"] b{color:var(--accent)}
-  main{padding-bottom:6.5rem!important}
+  /* Phone: one row of tabs under the header that scrolls sideways (sticks below the header). */
+  .tabs{position:sticky;top:var(--toph,4rem);z-index:4;background:var(--bg);gap:1.3rem;overflow-x:auto;white-space:nowrap;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-padding:0 1rem}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs a{flex:none;font-size:.92rem;padding:.75rem 0}
+  .tabs a:last-child{margin-right:1rem}
 }
 
 /* ---------- layout + type ---------- */
@@ -141,7 +141,6 @@ summary:hover{color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);z-index:9;background:var(--ink);color:var(--bg);
   font-weight:600;font-size:.85rem;padding:.7rem 1rem;max-width:calc(100vw - 2rem);box-shadow:0 8px 24px rgba(0,0,0,.2)}
 .toast.bad{background:var(--accent);color:#fff}
-@media (max-width:47.99rem){.toast{bottom:calc(5.5rem + env(safe-area-inset-bottom))}}
 @media (prefers-reduced-motion:reduce){.loading::after,.live::before,.flash{animation:none}}
 
 /* ---------- phone health ---------- */
