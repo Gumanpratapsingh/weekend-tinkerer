@@ -29,6 +29,16 @@ CREATE INDEX IF NOT EXISTS messages_conv ON messages (conv_id, id);
 CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user_id INTEGER NOT NULL, sub TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS pins (conv_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, by INTEGER, at INTEGER NOT NULL, PRIMARY KEY (conv_id, msg_id));
+-- "Together": shared lists and a shared calendar. Each belongs to a chat; its members share it.
+CREATE TABLE IF NOT EXISTS lists (id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL, title TEXT NOT NULL, emoji TEXT,
+  created_by INTEGER, created INTEGER NOT NULL, updated INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS list_items (id INTEGER PRIMARY KEY, list_id INTEGER NOT NULL, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
+  done_by INTEGER, done_at INTEGER, created_by INTEGER, created INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS list_items_list ON list_items (list_id, id);
+CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL, title TEXT NOT NULL, starts INTEGER NOT NULL,
+  all_day INTEGER NOT NULL DEFAULT 0, remind_at INTEGER, for_all INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL DEFAULT 'event',
+  repeat TEXT, created_by INTEGER, created INTEGER NOT NULL, sent INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS events_due ON events (sent, remind_at);
 `);
 // Per-person chat settings (added later): mute until a time (0 = not muted), archived.
 for (const sql of ['ALTER TABLE members ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE members ADD COLUMN archived INTEGER NOT NULL DEFAULT 0']) {

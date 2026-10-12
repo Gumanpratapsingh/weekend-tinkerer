@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
+import { install as installTogether } from './together.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -103,8 +104,9 @@ function emitConv(convId) {
 }
 const PUSH_LABEL = { voice: '🎤 Voice note', image: '📷 Photo', video: '🎥 Video', file: '📄 File' };
 
-/** Save a message and fan it out: live update to every member, push to members who are not looking. */
-async function postMessage(convId, fromId, { kind = 'text', text = null, media = null, duration = null, extra = null }) {
+/** Save a message and fan it out: live update to every member, push to members who are not looking.
+ *  force: push even to muted chats and open apps (reminders); pushAs: {title, body} instead of the sender's name. */
+async function postMessage(convId, fromId, { kind = 'text', text = null, media = null, duration = null, extra = null }, { force = false, pushAs = null } = {}) {
   const now = Date.now();
   const { lastInsertRowid: id } = run('INSERT INTO messages(conv_id, user_id, kind, text, media, duration, extra, created) VALUES(?,?,?,?,?,?,?,?)',
     convId, fromId, kind, text, media, duration, extra ? JSON.stringify(extra) : null, now);
@@ -117,7 +119,8 @@ async function postMessage(convId, fromId, { kind = 'text', text = null, media =
     if (u.role === 'bot') continue;
     emit(uid, 'msg', { msg, conv: convSummary(convId, u) });
     const muted = (one('SELECT muted_until FROM members WHERE conv_id = ? AND user_id = ?', convId, uid)?.muted_until || 0) > now;
-    if (uid !== fromId && !isActive(uid) && !muted) {
+    if (uid !== fromId && (force || (!isActive(uid) && !muted))) {
+      if (pushAs) { push.notify(uid, { title: pushAs.title.slice(0, 80), body: String(pushAs.body || '').slice(0, 180), url: `/c/${convId}`, tag: `r${id}` }); continue; }
       const label = PUSH_LABEL[kind] ? `${PUSH_LABEL[kind]}${kind === 'file' && extra?.name ? ` · ${extra.name}` : ''}${text ? `: ${text}` : ''}` : null;
       const body = label || (extra?.title ? `${extra.title}: ` : '') + (text || '');
       push.notify(uid, { title: conv.kind === 'group' ? `${from.name} · ${conv.name}` : from.name, body: body.slice(0, 180), url: `/c/${convId}`, tag: `c${convId}` });
@@ -150,6 +153,9 @@ const botSay = async (text, extra = null, user = owner()) => {
 // The local job agent that serves a given person (set when that agent first messages them). Owner: the main agent.
 const agentFor = (user) => (user.role === 'owner' ? 'http://127.0.0.1:8083' : getKv(`agent:${user.id}`));
 const FILES = { 'application/pdf': 'pdf' };
+// Shared lists, calendar and reminders (together.mjs).
+const together = installTogether({ postMessage, updateMessage, emit, memberIds, canSee, readJson, send, err, log, botConv,
+  convTitle: (id, me) => convSummary(id, me).title });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -327,7 +333,8 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
-      if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
+      if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
+      else if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
     }
     if (M === 'POST' && sub === '/voice') {
@@ -481,8 +488,10 @@ async function api(req, res, path, query) {
 
   if ((m = /^\/api\/messages\/(\d+)\/action$/.exec(path)) && M === 'POST') {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));
-    if (!row || !canSee(me, row.conv_id) || one('SELECT kind FROM convs WHERE id = ?', row.conv_id).kind !== 'bot') throw err(404, 'Not found.');
+    if (!row || !canSee(me, row.conv_id)) throw err(404, 'Not found.');
     const b = await readJson(req, 1000);
+    if (row.user_id === botId() && row.extra && JSON.parse(row.extra).event) return send(res, 200, { msg: await together.action(me, row, String(b.action || '')) });
+    if (one('SELECT kind FROM convs WHERE id = ?', row.conv_id).kind !== 'bot') throw err(404, 'Not found.');
     const msg = await botAction({ row, action: String(b.action || ''), say: (t, e) => botSay(t, e, me), update: updateMessage });
     return send(res, 200, { msg });
   }
@@ -548,6 +557,8 @@ async function api(req, res, path, query) {
     }
     throw err(404, 'Not found.');
   }
+
+  if (await together.route(req, res, path, query, me)) return;
 
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));

@@ -96,6 +96,8 @@ function connect() {
     if (state.cur?.id === conv) { state.cur = c || state.cur; drawMessages(false); }
     if (user === state.me.id && c) { c.unread = 0; if (route().name === 'list') drawList(); }
   });
+  es.addEventListener('list', (e) => { const d = JSON.parse(e.data); if (d.gone) dropList(d.id); else upsertList(d.list); });
+  es.addEventListener('event', (e) => { const d = JSON.parse(e.data); if (d.gone) dropEvent(d.id); else upsertEvent(d.event); });
   es.addEventListener('typing', (e) => {
     const { conv, name } = JSON.parse(e.data);
     state.typing[conv] = { name, until: Date.now() + 4000 };
@@ -165,6 +167,8 @@ function route() {
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
+  if ((m = /^\/together(\/calendar)?$/.exec(p))) return { name: 'together', tab: m[1] ? 'cal' : 'lists' };
+  if ((m = /^\/together\/list\/(\d+)$/.exec(p))) return { name: 'tlist', id: Number(m[1]) };
   return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
 }
 function go(path, replace) { if (location.pathname + location.search !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
@@ -282,14 +286,15 @@ const screens = {
 
   list() {
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('div', { class: 't' }, h('h1', {}, 'Cupboard'), h('small', { id: 'phone' }, 'served from an S20')),
+      h('div', { class: 'bar' }, h('div', { class: 't' }, h('h1', {}, 'Cupboard'), h('small', { id: 'phone' }, 'served from home')),
         h('a', { class: 'icon', href: '/search', 'data-link': true, 'aria-label': 'Search messages', title: 'Search' }, '🔍'),
+        h('a', { class: 'icon', href: '/together', 'data-link': true, 'aria-label': 'Lists and calendar', title: 'Lists and calendar' }, '🗓'),
         h('a', { class: 'icon', href: '/jobs', 'data-link': true, 'aria-label': 'Job search', title: 'Job search' }, '💼'),
         h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, '✎'),
         h('a', { class: 'icon', href: '/me', 'data-link': true, 'aria-label': 'Settings', title: 'Settings' }, '⚙')),
       h('div', { class: 'scroll', id: 'list' }));
     drawList();
-    api('/status').then((s) => { const el = document.getElementById('phone'); if (el && s.battery != null) el.textContent = `served from an S20 · 🔋${s.battery}% · ${Math.round(s.tempC)}°C`; }).catch(() => {});
+    api('/status').then((s) => { const el = document.getElementById('phone'); if (el && s.battery != null) el.textContent = `served from home · 🔋${s.battery}% · ${Math.round(s.tempC)}°C`; }).catch(() => {});
   },
 
   async chat(r) {
@@ -611,6 +616,7 @@ function bubble(m, prev) {
     if (m.text) kids.push(h('span', { class: 'cap' }, m.text));
   } else if (m.kind === 'voice') kids.push(voiceBubble(m));
   else if (m.kind === 'file') kids.push(h('a', { class: 'file', href: m.media, target: '_blank', rel: 'noopener' }, `📄 ${m.extra?.name || 'File'}`, h('small', {}, ` ${Math.max(1, Math.round((m.extra?.size || 0) / 1024))} KB`)));
+  else if (m.kind === 'card' && m.extra?.list) kids.push(h('span', { class: 'h' }, m.extra.title || '📝 List'), listCard(m));
   else if (m.kind === 'card') {
     if (m.extra?.title) kids.push(h('span', { class: 'h' }, m.extra.title));
     kids.push(m.text || '');
@@ -633,7 +639,7 @@ function bubble(m, prev) {
     b.addEventListener('click', () => react(m, e));
     return b;
   })));
-  const el = h('div', { class: `m ${mine ? 'out' : 'in'}${m.kind === 'card' ? ' card' : ''}${m.kind === 'image' || m.kind === 'video' ? ' media' : ''}`, 'data-id': String(m.id) }, kids);
+  const el = h('div', { class: `m ${mine ? 'out' : 'in'}${m.kind === 'card' ? ' card' : ''}${m.extra?.list ? ' lc' : ''}${m.kind === 'image' || m.kind === 'video' ? ' media' : ''}`, 'data-id': String(m.id) }, kids);
   onHold(el, () => msgMenu(m));
   return el;
 }
@@ -747,7 +753,8 @@ function drawComposer() {
       const media = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: '' });
       const docs = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip', multiple: true, hidden: '' });
       const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, '📎');
-      b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()]]));
+      b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()],
+        ['📝 List', () => chatList(c)], ['⏰ Reminder or event', () => eventForm({}, { conv: c.id, reminder: true })]]));
       for (const inp of [media, docs]) inp.addEventListener('change', async () => {
         const files = [...(inp.files || [])].slice(0, 10); inp.value = '';
         const caption = ta.value.trim(); if (files.length) { ta.value = ''; sync(); }
@@ -1028,6 +1035,336 @@ async function openJob(id) {
   close.addEventListener('click', () => sheet.remove());
   sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.remove(); });
   document.body.append(sheet);
+}
+
+// ---------- Together: shared lists and a shared calendar (each belongs to a chat; "Just me" = your own bot chat) ----------
+const listCache = new Map(), listPending = new Set();
+const back = (href) => h('a', { class: 'icon back', href, 'data-link': true, 'aria-label': 'Back' }, '‹');
+const EVERY = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
+async function loadTogether() {
+  state.tg = await api('/together');
+  for (const l of state.tg.lists) listCache.set(l.id, l);
+  return state.tg;
+}
+const tgList = (id) => (listCache.has(id) ? listCache.get(id) : state.tg?.lists.find((l) => l.id === id));
+const tgConv = (id) => state.tg?.convs.find((c) => c.id === id);
+const nameOf = (id) => (id === state.me.id ? 'you' : state.convs.flatMap((c) => c.people).find((p) => p.id === id)?.name.split(' ')[0] || 'someone');
+const sharedWith = (convId) => { const c = tgConv(convId); return !c ? '' : c.kind === 'bot' ? 'just you' : c.kind === 'group' ? c.title : `you and ${c.title.split(' ')[0]}`; };
+
+function redrawTogether() {
+  const r = route();
+  if (r.name === 'together' && state.tg) drawTogether();
+  if (r.name === 'tlist') drawTList();
+  if (r.name === 'chat' && state.msgs.some((m) => m.extra?.list)) drawMessages(false);
+}
+function upsertList(l) {
+  listCache.set(l.id, l);
+  if (state.tg) { const i = state.tg.lists.findIndex((x) => x.id === l.id); if (i >= 0) state.tg.lists[i] = l; else state.tg.lists.unshift(l); }
+  redrawTogether();
+}
+function dropList(id) {
+  listCache.set(id, null);
+  if (state.tg) state.tg.lists = state.tg.lists.filter((l) => l.id !== id);
+  redrawTogether();
+}
+function upsertEvent(e) {
+  if (!state.tg) return;
+  const i = state.tg.events.findIndex((x) => x.id === e.id);
+  if (i >= 0) state.tg.events[i] = e; else state.tg.events.push(e);
+  redrawTogether();
+}
+function dropEvent(id) { if (state.tg) { state.tg.events = state.tg.events.filter((e) => e.id !== id); redrawTogether(); } }
+
+screens.together = async (r) => {
+  const add = h('button', { class: 'icon', type: 'button', 'aria-label': r.tab === 'cal' ? 'New event or reminder' : 'New list' }, '＋');
+  add.addEventListener('click', () => (route().tab === 'cal' ? eventForm(state.calSel ? { date: state.calSel } : {}) : listForm()));
+  app.replaceChildren(
+    h('div', { class: 'bar' }, back('/'), h('div', { class: 't' }, h('b', {}, 'Together'), h('small', {}, 'shared lists and calendar')), add),
+    h('nav', { class: 'jtabs' }, h('a', { href: '/together', 'data-link': true, class: r.tab === 'lists' ? 'on' : '' }, 'Lists'),
+      h('a', { href: '/together/calendar', 'data-link': true, class: r.tab === 'cal' ? 'on' : '' }, 'Calendar')),
+    h('div', { class: 'scroll', id: 'tg' }, h('p', { class: 'loading' }, 'Loading…')));
+  await loadTogether();
+  drawTogether();
+};
+function drawTogether() {
+  const box = document.getElementById('tg');
+  if (!box) return;
+  const y = box.scrollTop;
+  (route().tab === 'cal' ? drawCal : drawLists)(box);
+  box.scrollTop = y;
+}
+
+// ----- lists -----
+function listRow(l) {
+  const n = l.items.length, left = l.items.filter((i) => !i.done).length;
+  return h('a', { class: 'row', href: `/together/list/${l.id}`, 'data-link': true }, h('div', { class: 'temo' }, l.emoji || '📝'),
+    h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, l.title), h('small', {}, when(l.updated))),
+      h('div', { class: 'prev' }, h('span', {}, `${!n ? 'empty' : left ? `${left} of ${n} left` : `all ${n} done ✓`} · ${sharedWith(l.conv)}`))),
+    h('div', { class: 'prog', 'aria-hidden': 'true' }, h('i', { style: `width:${n ? Math.round(((n - left) / n) * 100) : 0}%` })));
+}
+function drawLists(box) {
+  const active = state.tg.lists.filter((l) => !l.archived), arch = state.tg.lists.filter((l) => l.archived);
+  const chip = (label, fn) => { const b = h('button', { type: 'button' }, label); b.addEventListener('click', fn); return b; };
+  box.replaceChildren(...[
+    ...(active.length ? active.map(listRow) : [h('p', { class: 'empty' }, 'No lists yet. Start one:')]),
+    h('div', { class: 'chips flat twrap' }, chip('🛒 Groceries', () => listForm({ emoji: '🛒', title: 'Groceries' })), chip('✅ To-dos', () => listForm({ emoji: '✅', title: 'To-dos' })),
+      chip('🧳 Packing', () => listForm({ emoji: '🧳', title: 'Packing' })), chip('＋ Other list', () => listForm())),
+    arch.length ? h('details', { class: 'tarch' }, h('summary', {}, `Archived (${arch.length})`), arch.map(listRow)) : null].filter(Boolean));
+}
+
+function convSelect(value) {
+  const sel = h('select', { 'aria-label': 'Shared with' }, state.tg.convs.map((c) => h('option', { value: String(c.id) },
+    c.kind === 'bot' ? 'Just me' : c.kind === 'group' ? `Group · ${c.title}` : `Me and ${c.title}`)));
+  const dm = state.tg.convs.find((c) => c.kind === 'dm');
+  sel.value = String(value || dm?.id || state.tg.convs[0]?.id || '');
+  return sel;
+}
+const fld = (label, el) => h(el.tagName === 'DIV' ? 'div' : 'label', { class: 'field' }, h('span', {}, label), el);
+// A form in a bottom sheet. onSubmit throws to keep it open and show the error.
+function formSheet(title, fields, label, onSubmit, extra) {
+  const err = h('p', { class: 'err' });
+  const ok = h('button', { class: 'btn full', type: 'submit' }, label);
+  const f = h('form', { class: 'tform' }, h('div', { class: 'mtitle' }, title), ...fields, ok, extra || null, err);
+  const close = sheet(null, [f]);
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault(); ok.disabled = true; err.textContent = '';
+    try { await onSubmit(); close(); } catch (x) { err.textContent = x.message; ok.disabled = false; }
+  });
+  return close;
+}
+
+async function listForm(pre = {}, conv = null, after = null) {
+  if (!state.tg) await loadTogether();
+  const title = h('input', { maxlength: '60', required: true, value: pre.title || '', placeholder: 'e.g. Groceries', autocapitalize: 'sentences' });
+  let emoji = pre.emoji || '📝';
+  const emos = h('div', { class: 'temos' }, ['📝', '🛒', '✅', '🧳', '🎁', '🏠', '💊', '🍳', '📚', '🎬'].map((e) => {
+    const b = h('button', { type: 'button', class: e === emoji ? 'on' : '', 'aria-label': `Icon ${e}` }, e);
+    b.addEventListener('click', () => { emoji = e; [...emos.children].forEach((x) => x.classList.toggle('on', x === b)); });
+    return b;
+  }));
+  const sel = convSelect(conv);
+  formSheet('New list', [fld('Name', title), fld('Icon', emos), fld('Shared with', sel)], 'Create list', async () => {
+    const { list } = await api('/lists', { method: 'POST', body: { title: title.value, emoji, conv: Number(sel.value) } });
+    upsertList(list);
+    if (after) await after(list); else go(`/together/list/${list.id}`);
+  });
+  setTimeout(() => title.focus(), 60);
+}
+
+screens.tlist = async (r) => {
+  if (!state.tg) await loadTogether();
+  if (!tgList(r.id)) upsertList((await api(`/lists/${r.id}`)).list);
+  const ta = h('textarea', { rows: '1', placeholder: 'Add an item (or paste several lines)', 'aria-label': 'Add an item', enterkeyhint: 'done', autocapitalize: 'sentences' });
+  const addB = h('button', { class: 'send', type: 'button', 'aria-label': 'Add item' }, '＋');
+  const addIt = async () => {
+    const t = ta.value.trim(); if (!t) return;
+    ta.value = '';
+    try { upsertList((await api(`/lists/${r.id}/items`, { method: 'POST', body: { text: t } })).list); } catch (e) { toast(e.message, true); ta.value = t; }
+    ta.focus();
+  };
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addIt(); } });
+  addB.addEventListener('click', addIt);
+  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'List options' }, '⋮');
+  more.addEventListener('click', () => listMenu(tgList(r.id)));
+  app.replaceChildren(h('div', { class: 'bar' }, back('/together'), h('div', { class: 't', id: 'tlt' }), more),
+    h('div', { class: 'scroll', id: 'titems' }), h('div', { class: 'compose' }, ta, addB));
+  drawTList();
+};
+function drawTList() {
+  const r = route(), box = document.getElementById('titems'), t = document.getElementById('tlt');
+  if (r.name !== 'tlist' || !box) return;
+  const l = tgList(r.id);
+  if (!l) { t.replaceChildren(h('b', {}, 'List')); box.replaceChildren(h('p', { class: 'empty' }, 'This list was deleted.')); return; }
+  const open = l.items.filter((i) => !i.done), done = l.items.filter((i) => i.done);
+  t.replaceChildren(h('b', {}, `${l.emoji || '📝'} ${l.title}`), h('small', {}, `${open.length} to go · ${sharedWith(l.conv)}${l.archived ? ' · archived' : ''}`));
+  const clear = h('button', { class: 'more tclear', type: 'button' }, 'Clear ticked items');
+  clear.addEventListener('click', () => api(`/lists/${l.id}/clear`, { method: 'POST' }).then(({ list }) => upsertList(list)).catch((e) => toast(e.message, true)));
+  box.replaceChildren(...[
+    ...(open.length ? open.map((i) => itemRow(i)) : [h('p', { class: 'empty' }, l.items.length ? 'All done ✓' : 'Nothing here yet. Add items below.')]),
+    done.length ? h('div', { class: 'sec pad' }, `Ticked (${done.length})`) : null,
+    ...done.map((i) => itemRow(i)),
+    done.length ? clear : null].filter(Boolean));
+}
+function itemRow(i, inCard) {
+  const by = i.done ? `✓ ${nameOf(i.doneBy)}` : !inCard && i.by !== state.me.id ? nameOf(i.by) : '';
+  const b = h('button', { class: 'chk' + (i.done ? ' done' : ''), type: 'button', 'aria-pressed': String(i.done) },
+    h('span', { class: 'box', 'aria-hidden': 'true' }, i.done ? '✓' : ''), h('span', { class: 'tx' }, i.text), by ? h('small', { class: 'by' }, by) : null);
+  b.addEventListener('click', (e) => { e.stopPropagation(); tickItem(i); });
+  if (!inCard) onHold(b, () => sheet(i.text, [
+    ['✎ Edit', async () => { const t = prompt('Edit item', i.text); if (t?.trim() && t.trim() !== i.text) upsertList((await api(`/items/${i.id}`, { method: 'POST', body: { text: t } })).list); }],
+    ['🗑 Delete', async () => upsertList((await api(`/items/${i.id}`, { method: 'DELETE' })).list), { danger: true }]]));
+  return b;
+}
+async function tickItem(i) {
+  i.done = !i.done; i.doneBy = state.me.id; redrawTogether();      // show it at once; the server's copy follows
+  try { upsertList((await api(`/items/${i.id}`, { method: 'POST', body: { done: i.done } })).list); }
+  catch (e) { i.done = !i.done; redrawTogether(); toast(e.message, true); }
+}
+function listMenu(l) {
+  if (!l) return;
+  const shared = tgConv(l.conv)?.kind !== 'bot';
+  sheet(`${l.emoji || '📝'} ${l.title}`, [
+    shared ? ['💬 Share in the chat', async () => { await api(`/lists/${l.id}/share`, { method: 'POST' }); go(`/c/${l.conv}`); }] : null,
+    ['✎ Rename', async () => { const t = prompt('List name', l.title); if (t?.trim()) upsertList((await api(`/lists/${l.id}`, { method: 'POST', body: { title: t } })).list); }],
+    [l.archived ? '📤 Unarchive' : '🗄 Archive', async () => { upsertList((await api(`/lists/${l.id}`, { method: 'POST', body: { archived: !l.archived } })).list); toast(l.archived ? 'Unarchived' : 'Archived'); }],
+    ['🗑 Delete list', async () => {
+      if (!confirm(`Delete "${l.title}" and its ${l.items.length} items for everyone?`)) return;
+      await api(`/lists/${l.id}`, { method: 'DELETE' }); dropList(l.id); go('/together');
+    }, { danger: true }],
+  ]);
+}
+
+// A list shared into a chat: a live card; ticking it here ticks it everywhere.
+function listCard(m) {
+  const id = m.extra.list, l = tgList(id);
+  if (l === undefined) {
+    if (!listPending.has(id)) {
+      listPending.add(id);
+      api(`/lists/${id}`).then(({ list }) => upsertList(list)).catch(() => { listCache.set(id, null); redrawTogether(); }).finally(() => listPending.delete(id));
+    }
+    return h('div', { class: 'lcard' }, h('b', { class: 'lt' }, m.text), h('small', { class: 'soft' }, 'Loading…'));
+  }
+  if (!l) return h('div', { class: 'lcard' }, h('b', { class: 'lt' }, m.text), h('small', { class: 'soft' }, 'This list was deleted.'));
+  const open = l.items.filter((i) => !i.done), shown = [...open, ...l.items.filter((i) => i.done)].slice(0, 8);
+  const add = h('button', { type: 'button' }, '＋ Add');
+  add.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const t = prompt(`Add to ${l.title} (one item per line)`);
+    if (t?.trim()) upsertList((await api(`/lists/${id}/items`, { method: 'POST', body: { text: t } }).catch((x) => { toast(x.message, true); return {}; })).list || l);
+  });
+  const openB = h('button', { type: 'button', class: 'go' }, 'Open list');
+  openB.addEventListener('click', (e) => { e.stopPropagation(); go(`/together/list/${id}`); });
+  return h('div', { class: 'lcard' }, h('b', { class: 'lt' }, `${l.emoji || '📝'} ${l.title}`),
+    h('small', { class: 'soft' }, l.items.length ? `${open.length} of ${l.items.length} left` : 'Empty so far'),
+    h('div', { class: 'litems' }, shown.map((i) => itemRow(i, true))),
+    l.items.length > shown.length ? h('small', { class: 'soft' }, `+${l.items.length - shown.length} more`) : null,
+    h('div', { class: 'acts' }, openB, add));
+}
+// 📎 → List in a chat: share one of this chat's lists, or start a new one here.
+async function chatList(c) {
+  if (!state.tg) await loadTogether();
+  const share = async (l) => { await api(`/lists/${l.id}/share`, { method: 'POST' }); };
+  const mine = state.tg.lists.filter((l) => l.conv === c.id && !l.archived);
+  sheet('Share a list here', [
+    ...mine.map((l) => [`${l.emoji || '📝'} ${l.title}`, () => share(l)]),
+    ['＋ New list for this chat', () => listForm({}, c.id, share)],
+  ]);
+}
+
+// ----- calendar -----
+function occurrences(e, from, to) {
+  if (!e.repeat) return e.starts >= from && e.starts < to ? [e.starts] : [];
+  const out = [];
+  for (let t = e.starts, n = 0; t < to && n < 800; n++) {
+    if (t >= from) out.push(t);
+    const d = new Date(t);
+    if (e.repeat === 'daily') d.setDate(d.getDate() + 1); else if (e.repeat === 'weekly') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
+    t = d.getTime();
+  }
+  return out;
+}
+const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+function drawCal(box) {
+  const now = new Date();
+  const base = state.calMonth || (state.calMonth = new Date(now.getFullYear(), now.getMonth(), 1));
+  const y = base.getFullYear(), mo = base.getMonth();
+  const from = new Date(y, mo, 1).getTime(), to = new Date(y, mo + 1, 1).getTime();
+  const byDay = new Map();
+  for (const e of state.tg.events) for (const t of occurrences(e, from, to)) { const k = dayKey(t); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push({ e, t }); }
+  const nav = (step) => { const b = h('button', { type: 'button', 'aria-label': step < 0 ? 'Previous month' : 'Next month' }, step < 0 ? '‹' : '›'); b.addEventListener('click', () => { state.calMonth = new Date(y, mo + step, 1); state.calSel = null; drawTogether(); }); return b; };
+  const todayB = h('button', { type: 'button', class: 'tdy' }, 'Today');
+  todayB.addEventListener('click', () => { state.calMonth = null; state.calSel = null; drawTogether(); });
+  const cells = [...'MTWTFSS'].map((c) => h('div', { class: 'hd', 'aria-hidden': 'true' }, c));
+  for (let i = 0; i < (new Date(y, mo, 1).getDay() + 6) % 7; i++) cells.push(h('div', { class: 'blank' }));
+  for (let d = 1; d <= new Date(y, mo + 1, 0).getDate(); d++) {
+    const k = `${y}-${mo + 1}-${d}`, n = byDay.get(k)?.length || 0;
+    const b = h('button', { type: 'button', class: ['cd', k === dayKey(now) && 'today', n && 'dot', state.calSel === k && 'sel'].filter(Boolean).join(' '),
+      'aria-label': `${d} ${base.toLocaleDateString('en-IN', { month: 'long' })}${n ? `, ${n} event${n > 1 ? 's' : ''}` : ''}` }, String(d));
+    b.addEventListener('click', () => { state.calSel = state.calSel === k ? null : k; drawTogether(); });
+    cells.push(b);
+  }
+  while ((cells.length - 7) % 7) cells.push(h('div', { class: 'blank' }));
+  const parts = [h('div', { class: 'cnav' }, nav(-1), h('b', {}, base.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })), todayB, nav(1)), h('div', { class: 'cal' }, cells)];
+  if (state.calSel) {
+    const [yy, mm, dd] = state.calSel.split('-').map(Number), day = new Date(yy, mm - 1, dd);
+    const list = (byDay.get(state.calSel) || []).sort((a, b) => a.t - b.t);
+    const add = h('button', { class: 'btn ghost tadd', type: 'button' }, '＋ Add on this day');
+    add.addEventListener('click', () => eventForm({ date: state.calSel }));
+    parts.push(h('div', { class: 'sec pad' }, day.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })),
+      ...(list.length ? list.map(evRow) : [h('p', { class: 'soft pad' }, 'Nothing planned.')]), add);
+  } else {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const soon = state.tg.events.flatMap((e) => occurrences(e, start, start + 62 * 86400e3).slice(0, 10).map((t) => ({ e, t }))).sort((a, b) => a.t - b.t).slice(0, 40);
+    const add = h('button', { class: 'btn ghost tadd', type: 'button' }, '＋ Event or reminder');
+    add.addEventListener('click', () => eventForm({}));
+    parts.push(h('div', { class: 'sec pad' }, 'Coming up'),
+      ...(soon.length ? soon.map(evRow) : [h('p', { class: 'soft pad' }, 'Nothing in the next two months.')]), add,
+      h('p', { class: 'soft pad tip' }, 'Tip: type "remind us Sunday 10am call Mom" in your chat and it shows up here.'));
+  }
+  box.replaceChildren(...parts);
+}
+function evRow({ e, t }) {
+  const past = t < Date.now() - (e.allDay ? 86400e3 : 3600e3);
+  const who = !e.forAll ? 'just you' : tgConv(e.conv)?.kind === 'dm' ? 'both of you' : tgConv(e.conv)?.kind === 'bot' ? 'just you' : tgConv(e.conv)?.title;
+  const r = h('button', { class: 'ev' + (past ? ' past' : ''), type: 'button' },
+    h('div', { class: 'et' }, new Date(t).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), h('small', {}, e.allDay ? 'all day' : time(t))),
+    h('div', { class: 'ex' }, h('b', {}, e.remindAt != null ? '⏰ ' : '', e.title),
+      h('small', {}, [e.kind === 'reminder' ? 'reminder' : null, who, EVERY[e.repeat], e.by !== state.me.id ? `added by ${nameOf(e.by)}` : null].filter(Boolean).join(' · '))));
+  r.addEventListener('click', () => eventForm(e));
+  return r;
+}
+
+const REMIND_OPTS = [['', 'No reminder'], ['0', 'At the time'], ['15', '15 minutes before'], ['60', '1 hour before'], ['1440', '1 day before']];
+async function eventForm(ev = {}, opts = {}) {
+  if (!state.tg) await loadTogether();
+  const isNew = !ev.id, pad = (n) => String(n).padStart(2, '0');
+  let start;
+  if (ev.starts) start = new Date(ev.starts);
+  else if (ev.date) { const [yy, mm, dd] = ev.date.split('-').map(Number); start = new Date(yy, mm - 1, dd, 10, 0); }
+  else { start = new Date(Date.now() + 3600e3); start.setMinutes(0, 0, 0); }
+  const kindR = ev.kind === 'reminder' || (isNew && opts.reminder);
+  const title = h('input', { maxlength: '120', required: true, value: ev.title || '', placeholder: kindR ? 'e.g. Call Mom' : 'e.g. Dinner with Rahul and Priya', autocapitalize: 'sentences' });
+  const date = h('input', { type: 'date', required: true, value: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}` });
+  const tm = h('input', { type: 'time', value: `${pad(start.getHours())}:${pad(start.getMinutes())}` });
+  const allDay = h('input', { type: 'checkbox' }); allDay.checked = !!ev.allDay; tm.disabled = allDay.checked;
+  const remind = h('select', { 'aria-label': 'Reminder' }, REMIND_OPTS.map(([v, l]) => h('option', { value: v }, l)));
+  const lead = ev.remindAt == null ? '' : String(Math.round(((ev.allDay ? ev.starts + 9 * 3600e3 : ev.starts) - ev.remindAt) / 60e3));
+  if (lead && !REMIND_OPTS.some(([v]) => v === lead)) remind.append(h('option', { value: lead }, `${lead} minutes before`));
+  remind.value = isNew ? (kindR ? '0' : '60') : lead;
+  const sync = () => { tm.disabled = allDay.checked; remind.options[1].textContent = allDay.checked ? 'On the day, 9:00 AM' : 'At the time'; remind.options[4].textContent = allDay.checked ? 'The day before, 9:00 AM' : '1 day before'; };
+  allDay.addEventListener('change', sync); sync();
+  const repeat = h('select', { 'aria-label': 'Repeat' }, [['', 'Does not repeat'], ['daily', 'Every day'], ['weekly', 'Every week'], ['monthly', 'Every month']].map(([v, l]) => h('option', { value: v }, l)));
+  repeat.value = ev.repeat || '';
+  const conv = convSelect(ev.conv || opts.conv);
+  const who = h('select', { 'aria-label': 'Who gets it' }, h('option', { value: 'all' }, 'Everyone in the chat'), h('option', { value: 'me' }, 'Just me'));
+  who.value = ev.forAll === false ? 'me' : 'all';
+  const whoF = fld('Who sees it and gets the reminder', who);
+  const syncWho = () => { whoF.hidden = tgConv(Number(conv.value))?.kind === 'bot'; };
+  conv.addEventListener('change', syncWho); syncWho();
+  let close;
+  const del = isNew ? null : h('button', { class: 'btn ghost full tdel', type: 'button' }, 'Delete');
+  del?.addEventListener('click', async () => {
+    if (!confirm(`Delete "${ev.title}"${ev.forAll ? ' for everyone' : ''}?`)) return;
+    try { await api(`/events/${ev.id}`, { method: 'DELETE' }); dropEvent(ev.id); close(); toast('Deleted'); } catch (e) { toast(e.message, true); }
+  });
+  close = formSheet(isNew ? (kindR ? 'New reminder' : 'New event') : 'Edit', [
+    fld(kindR ? 'Remind about' : 'What', title),
+    h('div', { class: 'trow' }, fld('Date', date), fld('Time', tm)),
+    h('label', { class: 'tcheck' }, allDay, 'All day'),
+    h('div', { class: 'trow' }, fld('Reminder', remind), fld('Repeat', repeat)),
+    fld('Shared with', conv), whoF,
+  ], isNew ? 'Save' : 'Save changes', async () => {
+    const [Y, Mo, D] = date.value.split('-').map(Number), [hh, mm] = (tm.value || '09:00').split(':').map(Number);
+    const starts = allDay.checked ? new Date(Y, Mo - 1, D).getTime() : new Date(Y, Mo - 1, D, hh, mm).getTime();
+    const mins = remind.value === '' ? null : Number(remind.value);
+    const at = mins == null ? null : (allDay.checked ? starts + 9 * 3600e3 : starts) - mins * 60e3;
+    if (at != null && at < Date.now() - 60e3 && !repeat.value && !confirm('That reminder time has already passed, so no reminder will be sent. Save anyway?')) throw new Error('Pick a later time for the reminder.');
+    const { event } = await api(isNew ? '/events' : `/events/${ev.id}`, { method: 'POST',
+      body: { title: title.value, starts, allDay: allDay.checked, remind: mins, repeat: repeat.value || null, who: who.value, conv: Number(conv.value), kind: kindR ? 'reminder' : 'event' } });
+    upsertEvent(event);
+    toast(isNew ? (mins == null ? 'Saved' : `Saved. ${who.value === 'me' || whoF.hidden ? 'You\'ll' : 'Everyone will'} get a push.`) : 'Updated');
+  }, del);
+  if (isNew) setTimeout(() => title.focus(), 60);
 }
 
 render();
