@@ -59,6 +59,7 @@ const ICONS = {
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
   smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14a4 4 0 0 0 7 0"/><circle cx="9.2" cy="10" r=".6" fill="currentColor"/><circle cx="14.8" cy="10" r=".6" fill="currentColor"/>',
   play: '<path d="M8 5.5v13l11-6.5z"/>',
+  pip: '<rect x="3" y="5" width="18" height="14" rx="3"/><rect x="11.5" y="11.5" width="7" height="5" rx="1.2" fill="currentColor" stroke="none"/>',
 };
 function ic(name, cls) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -189,7 +190,31 @@ function presence() {
   const ping = () => { if (state.me) api('/presence', { method: 'POST', body: { visible: document.visibilityState === 'visible' } }).catch(() => {}); };
   ping(); presenceT = setInterval(ping, 20e3);
 }
+// Keeping up to date: when the app is opened or brought back, look for a newer build. On the chat list it reloads by
+// itself; anywhere else (and never during a call) it offers an "Update" bar.
+function showUpdateBar() {
+  if (document.getElementById('updbar')) return;
+  const b = h('button', { id: 'updbar', class: 'updbar', type: 'button' }, 'A new version of Cupboard is ready. Tap to update');
+  b.addEventListener('click', () => location.reload());
+  document.body.append(b);
+}
+let lastUpdateCheck = 0;
+async function checkUpdate() {
+  if (Date.now() - lastUpdateCheck < 60e3) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const mine = new URL(import.meta.url).searchParams.get('v');
+    if (!mine) return;
+    const html = await fetch('/', { cache: 'no-store', credentials: 'same-origin' }).then((r) => (r.ok ? r.text() : ''));
+    const m = /app\.js\?v=([a-f0-9]+)/.exec(html);
+    if (!m || m[1] === mine) return;
+    if (typeof call !== 'undefined' && call) return showUpdateBar();
+    if (route().name === 'list') location.reload(); else showUpdateBar();
+  } catch { /* offline: try next time */ }
+}
+setInterval(checkUpdate, 15 * 60e3);
 document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') checkUpdate();
   if (!state.me) return;
   presence();
   if (document.visibilityState === 'visible') { await loadConvs().catch(() => {}); if (state.cur) await openConv(state.cur.id, true).catch(() => {}); else if (route().name === 'list') drawList(); }
@@ -568,6 +593,8 @@ const screens = {
         h('div', { class: 'sec' }, 'Devices'),
         h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
         devBox, addDev, devOut,
+        h('div', { class: 'sec' }, 'About'),
+        h('p', { class: 'lede' }, `Cupboard version ${(() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })()}`),
         h('div', { class: 'sec' }, 'Privacy'),
         h('p', { class: 'lede' }, 'Messages and voice notes are stored on Guman\'s S20 phone server. They are not end-to-end encrypted.'),
         h('div', { style: 'margin-top:1.5rem' }, out)),
@@ -1599,6 +1626,8 @@ async function eventForm(ev = {}, opts = {}) {
 // connection, so they are instant and never touch the laptop. ----------
 let call = null;
 callBeacon = () => !!call;
+// Which build of the app this page is (the ?v= in its own address); the two phones compare them during a call.
+const BUILD = (() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })();
 const callName = () => (call?.peer?.name || '').split(' ')[0] || 'them';
 const FX_EMOJI = ['❤️', '😂', '🔥', '👏', '🎉', '😘', '😍', '🥹'];
 const FX_FILTERS = { none: '', warm: 'f-warm', vintage: 'f-vintage', bw: 'f-bw', glow: 'f-glow', cool: 'f-cool' };
@@ -1638,6 +1667,7 @@ function buildCallUi() {
     filt: mk('c-fx', 'spark', 'Filters', () => toggleTray('filters')),
     draw: mk('c-fx', 'edit', 'Draw', () => toggleDraw()),
     watch: mk('c-fx', 'play', 'Watch', () => openWatchSheet()),
+    pip: mk('c-fx', 'pip', 'Float', () => togglePip()),
   };
   const tray = (cls, kids) => h('div', { class: 'ctray ' + cls }, ...kids);
   const reactTray = tray('rtray', FX_EMOJI.map((e) => { const b = h('button', { type: 'button' }, e); b.addEventListener('click', () => sendReaction(e)); return b; }));
@@ -1646,7 +1676,7 @@ function buildCallUi() {
   const fxl = h('div', { class: 'fxl' }), conf = h('canvas', { class: 'cconf' }), doodle = h('canvas', { class: 'cdoodle' }), watch = h('div', { class: 'cwatch' });
   const root = h('div', { id: 'callui', class: 'callui' }, remote, watch, local, doodle, fxl, conf, face, h('div', { class: 'ctop' }, who, status),
     reactTray, filterTray,
-    h('div', { class: 'cfxbar' }, btns.react, btns.filt, btns.draw, btns.watch),
+    h('div', { class: 'cfxbar' }, btns.react, btns.filt, btns.draw, btns.watch, ...(pipSupported() ? [btns.pip] : [])),
     h('div', { class: 'cbar' }, btns.decline, btns.accept, btns.mute, btns.cam, btns.flip, btns.end));
   document.body.append(root);
   const ui = { root, remote, local, status, who, btns, fxl, conf, doodle, watch, reactTray, filterTray };
@@ -1743,7 +1773,9 @@ async function beginAsCaller() {
 }
 async function onSignal(data) {
   if (!call) return;
+  if (data.fx) return onFx(data.fx);                              // effects sent through the laptop when the direct channel is not open
   if (!call.pc) { call.early.push(data); return; }
+  if (data.restart) { if (call.role === 'caller' && call.pc.signalingState === 'stable') sendOffer(true).catch(() => {}); return; }
   const pc = call.pc;
   try {
     if (data.sdp) {
@@ -1759,14 +1791,43 @@ async function onSignal(data) {
     }
   } catch (e) { console.warn('call signal', e); }
 }
+// Phones pause a call when you switch to another app, so a quiet connection is not a dead one: keep trying to bring it
+// back for two minutes (every 8 seconds), and only then give up.
+const GIVE_UP_MS = 120e3;
+function requestRestart() {
+  if (!call?.pc) return;
+  if (call.role === 'caller') { if (call.pc.signalingState === 'stable') sendOffer(true).catch(() => {}); }
+  else sendSignal({ restart: true });
+}
+function statusLine() {
+  if (!call) return '';
+  if (call.peerAway) return `${callName()} switched apps…`;
+  return call.t0 ? fmtCall() : 'Connecting…';
+}
 function onConnState(st) {
   if (!call) return;
-  if (st === 'connected') { clearTimeout(call.dropT); if (call.phase !== 'live') goLive(); else call.ui.status.textContent = fmtCall(); }
-  else if (st === 'disconnected') {
-    call.ui.status.textContent = 'Reconnecting…';
-    clearTimeout(call.dropT);
-    call.dropT = setTimeout(() => { if (call?.pc && call.pc.connectionState !== 'connected') retryOrEnd(); }, 8000);
-  } else if (st === 'failed') retryOrEnd();
+  if (st === 'connected') {
+    clearInterval(call.reviveT); call.reviveT = 0; call.downSince = 0;
+    if (call.phase !== 'live') goLive(); else call.ui.status.textContent = statusLine();
+    return;
+  }
+  if (st !== 'disconnected' && st !== 'failed') return;
+  if (call.phase !== 'live' && call.phase !== 'connecting') return;
+  call.ui.status.textContent = call.peerAway ? `${callName()} switched apps…` : 'Reconnecting…';
+  if (call.reviveT) return;
+  call.downSince = call.downSince || Date.now();
+  call.reviveT = setInterval(() => {
+    if (!call) return;
+    if (call.pc?.connectionState === 'connected') { clearInterval(call.reviveT); call.reviveT = 0; call.downSince = 0; return; }
+    if (Date.now() - call.downSince > GIVE_UP_MS) return giveUp();
+    if (!document.hidden) requestRestart();
+  }, 8000);
+}
+function giveUp() {
+  if (!call) return;
+  const away = call.peerAway;
+  toast(away ? `${callName()} didn't come back to the call.` : call.relay ? 'The connection dropped.' : "Couldn't connect. Across different networks calls may need the relay, which isn't switched on yet.", true);
+  endCall(away ? 'peer-away' : call.relay ? 'connection-lost' : 'connection-failed-no-relay');
 }
 async function retryOrEnd() {
   if (!call) return;
@@ -1774,9 +1835,46 @@ async function retryOrEnd() {
     call.restarts++; call.ui.status.textContent = 'Reconnecting…';
     try { await sendOffer(true); return; } catch { /* fall through */ }
   }
-  toast(call.relay ? 'The connection dropped.' : "Couldn't connect. Across different networks calls need the relay, which isn't switched on yet.", true);
-  endCall(call.relay ? 'connection-lost' : 'connection-failed-no-relay');
+  onConnState('failed');
 }
+// Coming back from another app: the camera may have been switched off by the phone, and the link needs waking up.
+async function resumeCall() {
+  const c = call;
+  if (!c || !c.pc || (c.phase !== 'live' && c.phase !== 'connecting')) return;
+  const swap = async (kind, constraints) => {
+    const old = c.local?.getTracks().find((t) => t.kind === kind);
+    if (!old || (old.readyState !== 'ended')) return;
+    try {
+      const s2 = await navigator.mediaDevices.getUserMedia(constraints);
+      const nt = s2.getTracks().find((t) => t.kind === kind);
+      await c.pc.getSenders().find((x) => x.track?.kind === kind || (!x.track && x.dtmf === undefined && kind === 'video'))?.replaceTrack(nt);
+      c.local.removeTrack(old); c.local.addTrack(nt); c.ui.local.srcObject = c.local;
+    } catch (e) { reportCall(`could not restart ${kind}: ${e.message}`, 'resume'); }
+  };
+  await swap('video', { video: { facingMode: c.facing || 'user' } });
+  await swap('audio', { audio: true });
+  const st = await api('/calls/state').catch(() => null);
+  if (call !== c) return;
+  if (st && !st.call) return teardown('gone');                  // it ended while we were away
+  c.ui.remote.play?.().catch(() => {});
+  if (c.pc.connectionState !== 'connected') requestRestart();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!call) return;
+  if (document.hidden) fx({ t: 'away', on: true });
+  else { fx({ t: 'away', on: false }); resumeCall(); }
+});
+// Float the other person's picture over other apps (where the phone or browser allows it).
+async function togglePip() {
+  const v = call?.ui.remote; if (!v) return;
+  try {
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else if (v.requestPictureInPicture) await v.requestPictureInPicture();
+    else if (v.webkitSetPresentationMode) v.webkitSetPresentationMode(v.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture');
+    else toast("This browser can't float the video.", true);
+  } catch { toast("Couldn't float the video on this phone.", true); }
+}
+const pipSupported = () => !!(document.pictureInPictureEnabled || (typeof HTMLVideoElement !== 'undefined' && 'webkitSetPresentationMode' in HTMLVideoElement.prototype));
 const fmtCall = () => { const s = Math.floor((Date.now() - call.t0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // Which path the media took: host/srflx = straight between the phones, relay = through a relay server. Logged on the laptop.
 async function pathOf(pc) {
@@ -1792,7 +1890,14 @@ function goLive() {
   call.t0 = Date.now();
   pathOf(call.pc).then((p) => { if (call) call.path = p; });
   setPhase('live', '0:00');
-  call.tick = setInterval(() => { if (call?.phase === 'live') call.ui.status.textContent = fmtCall(); }, 1000);
+  call.tick = setInterval(() => { if (call?.phase === 'live' && !call.reviveT) call.ui.status.textContent = statusLine(); }, 1000);
+  // "still here": lets the laptop tell a live call from a phone that vanished
+  call.pingT = setInterval(() => { if (call) api(`/calls/${call.id}/ping`, { method: 'POST' }).catch(() => {}); }, 45e3);
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: `Video call with ${callName()}`, artist: 'Cupboard' });
+    navigator.mediaSession.playbackState = 'playing';
+    navigator.mediaSession.setActionHandler('enterpictureinpicture', () => togglePip());
+  } catch { /* not supported */ }
   navigator.wakeLock?.request('screen').then((w) => { if (call) call.wake = w; else w.release(); }).catch(() => {});
 }
 function toggleTrack(kind) {
@@ -1835,7 +1940,9 @@ function teardown(reason) {
   const c = call;
   if (!c) return;
   call = null;
-  clearTimeout(c.dropT); clearInterval(c.tick); clearInterval(c.w?.tick); clearInterval(c.drawT);
+  clearTimeout(c.dropT); clearInterval(c.tick); clearInterval(c.w?.tick); clearInterval(c.drawT); clearInterval(c.reviveT); clearInterval(c.pingT);
+  try { navigator.mediaSession.playbackState = 'none'; } catch { /* ignore */ }
+  try { if (document.pictureInPictureElement) document.exitPictureInPicture(); } catch { /* ignore */ }
   if (c.fxRaf) cancelAnimationFrame(c.fxRaf);
   try { window.removeEventListener('resize', c.ui?.fit); } catch { /* ignore */ }
   try { c.wake?.release(); } catch { /* ignore */ }
@@ -1859,11 +1966,23 @@ async function checkCall() {
 // ----- effects: reactions, hearts, confetti, drawing, filters. They travel on the call's own data channel. -----
 function setupFx(dc) {
   call.dc = dc;
-  dc.onopen = () => call?.ui.root.classList.add('fxok');
+  dc.onopen = () => { call?.ui.root.classList.add('fxok'); fx({ t: 'hello', v: BUILD }); };
+  if (dc.readyState === 'open') { call.ui.root.classList.add('fxok'); fx({ t: 'hello', v: BUILD }); }
   dc.onclose = () => call?.ui.root.classList.remove('fxok');
   dc.onmessage = (e) => { try { onFx(JSON.parse(e.data)); } catch { /* ignore */ } };
 }
-const fx = (msg) => { try { if (call?.dc?.readyState === 'open') call.dc.send(JSON.stringify(msg)); } catch { /* ignore */ } };
+// Effects go straight to the other phone on the call's data channel. If that channel isn't open (some networks, or the
+// other phone has an older version), small ones are carried through the laptop instead, so a reaction is never silently lost.
+let fxSlow = 0;
+function fx(msg) {
+  if (!call) return false;
+  try { if (call.dc?.readyState === 'open') { call.dc.send(JSON.stringify(msg)); return true; } } catch { /* fall through */ }
+  if (call.phase !== 'live') return false;
+  if (msg.t === 'draw' && Date.now() - fxSlow < 220) return false;      // drawing through the laptop: fewer, bigger batches
+  if (msg.t === 'draw') fxSlow = Date.now();
+  sendSignal({ fx: msg });
+  return true;
+}
 function toggleTray(which) {
   const u = call.ui, open = (el) => el.classList.contains('open');
   const want = which === 'react' ? u.reactTray : u.filterTray, other = which === 'react' ? u.filterTray : u.reactTray;
@@ -1872,7 +1991,9 @@ function toggleTray(which) {
 }
 const closeTrays = () => { call?.ui.reactTray.classList.remove('open'); call?.ui.filterTray.classList.remove('open'); };
 function sendReaction(e) {
-  if (e === '🎉') { confetti(); fx({ t: 'confetti' }); } else { floatEmoji(e); fx({ t: 'react', e }); }
+  let sent;
+  if (e === '🎉') { confetti(); sent = fx({ t: 'confetti' }); } else { floatEmoji(e); sent = fx({ t: 'react', e }); }
+  if (!sent) { toast(`${callName()} can't see reactions yet. The call is still connecting.`, true); reportCall(`reaction not sent: dc=${call?.dc?.readyState || 'none'} phase=${call?.phase} peerBuild=${call?.peerBuild || '?'}`, 'fx'); }
   closeTrays();
 }
 function floatEmoji(e) {
@@ -1958,7 +2079,16 @@ function setMyFilter(k) {
 }
 function onFx(m) {
   if (!call || !m || typeof m !== 'object') return;
-  if (m.t === 'react' && FX_EMOJI.includes(m.e)) floatEmoji(m.e);
+  if (m.t === 'hello') {
+    call.peerBuild = String(m.v || '').slice(0, 20);
+    if (BUILD !== 'dev' && call.peerBuild && call.peerBuild !== BUILD && !call.warned) {
+      call.warned = true;
+      toast(`${callName()}'s Cupboard is a different version. Close and reopen the app on both phones if effects don't show.`, true);
+    }
+  } else if (m.t === 'away') {
+    call.peerAway = !!m.on;
+    if (call.phase === 'live') call.ui.status.textContent = statusLine();
+  } else if (m.t === 'react' && FX_EMOJI.includes(m.e)) floatEmoji(m.e);
   else if (m.t === 'confetti') confetti();
   else if (m.t === 'heart' && m.x >= 0 && m.x <= 1 && m.y >= 0 && m.y <= 1) heartAt(m.x, m.y);
   else if (m.t === 'filter' && m.f in FX_FILTERS) {

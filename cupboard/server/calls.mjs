@@ -71,6 +71,9 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
       .catch((e) => log('calls log', e.message));
   }
 
+  // A phone that vanished (battery died, app killed) must not block calls for hours: no sign of life for 6 minutes ends it.
+  setInterval(() => { for (const c of [...calls.values()]) if (c.state === 'active' && Date.now() - (c.last || c.answered) > 6 * 60e3) finish(c, 'ended'); }, 60e3);
+
   async function route(req, res, path, query, me) {
     const M = req.method;
     let m;
@@ -109,13 +112,14 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
       ping(0);
       return send(res, 200, { call: { id, conv: convId, to, role: 'caller' } }), true;
     }
-    if (M === 'POST' && (m = /^\/api\/calls\/([a-f0-9]{16})\/(accept|decline|end|signal)$/.exec(path))) {
+    if (M === 'POST' && (m = /^\/api\/calls\/([a-f0-9]{16})\/(accept|decline|end|signal|ping)$/.exec(path))) {
       const c = calls.get(m[1]);
       if (!c || (c.from !== me.id && c.to !== me.id)) throw err(404, 'This call is over.');
       const other = peerOf(c, me.id);
+      if (m[2] === 'ping') { c.last = Date.now(); return send(res, 200, { ok: true }), true; }     // "still here" while the app is open
       if (m[2] === 'accept') {
         if (c.to !== me.id || c.state !== 'ringing') throw err(409, 'This call is no longer ringing.');
-        c.state = 'active'; c.answered = Date.now();
+        c.state = 'active'; c.answered = Date.now(); c.last = c.answered;
         clearTimeout(c.timer); clearTimeout(c.ping);
         c.cap = setTimeout(() => finish(c, 'ended'), MAX_CALL_MS);
         emit(c.from, 'call', { type: 'accepted', id: c.id });
@@ -135,14 +139,20 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
       // signal: connection offer / answer / network candidate, passed on to the other person unchanged
       if (c.state !== 'active') throw err(409, 'The call has not started.');
       const b = (await readJson(req, 20_000)).data;
+      const fxOk = b && b.fx && typeof b.fx === 'object' && !Array.isArray(b.fx) && typeof b.fx.t === 'string' && b.fx.t.length < 12 && JSON.stringify(b.fx).length < 1500;
       const ok = b && typeof b === 'object' && (
         (b.sdp && ['offer', 'answer'].includes(b.sdp.type) && typeof b.sdp.sdp === 'string' && b.sdp.sdp.length < 16000) ||
         (b.candidate && typeof b.candidate.candidate === 'string' && b.candidate.candidate.length < 800) ||
-        b.candidate === null);
+        b.candidate === null || b.restart === true || fxOk);
       if (!ok) throw err(400, 'Bad signal.');
+      // restart: "please start the connection over" (a phone came back from another app); fx: a reaction etc. when the
+      // direct effects channel isn't open. The browsers check what arrives; here only the size and shape are limited.
       const clean = b.sdp ? { sdp: { type: b.sdp.type, sdp: b.sdp.sdp } }
+        : b.restart === true ? { restart: true }
+        : fxOk ? { fx: b.fx }
         : b.candidate ? { candidate: { candidate: b.candidate.candidate, sdpMid: b.candidate.sdpMid ?? null, sdpMLineIndex: Number.isInteger(b.candidate.sdpMLineIndex) ? b.candidate.sdpMLineIndex : null } }
         : { candidate: null };
+      c.last = Date.now();
       emit(other, 'call', { type: 'signal', id: c.id, data: clean });
       return send(res, 200, { ok: true }), true;
     }
