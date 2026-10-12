@@ -65,9 +65,11 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
     const caller = first(c.from), callee = first(c.to);
     const text = c.answered ? `${caller} and ${callee} · ${mmss(secs)}`
       : reason === 'missed' ? `Missed call from ${caller}` : reason === 'declined' ? `${callee} declined the call` : `${caller} cancelled the call`;
-    const missed = reason === 'missed';
-    postMessage(c.conv, botId(), { kind: 'card', text, extra: { title: 'Video call', call: true } },
-      { pushOnly: missed ? [c.to] : [], pushAs: missed ? { title: `Missed call from ${caller}`, body: 'Open the chat to call back' } : null })
+    // The "is calling" banner on the callee's lock screen is replaced (same tag) by "Missed call", so it never lingers.
+    if ((reason === 'missed' || reason === 'cancelled') && !c.answered) {
+      notify(c.to, { title: `Missed call from ${caller}`, body: 'Open the chat to call back', url: `/c/${c.conv}`, tag: `call-${c.id}` });
+    }
+    postMessage(c.conv, botId(), { kind: 'card', text, extra: { title: 'Video call', call: true } }, { pushOnly: [] })
       .catch((e) => log('calls log', e.message));
   }
 
@@ -106,7 +108,7 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
       // If the app isn't open, nudge the phone a few times (each replaces the last).
       const ping = (n) => {
         if (c.state !== 'ringing') return;
-        if (!isActive(to)) notify(to, { title: `${first(me.id)} is calling`, body: 'Tap to answer the video call', url: `/c/${convId}`, tag: `call-${id}` });
+        if (!isActive(to)) notify(to, { title: `${first(me.id)} is calling`, body: 'Tap to answer the video call', url: `/c/${convId}`, tag: `call-${id}`, call: true });
         if (n < 4) c.ping = setTimeout(() => ping(n + 1), 10e3);
       };
       ping(0);

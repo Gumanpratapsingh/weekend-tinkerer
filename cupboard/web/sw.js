@@ -25,6 +25,8 @@ self.addEventListener('push', (e) => {
   e.waitUntil(self.registration.showNotification(d.title || 'Cupboard', {
     body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: '/icons/icon-192.png', badge: '/icons/badge-72.png',
     data: { url: d.url || '/' },
+    // A call stays on screen until you act on it (where the phone allows) and buzzes in a ringing rhythm.
+    ...(d.call ? { requireInteraction: true, vibrate: [400, 200, 400, 200, 400, 200, 800] } : {}),
   }));
 });
 

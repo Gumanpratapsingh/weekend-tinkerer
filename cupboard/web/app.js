@@ -554,6 +554,14 @@ const screens = {
         return h('div', { class: 'kv' }, h('span', {}, `${u.name} · @${u.username}`), x);
       });
     }
+    const ringOn = () => { try { return localStorage.getItem('cb_ring') !== '0'; } catch { return true; } };
+    const ringSwitch = h('button', { class: 'btn ghost', type: 'button' }, ringOn() ? 'Call ring: on (tap to turn off)' : 'Call ring: off (tap to turn on)');
+    ringSwitch.addEventListener('click', () => {
+      const on = !ringOn();
+      try { localStorage.setItem('cb_ring', on ? '1' : '0'); } catch { /* private mode */ }
+      ringSwitch.textContent = on ? 'Call ring: on (tap to turn off)' : 'Call ring: off (tap to turn on)';
+      if (on) { Ring.start('in'); setTimeout(() => Ring.stop(), 2600); }      // a preview, so you know what it sounds like
+    });
     // Trusted devices: remove a lost one, or add a new one with a 15-minute link.
     const devBox = h('div', {}), devOut = h('div', {});
     const paintDevices = async () => {
@@ -593,6 +601,9 @@ const screens = {
         h('div', { class: 'sec' }, 'Devices'),
         h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
         devBox, addDev, devOut,
+        h('div', { class: 'sec' }, 'Calls'),
+        h('p', { class: 'lede' }, 'Cupboard rings while it is open. When it is closed you get a notification instead. On iPhone the side Ring/Silent switch mutes the ring.'),
+        ringSwitch,
         h('div', { class: 'sec' }, 'About'),
         h('p', { class: 'lede' }, `Cupboard version ${(() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })()}`),
         h('div', { class: 'sec' }, 'Privacy'),
@@ -1624,6 +1635,44 @@ async function eventForm(ev = {}, opts = {}) {
 // audio go phone to phone (or through a relay when you are on different networks) and are end-to-end encrypted.
 // Reactions, hearts, confetti, drawing, filters and "watch together" travel on a data channel of that same direct
 // connection, so they are instant and never touch the laptop. ----------
+// ----- call sounds: a chime for the person being called, a soft "ringing…" for the caller. Made on the spot with the
+// phone's own audio (no sound files). They play while Cupboard is open; on iPhone the side Ring/Silent switch mutes them.
+const Ring = (() => {
+  let ctx = null, out = null, timer = null;
+  const enabled = () => { try { return localStorage.getItem('cb_ring') !== '0'; } catch { return true; } };
+  function ensure() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC(); out = ctx.createGain(); out.gain.value = 0.55; out.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return ctx;
+  }
+  const tone = (freq, t0, dur, vol) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+    o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + dur + 0.05);
+  };
+  const patterns = {
+    in(t) { for (const base of [0, 0.95]) [[523.25, 0], [659.25, .16], [783.99, .32], [1046.5, .5]].forEach(([f, d]) => tone(f, t + base + d, .55, .42)); },
+    out(t) { for (const d of [0, .5]) { tone(440, t + d, .32, .22); tone(480, t + d, .32, .22); } },
+  };
+  return {
+    unlock: () => { ensure(); },                 // any first tap lets the first call ring
+    start(kind) {
+      this.stop();
+      if (!enabled() || !ensure()) return;
+      const go = () => { if (ctx.state !== 'running') ctx.resume().catch(() => {}); patterns[kind](ctx.currentTime + 0.05); if (kind === 'in') navigator.vibrate?.([350, 150, 350]); };
+      go(); timer = setInterval(go, kind === 'in' ? 3200 : 3600);
+    },
+    stop() { clearInterval(timer); timer = null; try { navigator.vibrate?.(0); } catch { /* ignore */ } },
+    get playing() { return !!timer; },
+  };
+})();
+document.addEventListener('pointerdown', () => Ring.unlock(), { once: true, capture: true });
+
 let call = null;
 callBeacon = () => !!call;
 // Which build of the app this page is (the ?v= in its own address); the two phones compare them during a call.
@@ -1704,6 +1753,7 @@ function buildCallUi() {
 function setPhase(phase, text) {
   if (!call) return;
   call.phase = phase;
+  if (phase === 'incoming') Ring.start('in'); else if (phase === 'outgoing') Ring.start('out'); else Ring.stop();
   const u = call.ui;
   u.root.dataset.phase = phase;
   u.who.textContent = callName();
@@ -1951,6 +2001,7 @@ function teardown(reason) {
   const c = call;
   if (!c) return;
   call = null;
+  Ring.stop();
   clearTimeout(c.dropT); clearInterval(c.tick); clearInterval(c.w?.tick); clearInterval(c.drawT); clearInterval(c.reviveT); clearInterval(c.pingT);
   try { navigator.mediaSession.playbackState = 'none'; } catch { /* ignore */ }
   try { if (document.pictureInPictureElement) document.exitPictureInPicture(); } catch { /* ignore */ }
