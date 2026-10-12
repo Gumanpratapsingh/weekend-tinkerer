@@ -13,6 +13,7 @@ import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
 import { install as installWedding } from './wedding.mjs';
 import { install as installAssistant } from './assistant.mjs';
+import { install as installLove } from './lovenotes.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -196,6 +197,7 @@ const together = installTogether({ postMessage, updateMessage, emit, memberIds, 
   convTitle: (id, me) => convSummary(id, me).title });
 const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, postMessage, together });
 const assistant = installAssistant({ postMessage, emit, memberIds, together, log });
+const love = installLove({ postMessage, updateMessage, log });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -413,7 +415,14 @@ async function api(req, res, path, query) {
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
-      else if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
+      else if (conv.kind === 'bot') setImmediate(async () => {
+        try {
+          // Guman's own commands for the notes to her ("love: …") come first; everything else goes to the bot as before.
+          const lr = me.role === 'owner' ? await love.command(text).catch((e) => `Could not do that: ${e.message}`) : null;
+          if (lr) return await botSay(lr, null, me);
+          await botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage });
+        } catch (e) { log('bot', e.message); }
+      });
       return send(res, 200, { msg });
     }
     if (M === 'POST' && sub === '/voice') {
@@ -577,6 +586,7 @@ async function api(req, res, path, query) {
     if (!row || !canSee(me, row.conv_id)) throw err(404, 'Not found.');
     const b = await readJson(req, 1000);
     if (row.user_id === botId() && row.extra && JSON.parse(row.extra).event) return send(res, 200, { msg: await together.action(me, row, String(b.action || '')) });
+    if (row.user_id === botId() && row.extra && JSON.parse(row.extra).love) return send(res, 200, { msg: await love.action(me, row, String(b.action || '')) });
     if (one('SELECT kind FROM convs WHERE id = ?', row.conv_id).kind !== 'bot') throw err(404, 'Not found.');
     const msg = await botAction({ row, action: String(b.action || ''), say: (t, e) => botSay(t, e, me), update: updateMessage });
     return send(res, 200, { msg });
@@ -696,6 +706,14 @@ createServer(async (req, res) => {
       }
       const msg = await botSay(text, extra, target);
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
+    }
+    if (req.url === '/love') {                          // the server's own sweet notes to her: {text, ask?, partner?}
+      const text = String(b.text || '').trim().slice(0, 600);
+      if (!text) return send(res, 400, { error: 'text required' });
+      if (b.partner) { const u = one("SELECT id FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.partner).toLowerCase()); if (!u) return send(res, 404, { error: 'no such user' }); setKv('love_partner', u.id); }
+      const ask = Array.isArray(b.ask) ? b.ask.slice(0, 3).map((a) => ({ id: String(a.id).slice(0, 20), label: String(a.label).slice(0, 30), style: a.style === 'go' ? 'go' : '' })) : null;
+      const r = await love.send({ text, ask, now: b.now === true, title: String(b.title || '💌 A little note for you').slice(0, 40), pushTitle: String(b.pushTitle || '💌 A little note for you').slice(0, 60) });
+      return send(res, 200, r.queued ? { queued: r.queued } : { id: r.id, conv: r.conv });
     }
     if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
