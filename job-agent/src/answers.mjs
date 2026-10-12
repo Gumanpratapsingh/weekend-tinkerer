@@ -91,9 +91,21 @@ export async function resolve(items, context = '') {
   const answers = {};
   const pending = [];
   const m0 = master();
+  // The "End date" of the current job is the last working day: one month from now (the notice period). Only in a form that
+  // asks about work and not about school, where the same label means the graduation date and is answered from the resume.
+  const labels = items.map((i) => norm(i.label));
+  const asksWork = labels.some((l) => /^(company( name)?|employer|job title|title|current role|position)$|currently work/.test(l));
+  const asksStudy = labels.some((l) => /school|university|college|degree|discipline|field of study|education/.test(l));
+  const onNotice = /present|current/i.test(m0.experience?.[0]?.dates || '');
+  const lastDay = new Date(); lastDay.setMonth(lastDay.getMonth() + 1);
   for (const it of items) {
     // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it.
     if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label)) continue;
+    if (asksWork && !asksStudy && onNotice) {
+      const l = norm(it.label);
+      const v = /^(end date |end )month$/.test(l) ? lastDay.toLocaleString('en-US', { month: 'long' }) : /^(end date |end )year$/.test(l) ? String(lastDay.getFullYear()) : null;
+      if (v && fits(v, it)) { answers[it.key] = coerce(v, it); continue; }
+    }
     const d = direct(it.label, m0);
     if (d && fits(d, it)) { answers[it.key] = coerce(d, it); continue; }
     // Legal agreements are per company: only an exact earlier answer for this same job/company counts.
