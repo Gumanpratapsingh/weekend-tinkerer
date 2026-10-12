@@ -7,7 +7,8 @@
 // Uses the Cupboard-only AI keys (~/.cupboard_gemini_key, ~/.cupboard_groq_key), never the job agents' keys.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { one, run, HOME, botId, owner, getKv, setKv } from './db.mjs';
+import { one, all, run, HOME, botId, owner, getKv, setKv } from './db.mjs';
+import * as push from './push.mjs';
 
 const IST = 5.5 * 3600e3, HOUR = 3600e3, DAY = 24 * HOUR;
 const NAME = 'Our corner 🌙';
@@ -167,15 +168,43 @@ Output ONLY the note text.`;
     return { queued: due };
   }
 
+  // ----- what she does here, shown to Guman: a push to his phone and a short history ("love activity") -----
+  const isHer = (me, convId) => me.id === partnerId() && convId === Number(getKv('love_conv'));
+  function activity(text, url) {
+    const o = owner(); if (!o) return;
+    const list = jget('love_activity', []); list.push({ at: Date.now(), text }); setKv('love_activity', JSON.stringify(list.slice(-30)));
+    push.notify(o.id, { title: '💌 ' + text.slice(0, 60), body: 'In Our corner', url, tag: 'love-activity' });
+    log(`notes activity: ${text}`);
+  }
+  const snippet = (t) => `"${String(t || '').replace(/\s+/g, ' ').slice(0, 50)}${String(t || '').length > 50 ? '…' : ''}"`;
+  // She opened the chat and read notes (once per note).
+  function onRead(me, convId, upTo) {
+    if (!isHer(me, convId)) return;
+    const rows = all("SELECT id, text, extra FROM messages WHERE conv_id = ? AND user_id = ? AND id <= ? AND kind = 'card' ORDER BY id", convId, botId(), upTo);
+    let n = 0;
+    for (const m of rows) {
+      if (!m.extra || !JSON.parse(m.extra).love || getKv(`love_read:${m.id}`)) continue;
+      setKv(`love_read:${m.id}`, '1'); n++;
+    }
+    if (n) activity(`${me.name.split(' ')[0]} read ${n === 1 ? 'your note' : `${n} of your notes`}`, `/c/${convId}`);
+  }
+  function onReact(me, row, emoji) {
+    if (!isHer(me, row.conv_id) || !emoji) return;
+    activity(`${me.name.split(' ')[0]} reacted ${emoji} to a note`, `/c/${row.conv_id}`);
+  }
+  // Her own messages in this chat already reach him as normal messages; this adds a line to the history.
+  function onMessage(me, convId, text) { if (isHer(me, convId)) { const list = jget('love_activity', []); list.push({ at: Date.now(), text: `${me.name.split(' ')[0]} wrote ${snippet(text)}` }); setKv('love_activity', JSON.stringify(list.slice(-30))); } }
+
   // The buttons on the "shall I tell him?" card.
   async function action(me, row, act) {
     const o = owner(), first = me.name.split(' ')[0];
     if (act === 'tell') {
+      activity(`${first} tapped "Yes, tell him"`, `/c/${row.conv_id}`);
       await postMessage(row.conv_id, botId(), { kind: 'text', text: `💌 ${first} is thinking of you, and she is going to call you soon. 📞` },
         { pushOnly: o ? [o.id] : [], pushAs: { title: `💌 ${first} is thinking of you`, body: 'She will call you soon 📞' } });
       return updateMessage(row.id, { done: 'Told him 💌', actions: [] });
     }
-    if (act === 'later') return updateMessage(row.id, { done: 'Okay, a surprise then 😉', actions: [] });
+    if (act === 'later') { activity(`${first} tapped "Not now"`, `/c/${row.conv_id}`); return updateMessage(row.id, { done: 'Okay, a surprise then 😉', actions: [] }); }
     throw new Error('Unknown action.');
   }
 
@@ -205,6 +234,10 @@ Output ONLY the note text.`;
       await deliver({ text: text2 });
       return `💌 Sent her one just now:\n"${text2}"`;
     }
+    if (/^love\s+activity$/i.test(t)) {
+      const list = jget('love_activity', []).slice(-10).reverse();
+      return list.length ? `👀 What she did lately:\n${list.map((a) => `• ${fmtTime(a.at)}: ${a.text}`).join('\n')}` : 'Nothing yet. Anything she does in the chat (reads a note, taps a button, reacts, replies) shows up here and as a notification.';
+    }
     if (/^love\s+pause$/i.test(t)) { setKv('love_paused', '1'); return '⏸ Notes for her are paused. Say "love resume" to start again.'; }
     if (/^love\s+resume$/i.test(t)) { setKv('love_paused', ''); if (!Number(getKv('love_next')) || Number(getKv('love_next')) < Date.now()) plan(); return `▶️ Notes for her are on. Next one around ${fmtTime(Number(getKv('love_next')))}.`; }
     if (/^love\s+status$/i.test(t)) {
@@ -214,9 +247,9 @@ Output ONLY the note text.`;
         `Next around ${getKv('love_next') ? fmtTime(Number(getKv('love_next'))) : 'not scheduled'}${pl?.times?.length > 1 ? ` (this week's others: ${pl.times.slice(1).map(fmtTime).join(', ')})` : ''}. Your own notes waiting: ${custom.length}. ` +
         `${q.length ? `One special message is held until ${fmtTime(q[0].due)}. ` : ''}${getKv('love_style') ? `Style: "${getKv('love_style')}".` : 'Style: default.'}`;
     }
-    if (/^love\b/i.test(t) && t.length < 12) return 'Notes for her: "love: <your words>" saves one · "love now" · "love pause" · "love resume" · "love status" · "love per week: 2" · "love style: <how it should sound>" · "love name: <chat name>".';
+    if (/^love\b/i.test(t) && t.length < 12) return 'Notes for her: "love: <your words>" saves one · "love now" · "love activity" · "love pause" · "love resume" · "love status" · "love per week: 2" · "love style: <how it should sound>" · "love name: <chat name>".';
     return null;
   }
 
-  return { ensureChat, deliver, send, action, command, schedule, partnerId, tick, generate };
+  return { ensureChat, deliver, send, action, command, schedule, partnerId, tick, generate, onRead, onReact, onMessage };
 }

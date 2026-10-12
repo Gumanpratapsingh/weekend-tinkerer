@@ -412,6 +412,7 @@ async function api(req, res, path, query) {
       const text = String(b.text || '').trim().slice(0, 4000);
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
+      love.onMessage(me, convId, text);
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
@@ -503,6 +504,7 @@ async function api(req, res, path, query) {
       const upTo = Math.min(Number(b.upTo) || 0, one('SELECT coalesce(max(id), 0) AS n FROM messages WHERE conv_id = ?', convId).n);
       run('UPDATE members SET last_read = max(last_read, ?) WHERE conv_id = ? AND user_id = ?', upTo, convId, me.id);
       for (const uid of memberIds(convId)) emit(uid, 'read', { conv: convId, user: me.id, upTo });
+      love.onRead(me, convId, upTo);
       return send(res, 200, { ok: true });
     }
     if (M === 'POST' && sub === '/assistant') {            // the 🤫 button: quiet / wake the assistant (for everyone in the chat)
@@ -538,6 +540,7 @@ async function api(req, res, path, query) {
       const r = extra.reactions || {}, had = (r[emoji] || []).includes(me.id);
       for (const k of Object.keys(r)) { r[k] = r[k].filter((id) => id !== me.id); if (!r[k].length) delete r[k]; }
       if (emoji && !had) r[emoji] = [...(r[emoji] || []), me.id];
+      if (emoji && !had) love.onReact(me, row, emoji);
       return send(res, 200, { msg: save({ extra: JSON.stringify({ ...extra, reactions: r }) }) });
     }
     if (m[2] === 'pin') {
