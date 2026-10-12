@@ -167,6 +167,10 @@ export default {
         if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', posts: [] };
         await page.waitForTimeout(4500);
         for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 2200); await page.waitForTimeout(1800); }
+        // Expand "…more" so the whole post is read: the roles and job IDs a referrer lists are usually below the fold.
+        for (const more of await page.locator('button:has-text("…more"), button:has-text("...more"), button[aria-label*="see more" i]').all()) {
+          await more.click({ timeout: 2000 }).catch(() => {});
+        }
         const posts = await page.evaluate(() => {
           const prof = (h) => (/\/in\/[^/?#]+/.exec(h) || [''])[0];
           const res = [];
@@ -184,7 +188,7 @@ export default {
             const lines = text.split('\n').map((x) => x.trim()).filter(Boolean);
             const author = (lines[0] || '').replace(/\s*•.*$/, '').replace(/\s*Verified.*$/i, '').trim();
             const headline = lines.find((x, i) => i > 0 && x.length > 12 && !/^•|^(1st|2nd|3rd)|^Follow$|^\d+\s*[hmdw]\b|^(Just now|Edited)/.test(x)) || '';
-            res.push({ author, profile: `https://www.linkedin.com${prof(a.href)}/`, headline: headline.slice(0, 220), verified, text: text.slice(0, 1800), postUrl: '' });
+            res.push({ author, profile: `https://www.linkedin.com${prof(a.href)}/`, headline: headline.slice(0, 220), verified, text: text.slice(0, 4000), postUrl: '' });
           }
           return res;
         });

@@ -2,7 +2,7 @@
 // (SRM alumni first), draft a short note naming the exact job, and ask the owner to approve EVERY message.
 // Approved invites go out slowly (10/day, spaced, 9:00-21:00 IST). When someone accepts, a referral request with the
 // resume follows: by email if they publish one, else a LinkedIn message, again only after approval.
-import { config, log, logError, activity, master, persona, istHour, istDate } from './core.mjs';
+import { config, log, logError, activity, master, persona, istHour, istDate, llm, yearsWorked } from './core.mjs';
 import { one, all, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
@@ -21,11 +21,39 @@ export function targetCompanies() {
   return [...list];
 }
 
-// Best open job at a company from what the agent already found (needs a link to cite in the note).
+// The years a job asks for ("3-5 years", "5+ yrs", "minimum 4 years"): the first stated number, or null when not stated.
+export function yearsAsked(text) {
+  const m = /(?:minimum|min\.?|at least)\s*(?:of\s*)?(\d{1,2})\s*\+?\s*(?:years|yrs)|(\d{1,2})\s*(?:\+|-|–|to)\s*\d{0,2}\s*\+?\s*(?:years|yrs)|(\d{1,2})\s*(?:years|yrs)\s*(?:of\s*)?(?:experience|exp)/i.exec(String(text || '').replace(/(\d)-to-(\d)/gi, '$1 to $2'));
+  return m ? Number(m[1] || m[2] || m[3]) : null;
+}
+// A referral request names a role only when its stated experience fits: asking for a 5-15 years role with 2 years
+// wastes the referrer's goodwill (it happened with Mphasis, whose LinkedIn post stated no years at all).
+const fitsYears = (min) => min != null && min <= Math.floor(yearsWorked()) + 1;
+
+// Best open job at a company from what the agent already found (needs a link to cite in the note), with a fitting
+// experience requirement stated in it.
 function jobAt(company) {
   const key = `%${company.toLowerCase().replace(/ (inc|ltd|llp|pvt|private|limited|group|global tech)\.?$/g, '')}%`;
-  return one(`SELECT id, title, url, score FROM jobs WHERE lower(company) LIKE ? AND score >= 65
-    AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 1`, key);
+  return all(`SELECT id, title, url, score, description FROM jobs WHERE lower(company) LIKE ? AND score >= 65
+    AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 15`, key)
+    .find((j) => fitsYears(yearsAsked(`${j.title}\n${j.description}`))) || null;
+}
+
+// The roles a hiring post itself lists (title, job ID, location, years). The referrer offers THOSE, so the note names
+// one of them. Every field is checked against the post text: nothing the AI returns is used unless the post says it.
+export async function rolesInPost(text) {
+  let r;
+  try {
+    r = await llm([
+      { role: 'system', content: 'List every open role this LinkedIn hiring post names. Copy values exactly from the post; null when the post does not state one. '
+        + 'Return JSON {"roles":[{"title":"","job_id":null,"location":null,"min_years":null}]} (min_years = the lowest years of experience it asks for).' },
+      { role: 'user', content: text.slice(0, 4000) },
+    ], { json: true, maxTokens: 800, temperature: 0, small: true, why: 'reading the roles in a referral post' });
+  } catch { return []; }
+  const t = text.toLowerCase();
+  return (r?.roles || []).filter((x) => x?.title && t.includes(String(x.title).toLowerCase().slice(0, 25)))
+    .map((x) => ({ title: String(x.title).trim(), job_id: x.job_id && t.includes(String(x.job_id).toLowerCase()) ? String(x.job_id) : null,
+      location: x.location || null, min_years: Number.isFinite(Number(x.min_years)) && x.min_years !== null ? Number(x.min_years) : null }));
 }
 
 function note(person, job, company, alumni) {
@@ -179,6 +207,15 @@ export function judgePost(p, list) {
   return null;
 }
 
+// A post role is worth naming only when it is the person's kind of work (a Mainframe or QA opening is not, for a Java developer).
+export function fitsSkills(title) {
+  const m = master(), P = persona();
+  const mine = `${P.fit_roles || ''} ${m.experience.map((e) => e.title).join(' ')} ${Object.values(m.skills || {}).flat().join(' ')}`.toLowerCase();
+  const words = String(title).toLowerCase().match(/[a-z][a-z+#.]{1,}/g) || [];
+  const STOP = /^(and|the|for|with|lead|senior|sr|jr|junior|associate|process|role|team|level|i|ii|iii|module|specialist|consultant)$/;
+  return words.some((w) => !STOP.test(w) && mine.includes(w));
+}
+
 export async function scanPosts() {
   const c = R();
   const list = [...new Set([...(c.companies || []), ...(c.mnc || [])])];
@@ -192,13 +229,21 @@ export async function scanPosts() {
     if (reason) { why[reason] = (why[reason] || 0) + 1; continue; }
     if (one('SELECT 1 FROM referrals WHERE profile = ?', p.profile)) continue;
     const company = employerOf(p.headline, list);
-    const job = jobAt(company);
+    const roles = await rolesInPost(p.text);
+    const pick = roles.find((r) => fitsYears(r.min_years) && fitsSkills(r.title));
+    if (!pick && roles.length) {                   // the post lists its roles and none fits: don't ask about some other job there
+      why['no role in the post fits your experience'] = (why['no role in the post fits your experience'] || 0) + 1;
+      continue;
+    }
+    const job = pick ? null : jobAt(company);
     const first = p.author.split(/\s+/)[0];
     const P = persona();
-    const role = job ? `the ${job.title} role` : (P.post_fallback_role || P.fallback_role || 'a role there');
+    const role = pick ? `the ${pick.title} role${pick.job_id ? ` (Job ID ${pick.job_id})` : ''}${pick.location ? ` in ${pick.location}` : ''}`
+      : job ? `the ${job.title} role` : (P.post_fallback_role || P.fallback_role || 'a role there');
     const text = `Hi ${first}, saw your post about referrals at ${company}. ${P.post_pitch || P.intro || ''}. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – ${master().name.split(' ')[0]}`.replace(/\.\. /, '. ').slice(0, 300);
     run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, post, created_at)
-      VALUES(?,?,?,?,?,?,?,0,'drafted',?,'post',?,?)`, company, job?.id || null, job?.title || null, job?.url || null, p.author, p.headline, p.profile, text, p.text.slice(0, 600), now());
+      VALUES(?,?,?,?,?,?,?,0,'drafted',?,'post',?,?)`, company, job?.id || null, pick ? `${pick.title}${pick.job_id ? ` (Job ID ${pick.job_id})` : ''}` : job?.title || null,
+      job?.url || null, p.author, p.headline, p.profile, text, p.text.slice(0, 4000), now());
     const id = one('SELECT id FROM referrals WHERE profile = ?', p.profile).id;
     kept++;
     tell(`🤝 Referral offer in a LinkedIn post (verified, ${company}) #${id}: ${p.author}\n${p.headline}\n${p.profile}\n\nTheir post: "${p.text.replace(/\s+/g, ' ').slice(0, 260)}…"\n\nYour note:\n${text}\n\n— Send, Skip, or type your own note.`,
