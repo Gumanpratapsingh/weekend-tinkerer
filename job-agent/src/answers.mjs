@@ -227,6 +227,10 @@ function coerce(answer, it) {
   if (ua && !/ctc|salary|lpa/i.test(it.label)) {
     const n = parseFloat(String(answer).match(/\d+(\.\d+)?/)?.[0]);
     if (!ul && it.type !== 'number' && Number.isFinite(n)) return String(answer);
+    // Compound durations for a field in one unit ("2 years 3 months" for "experience in years"): the total, "2.25".
+    const parts = [...String(answer).matchAll(/(\d+(?:\.\d+)?)\s*(day|week|month|year)s?\b/gi)];
+    const step = ul === 'year' ? 100 : 1, U = { ...UNIT, month: 365 / 12 };   // exact months; whole days/weeks/months, years to 2 decimals
+    if (ul && parts.length > 1) return String(Math.round((parts.reduce((s, [, x, u]) => s + x * U[u.toLowerCase()], 0) / U[ul]) * step) / step);
     if (ul && ul !== ua && Number.isFinite(n) && !/\d+\D+\d+/.test(String(answer))) return String(Math.round((n * UNIT[ua]) / UNIT[ul]));
   }
   // Number-only fields (CTC in lakhs, years, notice days): "15-16 LPA fixed" -> "16", "2+ years" -> "2".
