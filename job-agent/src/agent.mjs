@@ -290,10 +290,11 @@ every(60, 'referral acceptances', async () => {
 every(1, 'thermal guard', async () => {
   const st = (() => { try { return JSON.parse(readFileSync(join(HOME, 'live', 'status.json'), 'utf8')); } catch { return null; } })();
   if (!st) return;
-  // Limits per device: the phone's (config.thermal) would keep a laptop paused forever (its battery reads ~48 °C while
-  // charging, normal for it). On the laptop: config.thermal_laptop, else 90/80 °C CPU and 60/55 °C battery.
+  // Limits per device: the phone's (config.thermal) kept the laptop paused forever. The laptop has no battery sensor
+  // (both fields hold the CPU temperature), so there only the CPU counts: 90 °C pause, 80 °C resume (config.thermal_laptop).
+  // laptop/ has its own last-resort guard at 95 °C that stops the units.
   const t = /laptop/i.test(st.device || '')
-    ? { pause_cpu_c: 90, resume_cpu_c: 80, pause_battery_c: 60, resume_battery_c: 55, ...(config().thermal_laptop || {}) }
+    ? { pause_cpu_c: 90, resume_cpu_c: 80, pause_battery_c: Infinity, resume_battery_c: Infinity, ...(config().thermal_laptop || {}) }
     : (config().thermal || {});
   const paused = getKv('thermal_pause') === '1';
   if (!paused && (st.batteryTempC >= t.pause_battery_c || st.cpuTempC >= t.pause_cpu_c)) {
