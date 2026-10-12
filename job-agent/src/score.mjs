@@ -15,6 +15,18 @@ function profile() {                                  // compact text profile (~
   return profileCache;
 }
 
+// config.career_switch {roles: [...], note?}: roles the person is moving into from their current field. Judged on
+// transferable strengths, not on years already spent in that role (a technical resume would otherwise score them low).
+const careerSwitch = () => {
+  const cs = config().career_switch;
+  if (!cs?.roles?.length) return '';
+  return `- Career switch: the candidate is actively moving into ${cs.roles.join(', ')} roles. For these, do NOT require prior
+  experience in that exact role; judge transferable strengths (technical background, requirements and stakeholder work, delivery,
+  domain knowledge${cs.note ? `, ${cs.note}` : ''}). Entry, associate, junior or 0-3 years versions of these roles score 65-85 when the
+  domain fits; ones that insist on several years as a PM/BA specifically score 40-60.
+`;
+};
+
 const SYSTEM = () => {
   const y = yearsWorked(), yrs = Math.floor(y), mos = Math.round((y - yrs) * 12);
   return `You screen jobs for one candidate whose goal is to land as many interviews as possible.
@@ -24,7 +36,7 @@ Score 0-100 = realistic chance this application gets a recruiter call.
 - Skills: missing a core must-have language/framework (e.g. the role is Python-only, Go-only, React-only) costs a lot;
   missing nice-to-haves or specific tools costs little.
 - Role type: ${persona().fit_roles || 'roles matching the candidate\'s experience'} are all good fits.
-- Salary: if the posting states pay below ${config().min_salary_lpa || 0} LPA (or the INR equivalent), score 0.
+${careerSwitch()}- Salary: if the posting states pay below ${config().min_salary_lpa || 0} LPA (or the INR equivalent), score 0.
 - Location: any city in India, or remote open to people in India, is fine. Give 0 if it needs living or working authorization outside India.
 Return JSON: {"score":0-100,"track":"backend|ai","reasons":"<=25 words","blockers":["..."]}`;
 };

@@ -34,7 +34,9 @@
         "product manager",
         "associate product manager",
         "product owner",
-        "technical product manager"
+        "technical product manager",
+        "project manager",
+        "business analyst"
       ]
     }
   },
@@ -164,8 +166,7 @@
     "group product",
     "construction manager",
     "finance manager",
-    "office manager",
-    "project manager"
+    "office manager"
   ],
   "title_include": [
     "java",
@@ -193,7 +194,11 @@
     "product manager",
     "product owner",
     "associate product manager",
-    "technical product manager"
+    "technical product manager",
+    "project manager",
+    "business analyst",
+    "product analyst",
+    "technical analyst"
   ],
   "min_score": 65,
   "daily_caps": {
@@ -295,7 +300,7 @@
   "naukri": {
     "pages": 3,
     "job_age_days": 3,
-    "queries_per_location": 25
+    "queries_per_location": 30
   },
   "linkedin_pages": 2,
   "naukri_headlines": [
@@ -484,6 +489,15 @@
       "Zensar",
       "Sopra Steria",
       "Nagarro"
+    ]
+  },
+  "career_switch": {
+    "roles": [
+      "product manager",
+      "product owner",
+      "associate product manager",
+      "project manager",
+      "business analyst"
     ]
   }
 }
