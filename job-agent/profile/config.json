@@ -10,7 +10,13 @@
         "java full stack developer",
         "backend developer java",
         "software engineer java",
-        "sde java"
+        "sde java",
+        "backend engineer",
+        "software engineer ii",
+        "sde 1",
+        "sde 2",
+        "api developer",
+        "microservices developer"
       ]
     },
     "ai": {
@@ -21,6 +27,14 @@
         "ai developer",
         "generative ai engineer",
         "ai ml engineer node"
+      ]
+    },
+    "product": {
+      "queries": [
+        "product manager",
+        "associate product manager",
+        "product owner",
+        "technical product manager"
       ]
     }
   },
@@ -119,7 +133,6 @@
     "principal",
     "staff",
     "architect",
-    "manager",
     "director",
     "head of",
     "vp ",
@@ -133,7 +146,26 @@
     "test engineer",
     "data analyst",
     "android",
-    "ios "
+    "ios ",
+    "engineering manager",
+    "program manager",
+    "delivery manager",
+    "account manager",
+    "sales manager",
+    "marketing manager",
+    "hr manager",
+    "operations manager",
+    "general manager",
+    "relationship manager",
+    "branch manager",
+    "store manager",
+    "area manager",
+    "senior manager",
+    "group product",
+    "construction manager",
+    "finance manager",
+    "office manager",
+    "project manager"
   ],
   "title_include": [
     "java",
@@ -157,7 +189,11 @@
     "agent",
     "platform engineer",
     "member of technical staff",
-    "product engineer"
+    "product engineer",
+    "product manager",
+    "product owner",
+    "associate product manager",
+    "technical product manager"
   ],
   "min_score": 65,
   "daily_caps": {
@@ -259,7 +295,7 @@
   "naukri": {
     "pages": 3,
     "job_age_days": 3,
-    "queries_per_location": 15
+    "queries_per_location": 25
   },
   "linkedin_pages": 2,
   "naukri_headlines": [
@@ -309,7 +345,37 @@
       "Barclays",
       "BNY",
       "Citi",
-      "Qualcomm"
+      "Qualcomm",
+      "Microsoft",
+      "Amazon",
+      "Oracle",
+      "SAP Labs",
+      "Cisco",
+      "Atlassian",
+      "ServiceNow",
+      "Workday",
+      "Uber",
+      "Expedia",
+      "Bank of America",
+      "HSBC",
+      "Standard Chartered",
+      "UBS",
+      "State Street",
+      "Northern Trust",
+      "BlackRock",
+      "Synchrony",
+      "Nomura",
+      "NatWest Group",
+      "Lloyds Technology Centre",
+      "Societe Generale",
+      "BNP Paribas",
+      "Elevance Health",
+      "Evernorth",
+      "LSEG",
+      "S&P Global",
+      "Moody's",
+      "Equifax",
+      "TransUnion"
     ],
     "auto_min_score": 80,
     "per_day": 10,
