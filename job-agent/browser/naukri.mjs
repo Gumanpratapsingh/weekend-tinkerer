@@ -2,6 +2,7 @@
 // Search uses Naukri's own JSON API from inside the page (same calls the site makes); applying clicks Apply and
 // answers the recruiter-question chat drawer from memory.
 import { siteContext, shotPath, progress, capture, who } from './session.mjs';
+import { oddField } from './forms.mjs';
 
 const H = { appid: '109', systemid: 'Naukri', clientid: 'd3skt0p', gid: 'LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE', 'Content-Type': 'application/json' };
 const AGENT = () => `${who().agent}/internal/resolve`;   // the agent of the person this task is for
@@ -171,6 +172,8 @@ export default {
           body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
         if (r.status === 503) throw new Error('AI busy, retry later');
         const { answers, unknown } = await r.json();
+        const odd = oddField(unknown);
+        if (odd) return { ...odd, shot: await snap(page, 'naukri-question') };
         if (unknown.length) return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
         await answer(page, q, answers.a);
         await page.waitForTimeout(2500);

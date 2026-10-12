@@ -198,6 +198,18 @@ export async function captchaVisible(page) {
   return false;
 }
 
+// Fields that are not questions for a person: a text CAPTCHA (a human check, never answered by us), placeholders,
+// error messages and links to some other form. They hand the job to the person instead of becoming a question.
+export const CAPTCHA_Q = /captcha|enter (all )?\d+ characters|characters? (exactly )?as shown|type the (text|characters|word)s? (you see|shown)|security check/i;
+export const NOT_A_QUESTION = /^(select|choose|please (select|choose)|--+)[\s.…-]*$|unable to process (this|the) file|please answer this to continue|forms\.gle|docs\.google\.com\/forms|fill (the|this) (google )?form/i;
+export function oddField(unknown) {
+  const cap = unknown.find((u) => CAPTCHA_Q.test(u.label));
+  if (cap) return { status: 'manual', reason: 'captcha (text CAPTCHA in the form)' };
+  const odd = unknown.find((u) => NOT_A_QUESTION.test(u.label));
+  if (odd) return { status: 'manual', reason: `form needs you: "${odd.label.slice(0, 80)}"` };
+  return null;
+}
+
 /** Shared flow for one-page forms: collect -> resolve -> (stop if unknown) -> fill -> optional submit. */
 export async function fillForm(page, job, { root = null, resume, dryRun, partial = false }) {
   let fields = await collect(page, root);
@@ -206,6 +218,8 @@ export async function fillForm(page, job, { root = null, resume, dryRun, partial
   // Consent boxes are often not marked required but block submission: never submit with one unanswered.
   const blocking = unknown.filter((u) => u.required || /agree|acknowledg|consent|terms|privacy|certify/i.test(u.label));
   const filled = fields.filter((f) => answers[f.key] != null).map((f) => ({ label: f.label, value: String(answers[f.key]) }));
+  const odd = !partial && oddField(blocking);
+  if (odd) return { ...odd, fields: fields.length, filled };
   if (blocking.length && !partial) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
   await fill(page, fields, answers, { resume });                 // partial (owner handoff): fill all we know anyway
   if (blocking.length) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
