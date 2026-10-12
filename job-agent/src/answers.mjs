@@ -162,6 +162,23 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     const err = new Error('AI busy, retry later'); err.retryLater = true; throw err;
   }
 
+  // Hard check, not left to the AI (it once answered "2 years" of Kotlin for someone who never used it): a question about a
+  // skill that appears nowhere in the resume or the saved answers is always turned into the short question.
+  const seen = `${JSON.stringify([m.skills, m.experience, m.projects])} ${known.map((k) => `${k.question} ${k.answer}`).join(' ')}`.toLowerCase();
+  const GENERIC = /^(the|and|or|a|an|any|of|do|you|have|has|your|how|many|much|what|is|are|with|in|on|for|production|development|developing|experience|tools?|core|advanced|basic|hooks|v\d+\+?|technologies|technology|frameworks?|framework|languages?|language|platforms?|systems?|projects?|work|working|using|years?|professional|hands|similar|like|such|as|etc|other|related|based|apps?|applications?|testing|software|programming|coding)$/i;
+  const unseenSkill = (label) => {
+    if (!/experience|years?|worked|work(ing)? (on|with)|familiar|proficien|knowledge|expertise|exposure|hands-on|used/i.test(label)) return null;
+    // The skill is what follows the LAST "with/in/on/using" ("years of experience do you have with Kotlin" -> "Kotlin").
+    const text = label.replace(/\b(in production|in your (current )?work|professionally|at work|in a professional setting)\b.*$/i, '').replace(/[?.!:]+\s*$/, '');
+    const parts = text.split(/\b(?:with|in|on|using)\s+/i);
+    if (parts.length < 2) return null;
+    const skill = parts.at(-1).replace(/[()]/g, ' ').trim().slice(0, 60);
+    const words = skill.toLowerCase().split(/[\s/,&]+|\bor\b|\band\b/).map((w) => w.trim().replace(/[^a-z0-9#.+-]/g, '')).filter((w) => w.length > 1 && !GENERIC.test(w));
+    const found = (w) => new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(seen);   // whole word: "java" ≠ "javascript"
+    if (!words.length || words.some(found)) return null;
+    return skill;
+  };
+
   const unknown = [...legalUnknown];
   const asked = new Set();
   for (const it of pending) {
@@ -169,7 +186,8 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
     // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
     const long = it.type === 'textarea' || /describe|explain|examples?|how (do|did|have) you|tell us|walk (us|me) through/i.test(it.label);
-    const short = /^SKILL:\s*(.+)$/i.exec(a)?.[1] ? `Do you have experience with ${/^SKILL:\s*(.+)$/i.exec(a)[1].trim().slice(0, 60)}? (yes/no, roughly how many years${long ? ', and in a few words how you used it' : ''})`
+    const skill = /^SKILL:\s*(.+)$/i.exec(a)?.[1]?.trim() || unseenSkill(it.label);
+    const short = skill ? `Do you have experience with ${skill.slice(0, 60)}? (yes/no, roughly how many years${long ? ', and in a few words how you used it' : ''})`
       : /^SHORT:\s*(.+)$/i.exec(a)?.[1]?.trim().slice(0, 140);
     if (short) {
       if (!asked.has(norm(short))) { asked.add(norm(short)); unknown.push({ ...it, label: short, type: 'text', options: null, original: it.label }); }
