@@ -22,7 +22,7 @@ function siteReady(bucket) {
   const p = config().pacing[bucket];
   const h = istHour();
   if (h < p.hours[0] || h >= p.hours[1]) return false;
-  if (Date.now() < Number(getKv(`limit_${bucket}`, 0))) return false;   // the site refused applies for this account today
+  if (Date.now() < Number(getKv(`limit_${bucket}`, 0))) return false;   // the site's daily apply quota for this account is used up
   const last = Number(getKv(`last_${bucket}`, 0));
   const gap = Number(getKv(`gap_${bucket}`, 0)) || p.min_gap_min * 60e3;
   return Date.now() - last >= gap;
@@ -127,12 +127,12 @@ function settle(job, res) {
     case 'closed':
       run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id);
       break;
-    case 'site_limit': {                              // the site refused applies for this account: retry the job tomorrow
+    case 'site_limit': {                              // the site's daily apply quota for this account is used up: retry the job tomorrow
       const b = BUCKET[job.apply_type];
-      run("UPDATE jobs SET status = 'queued', attempts = attempts - 1, status_note = ? WHERE id = ?", 'the site refused applies for this account today: retrying tomorrow', job.id);
+      run("UPDATE jobs SET status = 'queued', attempts = attempts - 1, status_note = ? WHERE id = ?", 'site daily apply quota used up: retrying tomorrow', job.id);
       if (Date.now() >= Number(getKv(`limit_${b}`, 0))) {
         setKv(`limit_${b}`, Date.parse(`${istDate(Date.now() + 864e5)}T07:00:00+05:30`));
-        activity(`⏸ ${job.source}: the site refused applies for this account (${appliedToday(b)} sent). Pausing ${job.source} until 07:00 tomorrow; other sites continue.`);
+        activity(`⏸ ${job.source}: daily apply quota used up (${appliedToday(b)} sent by me today). Pausing ${job.source} until 07:00 tomorrow; other sites continue.`);
       }
       break;
     }

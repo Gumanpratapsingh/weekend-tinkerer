@@ -157,9 +157,11 @@ export default {
       // it), so nothing is uploaded per job. Only the daily refresh (naukri_refresh) touches it, with the base resume.
 
       if (dryRun) return { status: 'dry_run', shot: await snap(page, 'naukri-dry') };
+      const applyResp = page.waitForResponse((r) => r.url().includes('/apply-workflow/') && r.request().method() === 'POST', { timeout: 15000 }).catch(() => null);
       await apply.click();
       await page.waitForTimeout(4000);
-      if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply for this account ("error while processing your request")', shot: await snap(page, 'naukri-limit') };
+      const quota = await quotaHit(await applyResp);
+      if (quota || await refused(page)) return { status: 'site_limit', reason: `Naukri refused the apply: ${quota || 'error while processing your request'}`, shot: await snap(page, 'naukri-limit') };
 
       // Questions drawer: one question at a time, chat-style.
       for (let i = 0; i < 25; i++) {
@@ -180,16 +182,22 @@ export default {
         await page.waitForTimeout(2500);
       }
       if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
-      if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply for this account ("error while processing your request")', shot: await snap(page, 'naukri-limit') };
+      if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply: error while processing your request', shot: await snap(page, 'naukri-limit') };
       return { status: 'failed', reason: 'no confirmation seen', shot: await snap(page, 'naukri-unsure') };
     } finally { await c.saveSession().catch(() => {}); await page.close(); }
   },
 };
 
-// Naukri's banner when it stops accepting applies from one account (a daily limit or a temporary block; other accounts unaffected).
+// Naukri's apply API answers 403 {"message":"Daily quota of jobs exceeded", customErrorCode 403009} once an account
+// has used its daily applies; the page only shows "There was an error while processing your request".
+async function quotaHit(res) {
+  if (!res || res.status() !== 403) return '';
+  const j = await res.json().catch(() => null);
+  return /quota/i.test(JSON.stringify(j || '')) ? (j?.message || 'daily quota exceeded') : '';
+}
 async function refused(page) {
   const t = await page.innerText('body').catch(() => '');
-  return /error while processing your request|reached (the|your) (daily )?(limit|maximum)|apply limit/i.test(t.slice(0, 3000));
+  return /error while processing your request/i.test(t.slice(0, 3000));
 }
 
 async function done(page) {
