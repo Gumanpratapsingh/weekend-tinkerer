@@ -50,13 +50,15 @@ function when(t) {
   return d.toLocaleDateString('en-IN', now - d < 6 * 86400e3 ? { weekday: 'short' } : { day: 'numeric', month: 'short' });
 }
 const dayLabel = (t) => { const w = when(t); return /\d:\d/.test(w) ? 'Today' : w; };
-const preview = (m) => !m ? '' : m.kind === 'voice' ? '🎤 Voice note' : m.kind === 'file' ? `📄 ${m.extra?.name || 'File'}` : (m.extra?.title ? `${m.extra.title}: ` : '') + (m.text || '');
+const preview = (m) => !m ? '' : m.kind === 'deleted' ? '🚫 Message deleted' : m.kind === 'voice' ? '🎤 Voice note' : m.kind === 'image' ? `📷 ${m.text || 'Photo'}`
+  : m.kind === 'video' ? `🎥 ${m.text || 'Video'}` : m.kind === 'file' ? `📄 ${m.extra?.name || 'File'}` : (m.extra?.title ? `${m.extra.title}: ` : '') + (m.text || '');
+const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 // ---------- state ----------
-const state = { me: null, vapid: null, push: false, convs: [], users: [], cur: null, msgs: [], more: false, replyTo: null, typing: {} };
+const state = { me: null, vapid: null, push: false, convs: [], users: [], cur: null, msgs: [], more: false, newer: false, replyTo: null, editing: null, typing: {}, pinIdx: 0 };
 const convById = (id) => state.convs.find((c) => c.id === id);
 function upsertConv(c) {
   const i = state.convs.findIndex((x) => x.id === c.id);
@@ -81,6 +83,11 @@ function connect() {
     const { msg } = JSON.parse(e.data);
     const i = state.msgs.findIndex((m) => m.id === msg.id);
     if (i >= 0) { state.msgs[i] = msg; drawMessages(false); }
+  });
+  es.addEventListener('conv', (e) => {               // mute, archive or pins changed
+    const { conv } = JSON.parse(e.data);
+    upsertConv(conv);
+    if (state.cur?.id === conv.id) { state.cur = conv; drawHeader(); drawPins(); } else if (['list', 'archived'].includes(route().name)) drawList();
   });
   es.addEventListener('read', (e) => {
     const { conv, user, upTo } = JSON.parse(e.data);
@@ -134,9 +141,9 @@ if ('serviceWorker' in navigator) {
 async function loadConvs() { state.convs = (await api('/convs')).convs; }
 async function openConv(id, refresh) {
   const [{ conv }, { messages, more }] = await Promise.all([api(`/convs/${id}`), api(`/convs/${id}/messages`)]);
-  state.cur = conv; state.msgs = messages; state.more = more; upsertConv(conv);
-  if (!refresh) state.replyTo = null;
-  drawMessages(true); drawHeader(); markRead();
+  state.cur = conv; state.msgs = messages; state.more = more; state.newer = false; upsertConv(conv);
+  if (!refresh) { state.replyTo = null; state.editing = null; state.pinIdx = 0; }
+  drawMessages(true); drawHeader(); drawPins(); markRead();
 }
 let readT;
 function markRead() {
@@ -154,12 +161,13 @@ function route() {
   const p = location.pathname;
   let m;
   if ((m = /^\/c\/(\d+)$/.exec(p))) return { name: 'chat', id: Number(m[1]) };
+  if ((m = /^\/c\/(\d+)\/media$/.exec(p))) return { name: 'media', id: Number(m[1]) };
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
-  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me' }[p] || 'list' };
+  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
 }
-function go(path, replace) { if (location.pathname !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
+function go(path, replace) { if (location.pathname + location.search !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
 window.addEventListener('popstate', render);
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
@@ -275,6 +283,7 @@ const screens = {
   list() {
     app.replaceChildren(
       h('div', { class: 'bar' }, h('div', { class: 't' }, h('h1', {}, 'Cupboard'), h('small', { id: 'phone' }, 'served from an S20')),
+        h('a', { class: 'icon', href: '/search', 'data-link': true, 'aria-label': 'Search messages', title: 'Search' }, '🔍'),
         h('a', { class: 'icon', href: '/jobs', 'data-link': true, 'aria-label': 'Job search', title: 'Job search' }, '💼'),
         h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, '✎'),
         h('a', { class: 'icon', href: '/me', 'data-link': true, 'aria-label': 'Settings', title: 'Settings' }, '⚙')),
@@ -286,10 +295,65 @@ const screens = {
   async chat(r) {
     app.replaceChildren(
       h('div', { class: 'bar', id: 'chatbar' }),
+      h('div', { id: 'pins' }),
       h('div', { class: 'msgs', id: 'msgs' }, h('p', { class: 'loading' }, 'Loading…')),
       h('div', { id: 'composer' }));
     await openConv(r.id);
     drawComposer();
+    const at = Number(new URLSearchParams(location.search).get('m'));
+    if (at) scrollToMessage(at);
+  },
+
+  archived() {
+    app.replaceChildren(
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Archived'), h('small', {}, 'new messages keep them here; long-press a chat to unarchive'))),
+      h('div', { class: 'scroll', id: 'list' }));
+    drawList();
+  },
+
+  // Search every chat: text, captions and file names. A result opens the chat at that message.
+  search() {
+    const q = h('input', { type: 'search', class: 'jsearch', placeholder: 'Search all chats', autocapitalize: 'none', enterkeyhint: 'search', 'aria-label': 'Search all chats' });
+    const out = h('div', {});
+    let t;
+    const run = async () => {
+      const term = q.value.trim();
+      if (term.length < 2) { out.replaceChildren(h('p', { class: 'empty' }, 'Type at least 2 letters.')); return; }
+      const { results } = await api(`/search?q=${encodeURIComponent(term)}`).catch((e) => { toast(e.message, true); return { results: [] }; });
+      if (q.value.trim() !== term) return;
+      out.replaceChildren(...(results.length ? results.map(({ msg, title }) => {
+        const text = preview(msg), i = text.toLowerCase().indexOf(term.toLowerCase());
+        const snip = i < 0 ? text : [text.slice(Math.max(0, i - 30), i), h('mark', {}, text.slice(i, i + term.length)), text.slice(i + term.length, i + term.length + 80)];
+        return h('a', { class: 'row', href: `/c/${msg.conv}?m=${msg.id}`, 'data-link': true },
+          h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, title), h('small', {}, when(msg.at))), h('div', { class: 'prev' }, h('span', {}, i > 30 ? '…' : '', snip))));
+      }) : [h('p', { class: 'empty' }, 'Nothing found.')]));
+    };
+    q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 300); });
+    app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Search'))),
+      h('div', { class: 'scroll' }, h('div', { class: 'jpad' }, q), out));
+    q.focus();
+  },
+
+  // A chat's photos, videos and documents.
+  async media(r) {
+    const conv = convById(r.id) || (await api(`/convs/${r.id}`)).conv;
+    const { media } = await api(`/convs/${r.id}/media`);
+    const visual = media.filter((m) => m.kind !== 'file'), docs = media.filter((m) => m.kind === 'file');
+    const grid = h('div', { class: 'gallery' }, visual.map((m) => {
+      const tile = h('button', { class: 'gtile', type: 'button', 'aria-label': m.kind === 'video' ? 'Video' : 'Photo' },
+        m.kind === 'image' ? h('img', { src: m.media, loading: 'lazy', alt: '' }) : h('span', { class: 'vt' }, '▶'));
+      tile.addEventListener('click', () => viewer(m));
+      return tile;
+    }));
+    app.replaceChildren(
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: `/c/${r.id}`, 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Media and files'), h('small', {}, conv.title))),
+      h('div', { class: 'scroll' },
+        h('div', { class: 'sec pad' }, `Photos and videos (${visual.length})`), visual.length ? grid : h('p', { class: 'soft pad' }, 'None yet.'),
+        h('div', { class: 'sec pad' }, `Documents (${docs.length})`),
+        ...(docs.length ? docs.map((m) => h('a', { class: 'row', href: m.media, download: m.extra?.name || '' },
+          h('div', { class: 'av k2' }, '📄'), h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, m.extra?.name || 'File'), h('small', {}, when(m.at))),
+            h('div', { class: 'prev' }, h('span', {}, `${Math.max(1, Math.round((m.extra?.size || 0) / 1024))} KB`)))))
+          : [h('p', { class: 'soft pad' }, 'None yet.')])));
   },
 
   async new() {
@@ -386,12 +450,60 @@ function drawList() {
     b.addEventListener('click', async () => { try { await enablePush(); toast('Notifications on'); drawList(); } catch (e) { toast(e.message, true); } });
     banners.push(h('div', { class: 'banner' }, h('b', {}, 'Get notified'), 'So the S20 and your friends can reach you.', h('div', {}, b)));
   }
-  list.replaceChildren(...banners, ...(state.convs.length ? state.convs.map((c) =>
-    h('a', { class: 'row', href: `/c/${c.id}`, 'data-link': true }, avatar(c),
+  const showArchived = route().name === 'archived';
+  const shown = state.convs.filter((c) => !!c.archived === showArchived);
+  const archived = state.convs.filter((c) => c.archived);
+  if (!showArchived && archived.length) banners.push(h('a', { class: 'row arch', href: '/archived', 'data-link': true }, h('div', { class: 'av k2' }, '🗄'),
+    h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, 'Archived'), h('small', {}, String(archived.length))))));
+  list.replaceChildren(...(showArchived ? [] : banners), ...(shown.length ? shown.map((c) => {
+    const row = h('a', { class: 'row', href: `/c/${c.id}`, 'data-link': true }, avatar(c),
       h('div', { class: 'mid' },
-        h('div', { class: 'name' }, h('span', {}, c.title), h('small', {}, c.last ? when(c.last.at) : '')),
+        h('div', { class: 'name' }, h('span', {}, c.title), h('small', {}, c.muted ? '🔕 ' : '', c.last ? when(c.last.at) : '')),
         h('div', { class: 'prev' }, h('span', {}, (c.last && c.kind === 'group' && c.last.from !== state.me.id ? `${c.people.find((p) => p.id === c.last.from)?.name?.split(' ')[0] || ''}: ` : '') + preview(c.last)),
-          c.unread ? h('span', { class: 'badge' }, String(c.unread)) : null)))) : [h('p', { class: 'empty' }, 'No chats yet.')]));
+          c.unread ? h('span', { class: 'badge' + (c.muted ? ' quiet' : '') }, String(c.unread)) : null)));
+    onHold(row, () => chatMenu(c));
+    return row;
+  }) : [h('p', { class: 'empty' }, showArchived ? 'No archived chats.' : 'No chats yet.')]));
+}
+
+// Long-press (touch) or right-click (mouse) opens a menu. A plain tap still works as before.
+function onHold(el, fn) {
+  let t = null, held = false, x0 = 0, y0 = 0;
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); fn(); });
+  el.addEventListener('touchstart', (e) => { held = false; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t = setTimeout(() => { held = true; navigator.vibrate?.(15); fn(); }, 480); }, { passive: true });
+  el.addEventListener('touchmove', (e) => { if (Math.abs(e.touches[0].clientX - x0) + Math.abs(e.touches[0].clientY - y0) > 10) clearTimeout(t); }, { passive: true });
+  el.addEventListener('touchend', (e) => { clearTimeout(t); if (held) e.preventDefault(); });
+  el.addEventListener('click', (e) => { if (held) { e.preventDefault(); e.stopPropagation(); held = false; } }, true);
+}
+// Bottom sheet with a list of buttons: [label, fn, {danger}] or a ready element.
+function sheet(title, items) {
+  const box = h('div', { class: 'sheet' }), close = () => box.remove();
+  const inner = h('div', { class: 'sheetin menu' }, title ? h('div', { class: 'mtitle' }, title) : null,
+    ...items.filter(Boolean).map((it) => {
+      if (it instanceof Node) return it;
+      const [label, fn, opt = {}] = it;
+      const b = h('button', { type: 'button', class: 'mitem' + (opt.danger ? ' danger' : '') }, label);
+      b.addEventListener('click', async () => { close(); try { await fn(); } catch (e) { toast(e.message, true); } });
+      return b;
+    }),
+    (() => { const c = h('button', { type: 'button', class: 'mitem cancel' }, 'Cancel'); c.addEventListener('click', close); return c; })());
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  box.append(inner); document.body.append(box);
+  return close;
+}
+const convSet = (c, body) => api(`/convs/${c.id}/settings`, { method: 'POST', body }).then(({ conv }) => { upsertConv(conv); if (state.cur?.id === conv.id) { state.cur = conv; drawHeader(); } if (['list', 'archived'].includes(route().name)) drawList(); });
+function chatMenu(c) {
+  const mute = c.muted
+    ? [['🔔 Unmute', () => convSet(c, { mute: 0 }).then(() => toast('Unmuted'))]]
+    : [['🔕 Mute for 8 hours', () => convSet(c, { mute: 8 }).then(() => toast('Muted for 8 hours'))],
+      ['🔕 Mute for a week', () => convSet(c, { mute: 24 * 7 }).then(() => toast('Muted for a week'))],
+      ['🔕 Mute always', () => convSet(c, { mute: -1 }).then(() => toast('Muted'))]];
+  sheet(c.title, [
+    c.kind !== 'bot' ? ['🖼 Media and files', () => go(`/c/${c.id}/media`)] : null,
+    ['🔍 Search messages', () => go('/search')],
+    ...mute,
+    [c.archived ? '📤 Unarchive' : '🗄 Archive', () => convSet(c, { archived: !c.archived }).then(() => { toast(c.archived ? 'Unarchived' : 'Archived'); if (state.cur?.id === c.id && !c.archived) go('/'); })],
+  ]);
 }
 
 function drawHeader() {
@@ -401,7 +513,50 @@ function drawHeader() {
   const t = state.typing[c.id];
   const sub = t && t.until > Date.now() ? h('small', { class: 'typing' }, c.kind === 'group' ? `${t.name} is typing…` : 'typing…')
     : h('small', {}, c.kind === 'bot' ? 'your phone server' : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
-  bar.replaceChildren(h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), h('div', { class: 't' }, h('b', {}, c.title), sub));
+  const title = h('button', { class: 't tbtn', type: 'button', 'aria-label': 'Chat options' }, h('b', {}, c.muted ? `${c.title} 🔕` : c.title), sub);
+  title.addEventListener('click', () => chatMenu(state.cur));
+  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, '⋮');
+  more.addEventListener('click', () => chatMenu(state.cur));
+  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, more);
+}
+
+// Pinned messages: a bar under the header; a tap jumps to the message (and on to the next pin).
+function drawPins() {
+  const box = document.getElementById('pins');
+  if (!box) return;
+  const pins = state.cur?.pins || [];
+  if (!pins.length) { box.replaceChildren(); return; }
+  const i = state.pinIdx % pins.length, p = pins[i];
+  const b = h('button', { class: 'pinbar', type: 'button' }, h('span', { class: 'pi' }, '📌'),
+    h('span', { class: 'pt' }, h('small', {}, pins.length > 1 ? `Pinned ${i + 1} of ${pins.length}` : 'Pinned'), preview(p)));
+  b.addEventListener('click', () => { scrollToMessage(p.id); state.pinIdx = i + 1; drawPins(); });
+  box.replaceChildren(b);
+}
+
+async function scrollToMessage(id) {
+  const box = document.getElementById('msgs');
+  if (!box || !state.cur) return;
+  if (!state.msgs.some((m) => m.id === id)) {
+    const { messages, more, newer } = await api(`/convs/${state.cur.id}/messages?around=${id}`).catch(() => ({}));
+    if (!messages) return;
+    state.msgs = messages; state.more = more; state.newer = newer; drawMessages(false);
+  }
+  const el = box.querySelector(`[data-id="${id}"]`);
+  if (!el) return toast('That message is no longer here.');
+  el.scrollIntoView({ block: 'center' });
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+
+// Full-screen photo or video.
+function viewer(m) {
+  const box = h('div', { class: 'viewer' });
+  const close = h('button', { class: 'vclose', type: 'button', 'aria-label': 'Close' }, '✕');
+  const media = m.kind === 'video' ? h('video', { src: m.media, controls: true, playsinline: true, autoplay: true }) : h('img', { src: m.media, alt: m.text || 'Photo' });
+  box.append(media, h('div', { class: 'vbar' }, h('span', {}, m.text || ''), h('a', { href: m.media, download: m.extra?.name || '', class: 'vdl' }, 'Save'), close));
+  const done = () => box.remove();
+  close.addEventListener('click', done);
+  box.addEventListener('click', (e) => { if (e.target === box) done(); });
+  document.body.append(box);
 }
 
 let player = null, playing = null;
@@ -434,11 +589,27 @@ function bubble(m, prev) {
   if (m.kind === 'text' && /^👋 .+ joined Cupboard$|created ".+"$/.test(m.text || '') && !m.extra) return h('div', { class: 'sys' }, m.text);
   const others = c.people.filter((p) => p.id !== state.me.id && p.role !== 'bot');
   const read = mine && others.length && others.every((p) => (p.lastRead || 0) >= m.id);
-  const meta = h('span', { class: 'meta' }, time(m.at), mine ? ' ' : '', mine ? h('span', { class: read ? 'read' : '' }, read ? '✓✓' : '✓') : null);
+  const meta = h('span', { class: 'meta' }, m.extra?.edited ? 'edited · ' : '', time(m.at), mine ? ' ' : '', mine ? h('span', { class: read ? 'read' : '', title: read ? 'Read' : 'Delivered' }, read ? '✓✓' : '✓') : null);
+  if (m.kind === 'deleted') {
+    const d = h('div', { class: `m ${mine ? 'out' : 'in'} del`, 'data-id': String(m.id) }, mine ? '🚫 You deleted this message' : '🚫 This message was deleted', h('span', { class: 'meta' }, time(m.at)));
+    return d;
+  }
   const kids = [];
   if (c.kind === 'group' && !mine && who && prev?.from !== m.from) kids.push(h('span', { class: 'who' }, who.name));
-  if (m.extra?.replyTo) { const q = state.msgs.find((x) => x.id === m.extra.replyTo); if (q) kids.push(h('span', { class: 'quote' }, preview(q))); }
-  if (m.kind === 'voice') kids.push(voiceBubble(m));
+  if (m.extra?.replyTo) {
+    const q = state.msgs.find((x) => x.id === m.extra.replyTo);
+    const qb = h('button', { type: 'button', class: 'quote' }, q ? preview(q) : '↩ an earlier message');
+    qb.addEventListener('click', () => scrollToMessage(m.extra.replyTo));
+    kids.push(qb);
+  }
+  if (m.kind === 'image' || m.kind === 'video') {
+    const ratio = m.extra?.w && m.extra?.h ? `aspect-ratio:${m.extra.w}/${m.extra.h}` : '';
+    const el = m.kind === 'image' ? h('img', { class: 'pic', src: m.media, loading: 'lazy', alt: m.text || 'Photo', style: ratio })
+      : h('video', { class: 'pic', src: m.media, controls: true, playsinline: true, preload: 'metadata', style: ratio });
+    if (m.kind === 'image') el.addEventListener('click', () => viewer(m));
+    kids.push(el);
+    if (m.text) kids.push(h('span', { class: 'cap' }, m.text));
+  } else if (m.kind === 'voice') kids.push(voiceBubble(m));
   else if (m.kind === 'file') kids.push(h('a', { class: 'file', href: m.media, target: '_blank', rel: 'noopener' }, `📄 ${m.extra?.name || 'File'}`, h('small', {}, ` ${Math.max(1, Math.round((m.extra?.size || 0) / 1024))} KB`)));
   else if (m.kind === 'card') {
     if (m.extra?.title) kids.push(h('span', { class: 'h' }, m.extra.title));
@@ -454,9 +625,39 @@ function bubble(m, prev) {
       if (m.extra?.replyTo) { const r = h('button', { type: 'button' }, '↩ Reply'); r.addEventListener('click', () => { state.replyTo = m; drawComposer(); document.querySelector('.compose textarea')?.focus(); }); acts.push(r); }
       if (acts.length) kids.push(h('div', { class: 'acts' }, acts));
     }
-  } else kids.push(m.text || '');
+  } else if (m.kind !== 'image' && m.kind !== 'video') kids.push(m.text || '');
   kids.push(meta);
-  return h('div', { class: `m ${mine ? 'out' : 'in'}${m.kind === 'card' ? ' card' : ''}` }, kids);
+  const reacts = Object.entries(m.extra?.reactions || {});
+  if (reacts.length) kids.push(h('div', { class: 'reacts' }, reacts.map(([e, ids]) => {
+    const b = h('button', { type: 'button', class: ids.includes(state.me.id) ? 'mine' : '', title: ids.map((id) => c.people.find((p) => p.id === id)?.name || '').join(', ') }, e, ids.length > 1 ? ` ${ids.length}` : '');
+    b.addEventListener('click', () => react(m, e));
+    return b;
+  })));
+  const el = h('div', { class: `m ${mine ? 'out' : 'in'}${m.kind === 'card' ? ' card' : ''}${m.kind === 'image' || m.kind === 'video' ? ' media' : ''}`, 'data-id': String(m.id) }, kids);
+  onHold(el, () => msgMenu(m));
+  return el;
+}
+
+const react = (m, emoji) => api(`/messages/${m.id}/react`, { method: 'POST', body: { emoji } }).catch((e) => toast(e.message, true));
+// Long-press a message: react, reply, copy, edit, pin, delete for everyone.
+function msgMenu(m) {
+  const c = state.cur, mine = m.from === state.me.id, mineEditable = mine && c.kind !== 'bot';
+  const pinned = (c.pins || []).some((p) => p.id === m.id);
+  const emojis = h('div', { class: 'emojis' }, REACTIONS.map((e) => {
+    const on = (m.extra?.reactions?.[e] || []).includes(state.me.id);
+    const b = h('button', { type: 'button', class: on ? 'on' : '', 'aria-label': `React ${e}` }, e);
+    b.addEventListener('click', () => { document.querySelector('.sheet')?.remove(); react(m, e); });
+    return b;
+  }));
+  sheet(null, [
+    emojis,
+    ['↩ Reply', () => { state.editing = null; state.replyTo = m; drawComposer(); document.querySelector('.compose textarea')?.focus(); }],
+    m.text ? ['⧉ Copy text', async () => { await navigator.clipboard.writeText(m.text); toast('Copied'); }] : null,
+    mineEditable && ['text', 'image', 'video'].includes(m.kind) ? ['✎ Edit', () => { state.replyTo = null; state.editing = m; drawComposer(); }] : null,
+    [pinned ? '📌 Unpin' : '📌 Pin', () => api(`/messages/${m.id}/pin`, { method: 'POST' }).then(() => toast(pinned ? 'Unpinned' : 'Pinned'))],
+    mineEditable ? ['🗑 Delete for everyone', async () => { if (!confirm('Delete this message for everyone? This can\'t be undone.')) return; await api(`/messages/${m.id}/delete`, { method: 'POST' }); }, { danger: true }] : null,
+    h('div', { class: 'mfoot' }, new Date(m.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }), m.extra?.edited ? ' · edited' : ''),
+  ]);
 }
 
 function drawMessages(stick, typingOnly) {
@@ -479,6 +680,7 @@ function drawMessages(stick, typingOnly) {
     nodes.push(bubble(m, prev)); prev = m;
   }
   if (!state.msgs.length) nodes.push(h('p', { class: 'empty' }, state.cur.kind === 'bot' ? `Type "help" to see what ${state.me.role === 'owner' ? 'your S20' : 'I'} can do.` : 'Say hi 👋'));
+  if (state.newer) { const b = h('button', { class: 'more', type: 'button' }, 'Latest messages ↓'); b.addEventListener('click', () => openConv(state.cur.id, true)); nodes.push(b); }
   const t = state.typing[state.cur.id];
   if (t && t.until > Date.now()) nodes.push(h('div', { class: 'typing-dots', 'aria-label': `${t.name} is typing` }, h('i'), h('i'), h('i')));
   box.replaceChildren(...nodes);
@@ -501,6 +703,11 @@ function drawComposer() {
     x.addEventListener('click', () => { state.replyTo = null; drawComposer(); });
     parts.push(h('div', { class: 'replying' }, h('span', {}, 'Replying to: ' + preview(state.replyTo)), x));
   }
+  if (state.editing) {
+    const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel editing' }, '✕');
+    x.addEventListener('click', () => { state.editing = null; drawComposer(); });
+    parts.push(h('div', { class: 'replying editing' }, h('span', {}, 'Editing: ' + preview(state.editing)), x));
+  }
   if (rec) {
     const cancel = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel recording' }, '✕');
     const send = h('button', { class: 'send', type: 'button', 'aria-label': 'Send voice note' }, '➤');
@@ -508,16 +715,17 @@ function drawComposer() {
     send.addEventListener('click', () => stopRec(true));
     parts.push(h('div', { class: 'compose' }, cancel, h('div', { class: 'rec' }, h('i'), h('span', { id: 'rect' }, '0:00'), h('div', { class: 'lvl' }, h('b', { id: 'recl' }))), send));
   } else {
-    const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
+    const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
+    if (state.editing) setTimeout(() => { ta.value = state.editing?.text || ''; sync(); ta.focus(); }, 0);
     const btn = h('button', { class: 'send', type: 'button', 'aria-label': 'Record a voice note' }, '🎤');
     let lastTyping = 0;
-    const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim(); btn.textContent = has ? '➤' : '🎤'; btn.setAttribute('aria-label', has ? 'Send' : 'Record a voice note'); };
+    const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim() || !!state.editing; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
     ta.addEventListener('input', () => {
       sync();
       if (c.kind !== 'bot' && Date.now() - lastTyping > 3000 && ta.value.trim()) { lastTyping = Date.now(); api(`/convs/${c.id}/typing`, { method: 'POST' }).catch(() => {}); }
     });
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !isIOS()) { e.preventDefault(); if (ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); } } });
-    btn.addEventListener('click', () => { if (ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); ta.focus(); } else startRec(); });
+    btn.addEventListener('click', () => { if (ta.value.trim() || state.editing) { sendText(ta.value); ta.value = ''; sync(); ta.focus(); } else startRec(); });
     // 📎 PDF (a resume) for the bot chat: the person's job agent receives it.
     let clip = null;
     if (c.kind === 'bot') {
@@ -534,6 +742,18 @@ function drawComposer() {
         clip.disabled = false;
       });
       clip = [pick, clip];
+    } else if (!state.editing) {
+      // 📎 in chats with people: photos and videos, or documents. The text box becomes the caption.
+      const media = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: '' });
+      const docs = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip', multiple: true, hidden: '' });
+      const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, '📎');
+      b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()]]));
+      for (const inp of [media, docs]) inp.addEventListener('change', async () => {
+        const files = [...(inp.files || [])].slice(0, 10); inp.value = '';
+        const caption = ta.value.trim(); if (files.length) { ta.value = ''; sync(); }
+        for (const [i, f] of files.entries()) await upload(c, f, i === 0 ? caption : '');
+      });
+      clip = [media, docs, b];
     }
     parts.push(h('div', { class: 'compose' }, ...(clip || []), ta, btn));
   }
@@ -541,10 +761,53 @@ function drawComposer() {
 }
 
 async function sendText(text) {
-  const t = text.trim(); if (!t || !state.cur) return;
+  const t = text.trim();
+  if (state.editing) {
+    const m = state.editing; state.editing = null; drawComposer();
+    if (t !== (m.text || '')) await api(`/messages/${m.id}/edit`, { method: 'POST', body: { text: t } }).catch((e) => toast(e.message, true));
+    return;
+  }
+  if (!t || !state.cur) return;
   const replyTo = state.replyTo?.id || null;
   state.replyTo = null; drawComposer();
   try { await api(`/convs/${state.cur.id}/messages`, { method: 'POST', body: { text: t, replyTo } }); }
+  catch (e) { toast(e.message, true); }
+}
+
+// Photos are shrunk on the device first (longest side 2048 px, JPEG): quicker to send, small on the server.
+async function shrink(file) {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') return { blob: file, type: file.type };
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
+  if (!bmp) return { blob: file, type: file.type };
+  const k = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * k), hh = Math.round(bmp.height * k);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+  cv.getContext('2d').drawImage(bmp, 0, 0, w, hh);
+  const blob = await new Promise((ok) => cv.toBlob(ok, 'image/jpeg', 0.85));
+  return blob ? { blob, type: 'image/jpeg', w, h: hh } : { blob: file, type: file.type };
+}
+const videoSize = (file) => new Promise((ok) => {
+  const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+  v.onloadedmetadata = () => { ok({ w: v.videoWidth, h: v.videoHeight }); URL.revokeObjectURL(v.src); };
+  v.onerror = () => ok({}); v.src = URL.createObjectURL(file);
+});
+const TYPES = { pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', zip: 'application/zip', doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+async function upload(c, file, caption) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  let { blob, type, w, h: hh } = await shrink(file);
+  if (!type || type === 'application/octet-stream') type = TYPES[ext] || type;
+  if (type.startsWith('video/')) ({ w, h: hh } = await videoSize(file));
+  const mb = blob.size / 1048576, max = type.startsWith('video/') ? 60 : type.startsWith('image/') ? 15 : 25;
+  if (mb > max) return toast(`${file.name} is ${mb.toFixed(0)} MB: the limit is ${max} MB.`, true);
+  toast(`Sending ${type.startsWith('image/') ? 'photo' : type.startsWith('video/') ? 'video' : file.name}…`);
+  const replyTo = state.replyTo?.id; state.replyTo = null; drawComposer();
+  const headers = { 'Content-Type': type, 'X-Filename': encodeURIComponent(file.name) };
+  if (caption) headers['X-Caption'] = encodeURIComponent(caption);
+  if (w && hh) { headers['X-Width'] = String(w); headers['X-Height'] = String(hh); }
+  try { await api(`/convs/${c.id}/upload${replyTo ? `?replyTo=${replyTo}` : ''}`, { method: 'POST', raw: blob, headers }); }
   catch (e) { toast(e.message, true); }
 }
 

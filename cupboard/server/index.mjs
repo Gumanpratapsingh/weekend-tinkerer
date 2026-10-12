@@ -5,7 +5,7 @@
 // All text is stored and sent as plain text; the web app inserts it as text, never as HTML.
 import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
-import { writeFileSync, statSync, createReadStream, existsSync } from 'node:fs';
+import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
 import * as push from './push.mjs';
@@ -91,9 +91,17 @@ function convSummary(convId, forUser) {
   const unread = one('SELECT count(*) AS n FROM messages WHERE conv_id = ? AND id > ? AND user_id != ?', convId, mine?.last_read || 0, forUser.id).n;
   const other = people.find((p) => p.id !== forUser.id);
   const title = c.kind === 'group' ? c.name : other?.name || 'Chat';
+  const set = one('SELECT muted_until, archived FROM members WHERE conv_id = ? AND user_id = ?', convId, forUser.id) || {};
+  const pins = all('SELECT m.* FROM pins p JOIN messages m ON m.id = p.msg_id WHERE p.conv_id = ? ORDER BY p.at DESC LIMIT 10', convId).map(rowToMsg);
   return { id: c.id, kind: c.kind, title, people: people.map(({ last_read, ...p }) => ({ ...p, lastRead: last_read })),
-    last: last ? rowToMsg(last) : null, unread, created: c.created };
+    last: last ? rowToMsg(last) : null, unread, created: c.created,
+    muted: set.muted_until > Date.now() ? set.muted_until : 0, archived: !!set.archived, pins };
 }
+// Tell every member that a chat's settings or pins changed (each gets their own view of it).
+function emitConv(convId) {
+  for (const uid of memberIds(convId)) { const u = one('SELECT * FROM users WHERE id = ?', uid); if (u.role !== 'bot') emit(uid, 'conv', { conv: convSummary(convId, u) }); }
+}
+const PUSH_LABEL = { voice: '🎤 Voice note', image: '📷 Photo', video: '🎥 Video', file: '📄 File' };
 
 /** Save a message and fan it out: live update to every member, push to members who are not looking. */
 async function postMessage(convId, fromId, { kind = 'text', text = null, media = null, duration = null, extra = null }) {
@@ -108,8 +116,10 @@ async function postMessage(convId, fromId, { kind = 'text', text = null, media =
     const u = one('SELECT * FROM users WHERE id = ?', uid);
     if (u.role === 'bot') continue;
     emit(uid, 'msg', { msg, conv: convSummary(convId, u) });
-    if (uid !== fromId && !isActive(uid)) {
-      const body = kind === 'voice' ? '🎤 Voice note' : (extra?.title ? `${extra.title}: ` : '') + (text || '');
+    const muted = (one('SELECT muted_until FROM members WHERE conv_id = ? AND user_id = ?', convId, uid)?.muted_until || 0) > now;
+    if (uid !== fromId && !isActive(uid) && !muted) {
+      const label = PUSH_LABEL[kind] ? `${PUSH_LABEL[kind]}${kind === 'file' && extra?.name ? ` · ${extra.name}` : ''}${text ? `: ${text}` : ''}` : null;
+      const body = label || (extra?.title ? `${extra.title}: ` : '') + (text || '');
       push.notify(uid, { title: conv.kind === 'group' ? `${from.name} · ${conv.name}` : from.name, body: body.slice(0, 180), url: `/c/${convId}`, tag: `c${convId}` });
     }
   }
@@ -151,7 +161,7 @@ function openDm(a, b) {
 }
 
 // Streams a voice note with Range support (iOS Safari needs it to play audio).
-function sendMedia(req, res, file, type) {
+function sendMedia(req, res, file, type, downloadName) {
   const size = statSync(file).size;
   const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
   let start = 0, end = size - 1;
@@ -160,10 +170,22 @@ function sendMedia(req, res, file, type) {
     end = r[1] && r[2] ? Math.min(Number(r[2]), size - 1) : size - 1;
     if (start > end || start >= size) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
   }
-  res.writeHead(r ? 206 : 200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1,
-    'Cache-Control': 'private, max-age=31536000, immutable', ...(r && { 'Content-Range': `bytes ${start}-${end}/${size}` }) });
+  // Documents always download (never rendered as a page from our origin); photos, videos and audio show inline.
+  const inline = /^(image|video|audio)\//.test(type);
+  res.writeHead(r ? 206 : 200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1, 'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, max-age=31536000, immutable', ...(r && { 'Content-Range': `bytes ${start}-${end}/${size}` }),
+    ...(!inline && { 'Content-Disposition': `attachment; filename="${String(downloadName || 'file').replace(/[^\w .()-]/g, '_')}"` }) });
   createReadStream(file, { start, end }).pipe(res);
 }
+// What can be shared in chats (an allow-list: no HTML, SVG or scripts, which would run from our own origin).
+const IMAGES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+const VIDEOS = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
+const DOCS = { 'application/pdf': 'pdf', 'text/plain': 'txt', 'text/csv': 'csv', 'application/zip': 'zip',
+  'application/msword': 'doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-powerpoint': 'ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx' };
+const LIMIT_MB = { image: 15, video: 60, file: 25 };
+const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 const AUDIO = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/webm': 'webm', 'audio/ogg': 'ogg' };
 
 // ---------- routes ----------
@@ -288,6 +310,12 @@ async function api(req, res, path, query) {
     if (!canSee(me, convId)) throw err(404, 'Not found.');
     const conv = one('SELECT * FROM convs WHERE id = ?', convId);
     if (M === 'GET' && sub === '') return send(res, 200, { conv: convSummary(convId, me) });
+    if (M === 'GET' && sub === '/messages' && query.around) {          // a search result or pinned message: the messages around it
+      const at = Number(query.around);
+      const older = all('SELECT * FROM messages WHERE conv_id = ? AND id <= ? ORDER BY id DESC LIMIT 40', convId, at).reverse();
+      const newer = all('SELECT * FROM messages WHERE conv_id = ? AND id > ? ORDER BY id LIMIT 40', convId, at);
+      return send(res, 200, { messages: [...older, ...newer].map(rowToMsg), more: older.length === 40, newer: newer.length === 40 });
+    }
     if (M === 'GET' && sub === '/messages') {
       const before = Number(query.before) || Number.MAX_SAFE_INTEGER;
       const rows = all('SELECT * FROM messages WHERE conv_id = ? AND id < ? ORDER BY id DESC LIMIT 60', convId, before).reverse();
@@ -338,6 +366,42 @@ async function api(req, res, path, query) {
       });
       return send(res, 200, { msg });
     }
+    // Photos, videos and documents in person-to-person chats and groups (the bot chat keeps /file for the job agent).
+    if (M === 'POST' && sub === '/upload') {
+      if (conv.kind === 'bot') throw err(400, 'Send files to your bot with the 📎 button.');
+      if (!rateOk(me.id)) throw err(429, 'Slow down a little.');
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      const kind = IMAGES[type] ? 'image' : VIDEOS[type] ? 'video' : DOCS[type] ? 'file' : null;
+      if (!kind) throw err(415, 'That kind of file can\'t be shared here (photos, videos, PDF, Office, text, CSV or ZIP).');
+      if (Number(req.headers['content-length']) > LIMIT_MB[kind] * 1048576) throw err(413, `Too large: up to ${LIMIT_MB[kind]} MB for a ${kind === 'file' ? 'document' : kind}.`);
+      const buf = await readRaw(req, LIMIT_MB[kind] * 1048576);
+      if (buf.length < 16) throw err(400, 'That file is empty.');
+      const dec = (h) => { try { return decodeURIComponent(String(req.headers[h] || '')); } catch { return ''; } };
+      const name = dec('x-filename').replace(/[^\w .()-]/g, '').slice(0, 80) || `${kind}.${(IMAGES[type] || VIDEOS[type] || DOCS[type])}`;
+      const caption = dec('x-caption').trim().slice(0, 1000) || null;
+      const dim = (h) => Math.max(0, Math.min(20000, Number(req.headers[h]) || 0)) || undefined;
+      const file = `${randomBytes(12).toString('hex')}.${IMAGES[type] || VIDEOS[type] || DOCS[type]}`;
+      writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
+      const msg = await postMessage(convId, me.id, { kind, text: caption, media: `${file}|${type}`,
+        extra: { name, size: buf.length, w: dim('x-width'), h: dim('x-height'), ...(Number(query.replyTo) ? { replyTo: Number(query.replyTo) } : {}) } });
+      return send(res, 200, { msg });
+    }
+    if (M === 'GET' && sub === '/media') {                  // the chat's gallery: photos and videos, and documents
+      const rows = all("SELECT * FROM messages WHERE conv_id = ? AND kind IN ('image','video','file') AND media IS NOT NULL ORDER BY id DESC LIMIT 300", convId);
+      return send(res, 200, { media: rows.map(rowToMsg) });
+    }
+    if (M === 'POST' && sub === '/settings') {              // mute (hours, or -1 for always; 0 = unmute) and archive, for me only
+      const b = await readJson(req, 200);
+      if (b.mute !== undefined) {
+        const hours = Number(b.mute);
+        const until = hours === -1 ? 8.64e15 : hours > 0 ? Date.now() + Math.min(hours, 24 * 365) * 3600e3 : 0;
+        run('UPDATE members SET muted_until = ? WHERE conv_id = ? AND user_id = ?', until, convId, me.id);
+      }
+      if (b.archived !== undefined) run('UPDATE members SET archived = ? WHERE conv_id = ? AND user_id = ?', b.archived ? 1 : 0, convId, me.id);
+      const c = convSummary(convId, me);
+      emit(me.id, 'conv', { conv: c });
+      return send(res, 200, { conv: c });
+    }
     if (M === 'POST' && sub === '/read') {
       const b = await readJson(req, 200);
       const upTo = Math.min(Number(b.upTo) || 0, one('SELECT coalesce(max(id), 0) AS n FROM messages WHERE conv_id = ?', convId).n);
@@ -349,6 +413,70 @@ async function api(req, res, path, query) {
       for (const uid of memberIds(convId)) if (uid !== me.id) emit(uid, 'typing', { conv: convId, user: me.id, name: me.name });
       return send(res, 200, { ok: true });
     }
+  }
+
+  // ----- reactions, edit, delete for everyone, pin -----
+  if ((m = /^\/api\/messages\/(\d+)\/(react|edit|delete|pin)$/.exec(path)) && M === 'POST') {
+    const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));
+    if (!row || !canSee(me, row.conv_id)) throw err(404, 'Not found.');
+    const ckind = one('SELECT kind FROM convs WHERE id = ?', row.conv_id).kind;
+    const b = await readJson(req, 6000);
+    const extra = row.extra ? JSON.parse(row.extra) : {};
+    const save = (fields) => {
+      const cols = Object.keys(fields);
+      run(`UPDATE messages SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, ...cols.map((c) => fields[c]), row.id);
+      const msg = rowToMsg(one('SELECT * FROM messages WHERE id = ?', row.id));
+      for (const uid of memberIds(row.conv_id)) emit(uid, 'update', { msg });
+      return msg;
+    };
+    if (m[2] === 'react') {                                 // one reaction per person; the same emoji again takes it back
+      if (row.kind === 'deleted') throw err(400, 'That message was deleted.');
+      const emoji = String(b.emoji || '');
+      if (emoji && !REACTIONS.includes(emoji)) throw err(400, 'Unknown reaction.');
+      const r = extra.reactions || {}, had = (r[emoji] || []).includes(me.id);
+      for (const k of Object.keys(r)) { r[k] = r[k].filter((id) => id !== me.id); if (!r[k].length) delete r[k]; }
+      if (emoji && !had) r[emoji] = [...(r[emoji] || []), me.id];
+      return send(res, 200, { msg: save({ extra: JSON.stringify({ ...extra, reactions: r }) }) });
+    }
+    if (m[2] === 'pin') {
+      if (row.kind === 'deleted') throw err(400, 'That message was deleted.');
+      if (one('SELECT 1 FROM pins WHERE conv_id = ? AND msg_id = ?', row.conv_id, row.id)) run('DELETE FROM pins WHERE conv_id = ? AND msg_id = ?', row.conv_id, row.id);
+      else {
+        if (one('SELECT count(*) AS n FROM pins WHERE conv_id = ?', row.conv_id).n >= 10) throw err(400, 'Up to 10 pinned messages per chat. Unpin one first.');
+        run('INSERT INTO pins(conv_id, msg_id, by, at) VALUES(?,?,?,?)', row.conv_id, row.id, me.id, Date.now());
+      }
+      emitConv(row.conv_id);
+      return send(res, 200, { ok: true });
+    }
+    // Edit and delete: only your own messages, and not in a bot chat (the job agent has already acted on them).
+    if (row.user_id !== me.id) throw err(403, 'You can only change your own messages.');
+    if (ckind === 'bot') throw err(400, 'Messages to your bot can\'t be changed.');
+    if (row.kind === 'deleted') throw err(400, 'That message was deleted.');
+    if (m[2] === 'edit') {
+      if (row.kind !== 'text' && row.kind !== 'image' && row.kind !== 'video') throw err(400, 'Only text and captions can be edited.');
+      const text = String(b.text || '').trim().slice(0, 4000);
+      if (!text && row.kind === 'text') throw err(400, 'Empty message.');
+      return send(res, 200, { msg: save({ text: text || null, extra: JSON.stringify({ ...extra, edited: Date.now() }) }) });
+    }
+    // delete for everyone: the bubble stays as "This message was deleted"; the text and any file are gone for good
+    if (row.media) { try { unlinkSync(join(MEDIA, row.media.split('|')[0])); } catch { /* already gone */ } }
+    run('DELETE FROM pins WHERE msg_id = ?', row.id);
+    const msg = save({ kind: 'deleted', text: null, media: null, duration: null, extra: JSON.stringify({ deleted: Date.now() }) });
+    emitConv(row.conv_id);
+    return send(res, 200, { msg });
+  }
+
+  // ----- search across all my chats (text, captions, file names) -----
+  if (M === 'GET' && path === '/api/search') {
+    const q = String(query.q || '').trim().slice(0, 60);
+    if (q.length < 2) return send(res, 200, { results: [] });
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    const rows = all(`SELECT m.* FROM messages m JOIN members mb ON mb.conv_id = m.conv_id AND mb.user_id = ?
+      WHERE m.kind IN ('text','card','image','video','file') AND (m.text LIKE ? ESCAPE '\\' OR json_extract(m.extra, '$.name') LIKE ? ESCAPE '\\')
+      ORDER BY m.id DESC LIMIT 60`, me.id, like, like);
+    const titles = new Map();
+    const title = (id) => { if (!titles.has(id)) titles.set(id, convSummary(id, me).title); return titles.get(id); };
+    return send(res, 200, { results: rows.map((r) => ({ msg: rowToMsg(r), title: title(r.conv_id) })) });
   }
 
   if ((m = /^\/api\/messages\/(\d+)\/action$/.exec(path)) && M === 'POST') {
@@ -427,7 +555,7 @@ async function api(req, res, path, query) {
     const [file, type] = row.media.split('|');
     const full = join(MEDIA, file);
     if (!existsSync(full)) throw err(404, 'Not found.');
-    return sendMedia(req, res, full, type);
+    return sendMedia(req, res, full, type, row.extra ? JSON.parse(row.extra).name : null);
   }
 
   throw err(404, 'Not found.');

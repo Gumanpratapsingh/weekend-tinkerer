@@ -28,7 +28,12 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_conv ON messages (conv_id, id);
 CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user_id INTEGER NOT NULL, sub TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS pins (conv_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, by INTEGER, at INTEGER NOT NULL, PRIMARY KEY (conv_id, msg_id));
 `);
+// Per-person chat settings (added later): mute until a time (0 = not muted), archived.
+for (const sql of ['ALTER TABLE members ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE members ADD COLUMN archived INTEGER NOT NULL DEFAULT 0']) {
+  try { db.exec(sql); } catch { /* column already there */ }
+}
 
 export const one = (sql, ...a) => db.prepare(sql).get(...a);
 export const all = (sql, ...a) => db.prepare(sql).all(...a);
