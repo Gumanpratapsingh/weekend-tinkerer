@@ -20,6 +20,11 @@ const SEED_BASE = [
 ];
 
 const words = (s) => new Set(norm(s).split(' ').filter((w) => w.length > 2));
+// Filler words: two questions that differ only in these mean the same thing; any other differing word (a skill name,
+// a company, a number) means they don't ("years with Kotlin" must never reuse the answer to "years with React").
+const GENERIC = /^(the|and|or|a|an|any|of|do|you|have|has|your|how|many|much|what|is|are|with|in|on|for|production|development|developing|experience|tools?|core|advanced|basic|hooks|v\d+\+?|technologies|technology|frameworks?|framework|languages?|language|platforms?|systems?|projects?|work|working|using|years?|professional|hands|similar|like|such|as|etc|other|related|based|apps?|applications?|testing|software|programming|coding)$/i;
+const FILLER = /^(please|select|enter|provide|share|tell|us|me|kindly|total|overall|relevant|work|professional|currently|current|in|at|to|for|by|from|this|that|our|role|position|job|company|here|below|above|following|answer|question|mandatory|required|optional|only|whole|numbers?|allowed|approx|approximately|years?|months?|yrs|days?|weeks?|number)$/i;
+const sameMeaning = (a, b) => { const A = words(a), B = words(b); for (const w of [...A, ...B]) if (!(A.has(w) && B.has(w)) && !GENERIC.test(w) && !FILLER.test(w)) return false; return true; };
 function similarity(a, b) {
   const A = words(a), B = words(b);
   if (!A.size || !B.size) return 0;
@@ -97,7 +102,7 @@ export async function resolve(items, context = '') {
       continue;
     }
     const exact = known.find((k) => norm(k.question) === norm(it.label));
-    const near = exact || known.map((k) => [k, similarity(k.question, it.label)]).filter(([, s]) => s >= 0.75).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const near = exact || known.map((k) => [k, similarity(k.question, it.label)]).filter(([k, s]) => s >= 0.75 && sameMeaning(k.question, it.label)).sort((a, b) => b[1] - a[1])[0]?.[0];
     if (near && fits(near.answer, it)) { answers[it.key] = coerce(near.answer, it); used(near.id); }
     else pending.push(it);
   }
@@ -165,7 +170,6 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
   // Hard check, not left to the AI (it once answered "2 years" of Kotlin for someone who never used it): a question about a
   // skill that appears nowhere in the resume or the saved answers is always turned into the short question.
   const seen = `${JSON.stringify([m.skills, m.experience, m.projects])} ${known.map((k) => `${k.question} ${k.answer}`).join(' ')}`.toLowerCase();
-  const GENERIC = /^(the|and|or|a|an|any|of|do|you|have|has|your|how|many|much|what|is|are|with|in|on|for|production|development|developing|experience|tools?|core|advanced|basic|hooks|v\d+\+?|technologies|technology|frameworks?|framework|languages?|language|platforms?|systems?|projects?|work|working|using|years?|professional|hands|similar|like|such|as|etc|other|related|based|apps?|applications?|testing|software|programming|coding)$/i;
   const unseenSkill = (label) => {
     if (!/experience|years?|worked|work(ing)? (on|with)|familiar|proficien|knowledge|expertise|exposure|hands-on|used/i.test(label)) return null;
     // The skill is what follows the LAST "with/in/on/using" ("years of experience do you have with Kotlin" -> "Kotlin").
@@ -211,6 +215,16 @@ function pickOption(answer, options) {
 }
 function coerce(answer, it) {
   if (it.options?.length) return pickOption(answer, it.options) || answer;
+  // Durations: convert between units when the form names one ("1 Month" for "in days" -> 30); keep the unit when it doesn't
+  // ("1 Month" for "Notice period?" stays "1 Month", never a bare "1").
+  const UNIT = { day: 1, week: 7, month: 30, year: 365 };
+  const ua = /\b(day|week|month|year)s?\b/i.exec(String(answer))?.[1]?.toLowerCase();
+  const ul = /\b(day|week|month|year)s?\b/i.exec(it.label)?.[1]?.toLowerCase();
+  if (ua && !/ctc|salary|lpa/i.test(it.label)) {
+    const n = parseFloat(String(answer).match(/\d+(\.\d+)?/)?.[0]);
+    if (!ul && it.type !== 'number' && Number.isFinite(n)) return String(answer);
+    if (ul && ul !== ua && Number.isFinite(n) && !/\d+\D+\d+/.test(String(answer))) return String(Math.round((n * UNIT[ua]) / UNIT[ul]));
+  }
   // Number-only fields (CTC in lakhs, years, notice days): "15-16 LPA fixed" -> "16", "2+ years" -> "2".
   if (!/phone|mobile|contact/i.test(it.label)
       && /ctc|salary|compensation|lacs?|lakhs?|lpa|years?|experience|notice|days|months|number|how many|gpa|cgpa|percentage/i.test(it.label)
