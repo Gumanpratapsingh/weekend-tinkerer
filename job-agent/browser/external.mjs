@@ -6,7 +6,7 @@ import { fillForm, captchaVisible } from './forms.mjs';
 import ats from './ats.mjs';
 
 // Sites that require creating a candidate account before applying.
-const ACCOUNT_WALL = /myworkdayjobs|workday\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
+const ACCOUNT_WALL = /myworkdayjobs|myworkdaysite|workday\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
@@ -90,6 +90,14 @@ export default {
 
       // Follow Apply links/buttons (new tabs included) until a form shows up. At most 4 hops.
       for (let hop = 0; hop < 4; hop++) {
+        // Still on the job board (Naukri / LinkedIn) while the company site opened in another tab, sometimes seconds later
+        // (Naukri shows "You were redirected to the company website"): switch to that tab.
+        if (/naukri\.com|linkedin\.com/.test(page.url())) {
+          const offBoard = () => ctx.pages().filter((p) => p !== page && !p.isClosed() && /^https?:/.test(p.url()) && !TRACKER.test(p.url()) && !/naukri\.com|linkedin\.com/.test(p.url())).at(-1);
+          for (let w = 0; w < 15 && !offBoard() && /showAcp|redirected to the company/i.test(page.url() + (await page.innerText('body').catch(() => '')).slice(0, 600)); w++) await page.waitForTimeout(1000);
+          const other = offBoard();
+          if (other) { progress(`Company site: switching to the company tab ${other.url().slice(0, 90)}`); page = other; await page.waitForLoadState('domcontentloaded').catch(() => {}); await page.waitForTimeout(2000); }
+        }
         const url = page.url();
         progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
         // Bot-check walls (DataDome, Cloudflare, "verify you are human"): hand to the owner's CAPTCHA list.
@@ -109,9 +117,13 @@ export default {
         if (/no longer (accepting|available)|position (has been )?(filled|closed)|job (is )?(closed|expired)/i.test(await page.innerText('body').catch(() => ''))) return { status: 'closed' };
 
         // A form embedded in an iframe: open the iframe's page directly.
-        const frameUrl = await page.evaluate(() => [...document.querySelectorAll('iframe')].map((f) => f.src)
-          .find((s) => /greenhouse|lever|ashby|workable|smartrecruiters|recruitee|bamboohr|breezy|teamtailor|personio|zohorecruit|apply|career|job/i.test(s || '')));
-        if (frameUrl && !/recaptcha|hcaptcha/.test(frameUrl)) { await page.goto(frameUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(2500); continue; }
+        // Only visible frames, never trackers (LinkedIn job pages carry a hidden doubleclick frame whose URL mentions
+        // "/jobs/": following it lost 27 applications), and only frames that look like an application form.
+        const frameUrl = (await page.evaluate(() => [...document.querySelectorAll('iframe')]
+          .filter((f) => { const r = f.getBoundingClientRect(); return r.width > 200 && r.height > 150; }).map((f) => f.src)).catch(() => []))
+          .find((u) => /^https?:/.test(u || '') && !TRACKER.test(u) && !/recaptcha|hcaptcha|youtube|vimeo|maps\.google|facebook|twitter|linkedin\.com/i.test(u)
+            && /greenhouse|lever|ashby|workable|smartrecruiters|recruitee|bamboohr|breezy|teamtailor|personio|zohorecruit|\/apply|application|careers?\//i.test(u));
+        if (frameUrl) { await page.goto(frameUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(2500); continue; }
 
         const f = await formScore(page);
         if (f.hasPassword && !f.hasFile) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
@@ -119,7 +131,7 @@ export default {
 
         // Let single-page career sites finish rendering; decline cookie banners (privacy-friendly) so they don't cover buttons.
         await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => {});
-        await page.locator('button, a').filter({ hasText: /^(reject all|decline( all)?|only (necessary|essential)|necessary only|accept necessary)/i }).first().click({ timeout: 2000 }).catch(() => {});
+        await page.locator('button, a').filter({ hasText: /^\s*(reject all|decline|only (necessary|essential)|necessary only|accept necessary)/i }).first().click({ timeout: 2000 }).catch(() => {});
         await page.mouse.wheel(0, 900).catch(() => {}); await page.waitForTimeout(800); await page.mouse.wheel(0, -900).catch(() => {});
 
         // Click the most likely Apply control (best-ranked first); follow a popup if it opens one.
@@ -144,7 +156,11 @@ export default {
           const opened = [];
           const onPage = (pg) => opened.push(pg);
           ctx.on('page', onPage);
-          await el.click({ timeout: 8000 }).catch(() => {});
+          // A cookie banner or overlay can swallow the click: decline cookies, then press it anyway.
+          await el.click({ timeout: 8000 }).catch(async () => {
+            await page.locator('button, a').filter({ hasText: /^\s*(reject all|decline|only (necessary|essential)|necessary only|accept necessary)/i }).first().click({ timeout: 2000 }).catch(() => {});
+            await el.click({ timeout: 5000 }).catch(() => el.click({ force: true, timeout: 5000 }).catch(() => {}));
+          });
           // LinkedIn asks "Share your profile?" before sending people to the company site: Continue opens it.
           const share = page.locator('[role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button').filter({ hasText: /^\s*continue\s*$/i }).first();
           if (/linkedin\.com/.test(page.url()) && await share.isVisible({ timeout: 3000 }).catch(() => false)) {
