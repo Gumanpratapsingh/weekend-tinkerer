@@ -15,6 +15,59 @@ function h(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
   return el;
 }
+// ---------- icons: one set of thin line icons, drawn inline (no emoji in the interface chrome) ----------
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  cal: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8 3v4M16 3v4"/>',
+  brief: '<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M3 13h18"/>',
+  compose: '<path d="M11 5H7a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h9a3 3 0 0 0 3-3v-4"/><path d="M17.5 3.5l3 3L12 15l-4 1 1-4z"/>',
+  sliders: '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2" fill="var(--bg)"/><circle cx="15" cy="16" r="2.2" fill="var(--bg)"/>',
+  chat: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-4 3.5V17H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>',
+  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  spark: '<path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  eye: '<path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.8"/>',
+  bot: '<rect x="5" y="8" width="14" height="11" rx="3.5"/><path d="M12 4v4M9.5 13.5v1M14.5 13.5v1"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+  users: '<circle cx="9" cy="9" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="10" r="2.3"/><path d="M16.5 14.5A4.5 4.5 0 0 1 21 19"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  fwd: '<path d="M9 5l7 7-7 7"/>',
+  more: '<circle cx="12" cy="5.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  send: '<path d="M12 19V6M6 11.5l6-6 6 6"/>',
+  clip: '<path d="M20 11.5l-7.8 7.8a4.5 4.5 0 0 1-6.4-6.4l8.2-8.2a3 3 0 0 1 4.2 4.2l-8.2 8.2a1.5 1.5 0 0 1-2.1-2.1l7.4-7.4"/>',
+  bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  bellOff: '<path d="M6 16v-5a6 6 0 0 1 9.5-4.8M18 11v5l1.5 2H8"/><path d="M10 20.5a2 2 0 0 0 4 0M4 4l16 16"/>',
+  archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
+  doc: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5"/>',
+  list: '<path d="M4 7l1.5 1.5L8 6M4 13l1.5 1.5L8 12M4 19l1.5 1.5L8 18M11 7h9M11 13h9M11 19h9"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  reply: '<path d="M10 7L5 12l5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  edit: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/>',
+  pin: '<path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/>',
+  trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
+  camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  forward: '<path d="M14 7l5 5-5 5"/><path d="M19 12h-8a6 6 0 0 0-6 6"/>',
+  video: '<rect x="3" y="6.5" width="12" height="11" rx="2.5"/><path d="M15 11l6-3.5v9L15 13z"/>',
+};
+function ic(name, cls) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  el.setAttribute('viewBox', '0 0 24 24'); el.setAttribute('aria-hidden', 'true'); el.setAttribute('class', 'ic' + (cls ? ' ' + cls : ''));
+  el.innerHTML = ICONS[name] || '';                       // our own constants, never user text
+  return el;
+}
+// A leading emoji in a menu label becomes the matching line icon.
+const EMOJI_ICON = { '🖼': 'image', '🔍': 'search', '🔕': 'bellOff', '🔔': 'bell', '🗄': 'archive', '📤': 'archive', '↩': 'reply', '⧉': 'copy', '✎': 'edit',
+  '📌': 'pin', '🗑': 'trash', '📷': 'camera', '📄': 'doc', '📝': 'list', '⏰': 'clock', '💬': 'chat', '＋': 'plus' };
+function withIcon(label) {
+  const m = /^(\S+)\s+([\s\S]*)$/.exec(String(label));
+  return m && EMOJI_ICON[m[1]] ? [ic(EMOJI_ICON[m[1]]), h('span', {}, m[2])] : [String(label)];
+}
+
 let toastT;
 function toast(msg, bad = false) {
   const t = document.getElementById('toast');
@@ -35,11 +88,20 @@ async function api(path, { method = 'GET', body, raw, headers = {} } = {}) {
   return data;
 }
 const initials = (name) => (name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-const kind = (id) => 'k' + ((id || 0) % 4);
+const kind = (id) => 't-' + ['blue', 'green', 'orange', 'purple', 'teal', 'pink'][(id || 0) % 6];
+// Avatars: soft tinted circles. System chats carry a line glyph, people their initials.
+const SYSTEM_CHATS = [[/^her activity/i, 'eye', 'purple'], [/^health & glow/i, 'heart', 'green'], [/^assistant/i, 'spark', 'orange'], [/^our corner/i, 'moon', 'pink']];
+const stripEmoji = (t) => String(t).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '').replace(/\s+/g, ' ').trim();
+// Built-in chats carry a decorative emoji in their name; the avatar already says it, so the list shows the plain name.
+const chatTitle = (c) => (SYSTEM_CHATS.some(([re]) => re.test(c.title || '')) ? stripEmoji(c.title) || c.title : c.title);
 function avatar(conv, small) {
-  if (conv.kind === 'bot') return h('div', { class: 'av bot' + (small ? ' sm' : '') }, 'S20');
+  const sz = small ? ' sm' : '';
+  if (conv.kind === 'bot') return h('div', { class: 'av t-red' + sz }, ic('bot'));
+  const sys = SYSTEM_CHATS.find(([re]) => re.test(conv.title || ''));
+  if (sys) return h('div', { class: `av t-${sys[2]}${sz}` }, ic(sys[1]));
+  if (conv.kind === 'group') return h('div', { class: 'av t-blue' + sz }, ic('users'));
   const other = conv.people?.find((p) => p.id !== state.me.id);
-  return h('div', { class: `av ${conv.kind === 'group' ? 'k3' : kind(other?.id)}${small ? ' sm' : ''}` }, initials(conv.title));
+  return h('div', { class: `av ${kind(other?.id)}${sz}` }, initials(conv.title));
 }
 const time = (t) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
 function when(t) {
@@ -262,7 +324,7 @@ const screens = {
     let info;
     try { info = await api(base); } catch (e) { app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Sign in')), h('div', { class: 'page' }, h('p', { class: 'lede' }, e.message))); return; }
     const site = { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
-    const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, '←');
+    const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back'));
     const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the phone browser…');
     const img = h('img', { class: 'screen', alt: `${site} on the phone's browser`, draggable: 'false' });
     const box = h('input', { type: 'text', autocapitalize: 'none', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false', placeholder: 'Type here, then Send' });
@@ -299,25 +361,24 @@ const screens = {
     const tabs = [['overview', 'Overview'], ['jobs', 'Jobs'], ['questions', 'Questions'], ['referrals', 'Referrals'], ['live', 'Live']];
     const body = h('div', { class: 'scroll jd', id: 'jd' }, h('p', { class: 'loading' }, 'Loading…'));
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'),
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')),
         h('div', { class: 't' }, h('b', {}, 'Job search'), h('small', { id: 'jdsub' }, 'your job agent'))),
       h('nav', { class: 'jtabs' }, tabs.map(([k, l]) => h('a', { href: k === 'overview' ? '/jobs' : `/jobs/${k}`, 'data-link': true, class: k === r.tab ? 'on' : '' }, l))),
-      body);
+      body, tabbar('jobs'));
     if (state.jobName) document.getElementById('jdsub').textContent = `${state.jobName}'s job agent`;
     try { await jobTabs[r.tab](body); } catch (e) { body.replaceChildren(h('p', { class: 'loading' }, e.message)); }
   },
 
   list() {
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('div', { class: 't' }, h('h1', {}, 'Cupboard'), h('small', { id: 'phone' }, 'served from home')),
-        h('a', { class: 'icon', href: '/search', 'data-link': true, 'aria-label': 'Search messages', title: 'Search' }, '🔍'),
-        h('a', { class: 'icon', href: '/together', 'data-link': true, 'aria-label': 'Lists and calendar', title: 'Lists and calendar' }, '🗓'),
-        h('a', { class: 'icon', href: '/jobs', 'data-link': true, 'aria-label': 'Job search', title: 'Job search' }, '💼'),
-        h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, '✎'),
-        h('a', { class: 'icon', href: '/me', 'data-link': true, 'aria-label': 'Settings', title: 'Settings' }, '⚙')),
-      h('div', { class: 'scroll', id: 'list' }));
+      h('div', { class: 'lhead' }, h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, ic('compose'))),
+      h('div', { class: 'scroll' },
+        h('div', { class: 'ltitle' }, h('h1', {}, 'Chats'), h('small', { id: 'phone' }, 'served from home')),
+        h('a', { class: 'lsearch', href: '/search', 'data-link': true, 'aria-label': 'Search messages' }, ic('search'), 'Search'),
+        h('div', { id: 'list' })),
+      tabbar('chats'));
     drawList();
-    api('/status').then((s) => { const el = document.getElementById('phone'); if (el && s.battery != null) el.textContent = `served from home · 🔋${s.battery}% · ${Math.round(s.tempC)}°C`; }).catch(() => {});
+    api('/status').then((s) => { const el = document.getElementById('phone'); if (el && s.battery != null) el.textContent = `served from home · battery ${s.battery}% · ${Math.round(s.tempC)}°C`; }).catch(() => {});
   },
 
   async chat(r) {
@@ -334,7 +395,7 @@ const screens = {
 
   archived() {
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Archived'), h('small', {}, 'new messages keep them here; long-press a chat to unarchive'))),
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Archived'), h('small', {}, 'new messages keep them here; long-press a chat to unarchive'))),
       h('div', { class: 'scroll', id: 'list' }));
     drawList();
   },
@@ -357,7 +418,7 @@ const screens = {
       }) : [h('p', { class: 'empty' }, 'Nothing found.')]));
     };
     q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 300); });
-    app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Search'))),
+    app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Search'))),
       h('div', { class: 'scroll' }, h('div', { class: 'jpad' }, q), out));
     q.focus();
   },
@@ -374,12 +435,12 @@ const screens = {
       return tile;
     }));
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: `/c/${r.id}`, 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Media and files'), h('small', {}, conv.title))),
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: `/c/${r.id}`, 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Media and files'), h('small', {}, conv.title))),
       h('div', { class: 'scroll' },
         h('div', { class: 'sec pad' }, `Photos and videos (${visual.length})`), visual.length ? grid : h('p', { class: 'soft pad' }, 'None yet.'),
         h('div', { class: 'sec pad' }, `Documents (${docs.length})`),
         ...(docs.length ? docs.map((m) => h('a', { class: 'row', href: m.media, download: m.extra?.name || '' },
-          h('div', { class: 'av k2' }, '📄'), h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, m.extra?.name || 'File'), h('small', {}, when(m.at))),
+          h('div', { class: 'av t-orange' }, ic('doc')), h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, m.extra?.name || 'File'), h('small', {}, when(m.at))),
             h('div', { class: 'prev' }, h('span', {}, `${Math.max(1, Math.round((m.extra?.size || 0) / 1024))} KB`)))))
           : [h('p', { class: 'soft pad' }, 'None yet.')])));
   },
@@ -402,9 +463,9 @@ const screens = {
       } catch (e) { toast(e.message, true); } finally { mk.disabled = false; }
     });
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'New chat'))),
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'New chat'))),
       h('div', { class: 'scroll' },
-        h('a', { class: 'row', href: '/group', 'data-link': true }, h('div', { class: 'av k3' }, '+'), h('div', { class: 'mid' }, h('div', { class: 'name' }, 'New group'), h('div', { class: 'prev' }, h('span', {}, 'Chat with several friends')))),
+        h('a', { class: 'row', href: '/group', 'data-link': true }, h('div', { class: 'av t-blue' }, ic('plus')), h('div', { class: 'mid' }, h('div', { class: 'name' }, 'New group'), h('div', { class: 'prev' }, h('span', {}, 'Chat with several friends')))),
         ...state.users.map((u) => {
           const b = h('button', { class: 'row', type: 'button' }, h('div', { class: `av ${kind(u.id)}` }, initials(u.name)), h('div', { class: 'mid' }, h('div', { class: 'name' }, u.name), h('div', { class: 'prev' }, h('span', {}, '@' + u.username))));
           b.addEventListener('click', async () => { const { conv } = await api('/convs', { method: 'POST', body: { members: [u.id] } }); upsertConv(conv); go(`/c/${conv.id}`); });
@@ -430,7 +491,7 @@ const screens = {
         upsertConv(conv); go(`/c/${conv.id}`, true);
       } catch (x) { err.textContent = x.message; } finally { b.disabled = false; }
     });
-    app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/new', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'New group'))), h('div', { class: 'page' }, f));
+    app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/new', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'New group'))), h('div', { class: 'page' }, f));
   },
 
   async me() {
@@ -480,7 +541,7 @@ const screens = {
     });
     paintDevices();
     app.replaceChildren(
-      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Settings'))),
+      h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Settings'))),
       h('div', { class: 'page' },
         h('h2', {}, state.me.name), h('p', { class: 'lede' }, '@' + state.me.username + (owner ? ' · owner' : '')),
         h('div', { class: 'sec' }, 'Notifications'),
@@ -493,11 +554,20 @@ const screens = {
         devBox, addDev, devOut,
         h('div', { class: 'sec' }, 'Privacy'),
         h('p', { class: 'lede' }, 'Messages and voice notes are stored on Guman\'s S20 phone server. They are not end-to-end encrypted.'),
-        h('div', { style: 'margin-top:1.5rem' }, out)));
+        h('div', { style: 'margin-top:1.5rem' }, out)),
+      tabbar('settings'));
   },
 };
 
 // ---------- drawing ----------
+// The bottom tab bar of the four top-level screens. The Chats tab shows how many messages are waiting.
+function tabbar(active) {
+  const unread = state.convs.filter((c) => !c.muted && !c.archived).reduce((n, c) => n + (c.unread || 0), 0);
+  const tab = (id, href, icon, label, badge) => h('a', { class: 'tab' + (id === active ? ' on' : ''), href, 'data-link': true, 'aria-label': label },
+    h('span', { class: 'ti' }, ic(icon), badge ? h('i', { class: 'tb' }, badge > 99 ? '99+' : String(badge)) : null), h('span', {}, label));
+  return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
+    tab('chats', '/', 'chat', 'Chats', unread), tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), tab('settings', '/me', 'sliders', 'Settings'));
+}
 function drawList() {
   const list = document.getElementById('list');
   if (!list) return;
@@ -511,17 +581,19 @@ function drawList() {
   const showArchived = route().name === 'archived';
   const shown = state.convs.filter((c) => !!c.archived === showArchived);
   const archived = state.convs.filter((c) => c.archived);
-  if (!showArchived && archived.length) banners.push(h('a', { class: 'row arch', href: '/archived', 'data-link': true }, h('div', { class: 'av k2' }, '🗄'),
+  if (!showArchived && archived.length) banners.push(h('a', { class: 'row arch', href: '/archived', 'data-link': true }, h('div', { class: 'av t-teal' }, ic('archive')),
     h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, 'Archived'), h('small', {}, String(archived.length))))));
   list.replaceChildren(...(showArchived ? [] : banners), ...(shown.length ? shown.map((c) => {
     const row = h('a', { class: 'row', href: `/c/${c.id}`, 'data-link': true }, avatar(c),
       h('div', { class: 'mid' },
-        h('div', { class: 'name' }, h('span', {}, c.title), h('small', {}, c.muted ? '🔕 ' : '', c.last ? when(c.last.at) : '')),
-        h('div', { class: 'prev' }, h('span', {}, (c.last && c.kind === 'group' && c.last.from !== state.me.id ? `${c.people.find((p) => p.id === c.last.from)?.name?.split(' ')[0] || ''}: ` : '') + preview(c.last)),
+        h('div', { class: 'name' }, h('span', {}, chatTitle(c)), h('small', {}, c.muted ? ic('bellOff', 'mini') : null, c.last ? when(c.last.at) : '')),
+        h('div', { class: 'prev' }, h('span', {}, (() => { const who = c.last && c.kind === 'group' && c.last.from !== state.me.id ? c.people.find((p) => p.id === c.last.from)?.name?.split(' ')[0] : ''; return (who ? `${who}: ` : '') + preview(c.last); })()),
           c.unread ? h('span', { class: 'badge' + (c.muted ? ' quiet' : '') }, String(c.unread)) : null)));
     onHold(row, () => chatMenu(c));
     return row;
   }) : [h('p', { class: 'empty' }, showArchived ? 'No archived chats.' : 'No chats yet.')]));
+  const tb = document.querySelector('.tabbar');                  // keep the unread count on the Chats tab current
+  if (tb && route().name === 'list') tb.replaceWith(tabbar('chats'));
 }
 
 // Long-press (touch) or right-click (mouse) opens a menu. A plain tap still works as before.
@@ -576,7 +648,7 @@ function sheet(title, items) {
     ...items.filter(Boolean).map((it) => {
       if (it instanceof Node) return it;
       const [label, fn, opt = {}] = it;
-      const b = h('button', { type: 'button', class: 'mitem' + (opt.danger ? ' danger' : '') }, label);
+      const b = h('button', { type: 'button', class: 'mitem' + (opt.danger ? ' danger' : '') }, ...withIcon(label));
       b.addEventListener('click', async () => { close(); try { await fn(); } catch (e) { toast(e.message, true); } });
       return b;
     }),
@@ -592,7 +664,7 @@ function chatMenu(c) {
     : [['🔕 Mute for 8 hours', () => convSet(c, { mute: 8 }).then(() => toast('Muted for 8 hours'))],
       ['🔕 Mute for a week', () => convSet(c, { mute: 24 * 7 }).then(() => toast('Muted for a week'))],
       ['🔕 Mute always', () => convSet(c, { mute: -1 }).then(() => toast('Muted'))]];
-  sheet(c.title, [
+  sheet(chatTitle(c), [
     c.kind !== 'bot' ? ['🖼 Media and files', () => go(`/c/${c.id}/media`)] : null,
     ['🔍 Search messages', () => go('/search')],
     ...mute,
@@ -607,19 +679,19 @@ function drawHeader() {
   const t = state.typing[c.id];
   const sub = t && t.until > Date.now() ? h('small', { class: 'typing' }, c.kind === 'group' ? `${t.name} is typing…` : 'typing…')
     : h('small', {}, c.kind === 'bot' ? 'your phone server' : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
-  const title = h('button', { class: 't tbtn', type: 'button', 'aria-label': 'Chat options' }, h('b', {}, c.muted ? `${c.title} 🔕` : c.title), sub);
+  const title = h('button', { class: 't tbtn', type: 'button', 'aria-label': 'Chat options' }, h('b', {}, chatTitle(c), c.muted ? ic('bellOff', 'mini') : null), sub);
   title.addEventListener('click', () => chatMenu(state.cur));
-  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, '⋮');
+  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, ic('more'));
   more.addEventListener('click', () => chatMenu(state.cur));
   // The assistant chat: 🤫 quiets it (it then answers only "@ai …"), ✨ wakes it.
   let ai = null;
   if (c.assistant) {
-    ai = h('button', { class: 'icon', type: 'button', title: c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant', 'aria-label': c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant' }, c.assistant.quiet ? '✨' : '🤫');
+    ai = h('button', { class: 'icon', type: 'button', title: c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant', 'aria-label': c.assistant.quiet ? 'Wake the assistant' : 'Quiet the assistant' }, ic(c.assistant.quiet ? 'spark' : 'bellOff'));
     ai.addEventListener('click', () => api(`/convs/${c.id}/assistant`, { method: 'POST', body: { quiet: !c.assistant.quiet } })
       .then(({ conv }) => { upsertConv(conv); state.cur = conv; drawHeader(); }).catch((e) => toast(e.message, true)));
     if (c.assistant.quiet && !(t && t.until > Date.now())) sub.textContent = 'assistant is quiet · start with @ai to ask';
   }
-  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, ...(ai ? [ai] : []), more);
+  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), avatar(c, true), title, ...(ai ? [ai] : []), more);
 }
 
 // Pinned messages: a bar under the header; a tap jumps to the message (and on to the next pin).
@@ -804,7 +876,7 @@ function drawComposer() {
     const b = h('button', { type: 'button' }, cmd); b.addEventListener('click', () => sendText(cmd)); return b;
   })));
   if (state.replyTo) {
-    const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel reply' }, '✕');
+    const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel reply' }, ic('x'));
     x.addEventListener('click', () => { state.replyTo = null; drawComposer(); });
     parts.push(h('div', { class: 'replying' }, h('span', {}, 'Replying to: ' + preview(state.replyTo)), x));
   }
@@ -816,20 +888,20 @@ function drawComposer() {
       strip.append(h('div', { class: 'th' }, t.file.type.startsWith('video/') ? h('span', { class: 'tv' }, '🎥') : h('img', { src: t.url, alt: `Photo ${i + 1}` }), x));
     });
     if (state.tray.length < 10) {
-      const more = h('button', { type: 'button', class: 'tadd2', 'aria-label': 'Add another photo' }, '＋');
+      const more = h('button', { type: 'button', class: 'tadd2', 'aria-label': 'Add another photo' }, ic('plus'));
       more.addEventListener('click', () => document.getElementById('trayPick')?.click());
       strip.append(more);
     }
     parts.push(h('div', { class: 'traywrap' }, strip, h('small', {}, `${state.tray.length} ready · add the other hand, then press send`)));
   }
   if (state.editing) {
-    const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel editing' }, '✕');
+    const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel editing' }, ic('x'));
     x.addEventListener('click', () => { state.editing = null; drawComposer(); });
     parts.push(h('div', { class: 'replying editing' }, h('span', {}, 'Editing: ' + preview(state.editing)), x));
   }
   if (rec) {
-    const cancel = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel recording' }, '✕');
-    const send = h('button', { class: 'send', type: 'button', 'aria-label': 'Send voice note' }, '➤');
+    const cancel = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel recording' }, ic('x'));
+    const send = h('button', { class: 'send', type: 'button', 'aria-label': 'Send voice note' }, ic('send'));
     cancel.addEventListener('click', () => stopRec(false));
     send.addEventListener('click', () => stopRec(true));
     parts.push(h('div', { class: 'compose' }, cancel, h('div', { class: 'rec' }, h('i'), h('span', { id: 'rect' }, '0:00'), h('div', { class: 'lvl' }, h('b', { id: 'recl' }))), send));
@@ -837,9 +909,9 @@ function drawComposer() {
     const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
     if (state.editing) setTimeout(() => { ta.value = state.editing?.text || ''; sync(); ta.focus(); }, 0);
     else if (state.draft) { ta.value = state.draft; state.draft = ''; }
-    const btn = h('button', { class: 'send', type: 'button', 'aria-label': 'Record a voice note' }, '🎤');
+    const btn = h('button', { class: 'send mic', type: 'button', 'aria-label': 'Record a voice note' }, ic('mic'));
     let lastTyping = 0;
-    const sync = () => { if (ta.isConnected) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; } const has = !!ta.value.trim() || !!state.editing || !!state.tray?.length; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
+    const sync = () => { if (ta.isConnected) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; } const has = !!ta.value.trim() || !!state.editing || !!state.tray?.length; btn.replaceChildren(ic(state.editing ? 'check' : has ? 'send' : 'mic')); btn.className = 'send' + (state.editing || has ? '' : ' mic'); btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
     setTimeout(sync, 0);                                     // once it is on the page: ➤ for photos waiting in the tray or a kept draft, and the right height
     ta.addEventListener('input', () => {
       sync();
@@ -852,7 +924,7 @@ function drawComposer() {
     let clip = null;
     if (c.kind === 'bot') {
       const pick = h('input', { type: 'file', accept: 'application/pdf,.pdf', hidden: '' });
-      clip = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach a PDF' }, '📎');
+      clip = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach a PDF' }, ic('clip'));
       clip.addEventListener('click', () => pick.click());
       pick.addEventListener('change', async () => {
         const f = pick.files?.[0]; pick.value = '';
@@ -868,7 +940,7 @@ function drawComposer() {
       // 📎 in chats with people: photos and videos, or documents. The text box becomes the caption.
       const media = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: '', id: 'trayPick' });
       const docs = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip', multiple: true, hidden: '' });
-      const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, '📎');
+      const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, ic('clip'));
       b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()],
         ['📝 List', () => chatList(c)], ['⏰ Reminder or event', () => eventForm({}, { conv: c.id, reminder: true })]]));
       // Photos wait in a tray so you can take the second hand (or more), then send them all together.
@@ -1171,7 +1243,7 @@ async function openJob(id) {
 
 // ---------- Together: shared lists and a shared calendar (each belongs to a chat; "Just me" = your own bot chat) ----------
 const listCache = new Map(), listPending = new Set();
-const back = (href) => h('a', { class: 'icon back', href, 'data-link': true, 'aria-label': 'Back' }, '‹');
+const back = (href) => h('a', { class: 'icon back', href, 'data-link': true, 'aria-label': 'Back' }, ic('back'));
 const EVERY = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
 async function loadTogether() {
   state.tg = await api('/together');
@@ -1208,13 +1280,14 @@ function upsertEvent(e) {
 function dropEvent(id) { if (state.tg) { state.tg.events = state.tg.events.filter((e) => e.id !== id); redrawTogether(); } }
 
 screens.together = async (r) => {
-  const add = h('button', { class: 'icon', type: 'button', 'aria-label': r.tab === 'cal' ? 'New event or reminder' : 'New list' }, '＋');
+  const add = h('button', { class: 'icon', type: 'button', 'aria-label': r.tab === 'cal' ? 'New event or reminder' : 'New list' }, ic('plus'));
   add.addEventListener('click', () => (route().tab === 'cal' ? eventForm(state.calSel ? { date: state.calSel } : {}) : listForm()));
   app.replaceChildren(
     h('div', { class: 'bar' }, back('/'), h('div', { class: 't' }, h('b', {}, 'Together'), h('small', {}, 'shared lists and calendar')), add),
     h('nav', { class: 'jtabs' }, h('a', { href: '/together', 'data-link': true, class: r.tab === 'lists' ? 'on' : '' }, 'Lists'),
       h('a', { href: '/together/calendar', 'data-link': true, class: r.tab === 'cal' ? 'on' : '' }, 'Calendar')),
-    h('div', { class: 'scroll', id: 'tg' }, h('p', { class: 'loading' }, 'Loading…')));
+    h('div', { class: 'scroll', id: 'tg' }, h('p', { class: 'loading' }, 'Loading…')),
+    tabbar('together'));
   await loadTogether();
   drawTogether();
 };
@@ -1287,7 +1360,7 @@ screens.tlist = async (r) => {
   if (!state.tg) await loadTogether();
   if (!tgList(r.id)) upsertList((await api(`/lists/${r.id}`)).list);
   const ta = h('textarea', { rows: '1', placeholder: 'Add an item (or paste several lines)', 'aria-label': 'Add an item', enterkeyhint: 'done', autocapitalize: 'sentences' });
-  const addB = h('button', { class: 'send', type: 'button', 'aria-label': 'Add item' }, '＋');
+  const addB = h('button', { class: 'send', type: 'button', 'aria-label': 'Add item' }, ic('plus'));
   const addIt = async () => {
     const t = ta.value.trim(); if (!t) return;
     ta.value = '';
@@ -1296,7 +1369,7 @@ screens.tlist = async (r) => {
   };
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addIt(); } });
   addB.addEventListener('click', addIt);
-  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'List options' }, '⋮');
+  const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'List options' }, ic('more'));
   more.addEventListener('click', () => listMenu(tgList(r.id)));
   app.replaceChildren(h('div', { class: 'bar' }, back('/together'), h('div', { class: 't', id: 'tlt' }), more),
     h('div', { class: 'scroll', id: 'titems' }), h('div', { class: 'compose' }, ta, addB));
@@ -1403,7 +1476,7 @@ function drawCal(box) {
   const from = new Date(y, mo, 1).getTime(), to = new Date(y, mo + 1, 1).getTime();
   const byDay = new Map();
   for (const e of state.tg.events) for (const t of occurrences(e, from, to)) { const k = dayKey(t); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push({ e, t }); }
-  const nav = (step) => { const b = h('button', { type: 'button', 'aria-label': step < 0 ? 'Previous month' : 'Next month' }, step < 0 ? '‹' : '›'); b.addEventListener('click', () => { state.calMonth = new Date(y, mo + step, 1); state.calSel = null; drawTogether(); }); return b; };
+  const nav = (step) => { const b = h('button', { type: 'button', 'aria-label': step < 0 ? 'Previous month' : 'Next month' }, step < 0 ? ic('back') : ic('fwd')); b.addEventListener('click', () => { state.calMonth = new Date(y, mo + step, 1); state.calSel = null; drawTogether(); }); return b; };
   const todayB = h('button', { type: 'button', class: 'tdy' }, 'Today');
   todayB.addEventListener('click', () => { state.calMonth = null; state.calSel = null; drawTogether(); });
   const cells = [...'MTWTFSS'].map((c) => h('div', { class: 'hd', 'aria-hidden': 'true' }, c));
