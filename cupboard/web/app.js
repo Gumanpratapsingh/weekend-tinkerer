@@ -1888,6 +1888,17 @@ async function pathOf(pc) {
 }
 function goLive() {
   call.t0 = Date.now();
+  // A few seconds in: is the effects channel up? If not, say so (the other phone is probably on an older version), and
+  // report this phone's build and path to the laptop's log so it can be told which phone is which.
+  setTimeout(() => {
+    if (!call || call.phase !== 'live') return;
+    const dc = call.dc?.readyState || 'none';
+    reportCall(`build=${BUILD} role=${call.role} dc=${dc} relay=${call.relay} peerBuild=${call.peerBuild || 'unknown'}`, 'info');
+    if (dc !== 'open' && !call.fxWarned) {
+      call.fxWarned = true;
+      toast(`Reactions can't go straight to ${callName()} yet. Their Cupboard may be an older version: close it fully and reopen it on their phone.`, true);
+    }
+  }, 7000);
   pathOf(call.pc).then((p) => { if (call) call.path = p; });
   setPhase('live', '0:00');
   call.tick = setInterval(() => { if (call?.phase === 'live' && !call.reviveT) call.ui.status.textContent = statusLine(); }, 1000);
