@@ -839,8 +839,8 @@ function drawComposer() {
     else if (state.draft) { ta.value = state.draft; state.draft = ''; }
     const btn = h('button', { class: 'send', type: 'button', 'aria-label': 'Record a voice note' }, '🎤');
     let lastTyping = 0;
-    const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim() || !!state.editing || !!state.tray?.length; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
-    sync();                                                  // photos waiting in the tray, or a kept draft: show ➤ at once
+    const sync = () => { if (ta.isConnected) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; } const has = !!ta.value.trim() || !!state.editing || !!state.tray?.length; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
+    setTimeout(sync, 0);                                     // once it is on the page: ➤ for photos waiting in the tray or a kept draft, and the right height
     ta.addEventListener('input', () => {
       sync();
       if (c.kind !== 'bot' && Date.now() - lastTyping > 3000 && ta.value.trim()) { lastTyping = Date.now(); api(`/convs/${c.id}/typing`, { method: 'POST' }).catch(() => {}); }
