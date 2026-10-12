@@ -168,7 +168,8 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     const a = String(out[it.key] ?? '').trim();
     // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
     // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
-    const short = /^SKILL:\s*(.+)$/i.exec(a)?.[1] ? `Do you have experience with ${/^SKILL:\s*(.+)$/i.exec(a)[1].trim().slice(0, 60)}? (yes/no, roughly how many years)`
+    const long = it.type === 'textarea' || /describe|explain|examples?|how (do|did|have) you|tell us|walk (us|me) through/i.test(it.label);
+    const short = /^SKILL:\s*(.+)$/i.exec(a)?.[1] ? `Do you have experience with ${/^SKILL:\s*(.+)$/i.exec(a)[1].trim().slice(0, 60)}? (yes/no, roughly how many years${long ? ', and in a few words how you used it' : ''})`
       : /^SHORT:\s*(.+)$/i.exec(a)?.[1]?.trim().slice(0, 140);
     if (short) {
       if (!asked.has(norm(short))) { asked.add(norm(short)); unknown.push({ ...it, label: short, type: 'text', options: null, original: it.label }); }
