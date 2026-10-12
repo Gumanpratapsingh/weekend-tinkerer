@@ -123,10 +123,9 @@ export async function resolve(items, context = '') {
 - Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
   Yes/No options) are answered from FACTS: "Yes" only if FACTS show it${persona().built_note ? ` (${persona().built_note})` : ''}.
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
-- A skill, tool, language or domain that FACTS do not show at all: years = "0"; "Do you have / have you worked on X?" = "No".
-  Never claim it. (Only answer UNKNOWN when FACTS are genuinely unclear about it.)
-- Open-ended "describe your experience with X" where FACTS do not show X: 1-3 honest sentences in first person saying it has
-  not been used professionally yet, then the closest real experience from FACTS. Where FACTS do show it: 2-3 sentences from FACTS.
+- A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on it", or "describe your
+  experience with it"): "UNKNOWN", so the person is asked (they may know it even if the resume doesn't say). Never claim it.
+- Open-ended "describe your experience with X" where FACTS do show X: 2-3 sentences written only from FACTS.
 - "How did you hear about us / where did you find this job / source": KNOWN ANSWERS if present, else the option meaning the
   company's careers website (or "Company careers website").
 - Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
