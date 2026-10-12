@@ -166,15 +166,18 @@ export default {
             await el.click({ timeout: 5000 }).catch(() => el.click({ force: true, timeout: 5000 }).catch(() => {}));
           });
           // LinkedIn asks "Share your profile?" before sending people to the company site: Continue opens it.
-          const share = page.locator('[role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button').filter({ hasText: /^\s*continue\s*$/i }).first();
+          // Newer pages use a native <dialog> whose Continue is a link through linkedin.com/safety/go?url=<company page>.
+          const share = page.locator('dialog, [role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button, a').filter({ hasText: /^\s*continue\s*$/i }).first();
+          let via = null;
           if (/linkedin\.com/.test(page.url()) && await share.isVisible({ timeout: 3000 }).catch(() => false)) {
             progress('Company site: LinkedIn "Share your profile?" → Continue');
+            try { via = new URL(await share.getAttribute('href'), page.url()).searchParams.get('url'); } catch { /* a button, no link */ }
             await share.click({ timeout: 8000 }).catch(() => {});
           }
           let p2 = null;
-          // Best: the company address the page itself tried to open (window.open), followed in this same tab.
+          // Best: the company address the page itself tried to open (window.open, or the Continue link), followed in this same tab.
           await page.waitForTimeout(1500);
-          const asked = (await page.evaluate(() => window.__jaOpened || []).catch(() => [])).filter((u) => /^https?:/.test(u) && !TRACKER.test(u) && !/linkedin\.com/.test(u));
+          const asked = [...(await page.evaluate(() => window.__jaOpened || []).catch(() => [])), ...(via ? [via] : [])].filter((u) => /^https?:/.test(u) && !TRACKER.test(u) && !/linkedin\.com/.test(u));
           if (asked.length) {
             progress(`Company site: following ${asked.at(-1).slice(0, 100)}`);
             for (const pg of opened) await pg.close().catch(() => {});
