@@ -119,6 +119,9 @@ export default {
         // Already applied on the job board (an earlier attempt or by hand): nothing left to do.
         if ((/naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0))
           || (/linkedin\.com/.test(url) && /\bApplied \d+ (seconds?|minutes?|hours?|days?|weeks?|months?) ago\b/i.test(bodyText.slice(0, 4000)))) return { status: 'already_applied' };
+        // LinkedIn's search listed it as an outside apply, but the job page offers Easy Apply: that flow (linkedin.mjs) handles it.
+        if (/linkedin\.com\/jobs\/view/.test(url) && await page.locator('button:visible').filter({ hasText: /^\s*easy apply\s*$/i }).count().catch(() => 0))
+          return { status: 'manual', reason: 'is Easy Apply' };
 
         // A form embedded in an iframe: open the iframe's page directly.
         // Only visible frames, never trackers (LinkedIn job pages carry a hidden doubleclick frame whose URL mentions
@@ -147,11 +150,13 @@ export default {
           if (/^mailto:/i.test(href)) continue;                      // email applications are handled below
           const rank = /^apply( now)?$/i.test(text) ? 3 : APPLY_TEXT.test(text) ? 2
             : (/apply/i.test(text) && text.length <= 40 && !/applied|how to apply|why apply|apply filter/i.test(text)) || /\/apply\b/i.test(href) ? 1 : 0;
-          if (rank) ranked.push({ el, text: text || href, rank });
+          if (rank) ranked.push({ el, text: text || href, href, rank });
         }
         ranked.sort((a, b) => b.rank - a.rank);
+        // LinkedIn's outbound links go through linkedin.com/safety/go?url=<company page>: the address is right there.
+        const safetyUrl = (h) => { try { const u = new URL(h, page.url()); return /linkedin\.com\/safety\/go/.test(u.href) ? u.searchParams.get('url') : null; } catch { return null; } };
         let clicked = false;
-        for (const { el, text } of ranked) {
+        for (const { el, text, href } of ranked) {
           if (!(await el.isVisible().catch(() => false))) continue;
           progress(`Company site: clicking "${text.slice(0, 40)}"`);
           const before = page.url();
@@ -168,10 +173,11 @@ export default {
           // LinkedIn asks "Share your profile?" before sending people to the company site: Continue opens it.
           // Newer pages use a native <dialog> whose Continue is a link through linkedin.com/safety/go?url=<company page>.
           const share = page.locator('dialog, [role="dialog"], .artdeco-modal').filter({ hasText: /share your profile/i }).locator('button, a').filter({ hasText: /^\s*continue\s*$/i }).first();
-          let via = null;
-          if (/linkedin\.com/.test(page.url()) && await share.isVisible({ timeout: 3000 }).catch(() => false)) {
+          let via = safetyUrl(href);
+          // It appears a moment after the click: wait for it (isVisible checks once and ignores its timeout).
+          if (/linkedin\.com/.test(page.url()) && await share.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
             progress('Company site: LinkedIn "Share your profile?" → Continue');
-            try { via = new URL(await share.getAttribute('href'), page.url()).searchParams.get('url'); } catch { /* a button, no link */ }
+            via = safetyUrl(await share.getAttribute('href').catch(() => null)) || via;
             await share.click({ timeout: 8000 }).catch(() => {});
           }
           let p2 = null;

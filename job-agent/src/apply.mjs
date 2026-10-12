@@ -100,11 +100,24 @@ function settle(job, res) {
       run("UPDATE jobs SET status = 'needs_answer', status_note = ? WHERE id = ?", `${res.unknown.length} question(s) for you`, job.id);
       for (const u of res.unknown) askOwner(u.label, { jobId: job.id, context: `${label} application`, kind: u.type, options: u.options?.length ? u.options : null });
       run('UPDATE jobs SET attempts = 0 WHERE id = ?', job.id);
+      // Every question already has a saved answer the form still rejected (e.g. a school missing from its list): nothing
+      // was asked, so waiting would requeue it forever. Hand it to the person instead.
+      if (!one("SELECT 1 FROM asks WHERE job_id = ? AND status = 'open'", job.id)) {
+        const fields = res.unknown.map((u) => u.label).join(', ');
+        run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `saved answer doesn't fit the form: ${fields}`, job.id);
+        tell(`🖐 ${label}: my saved answer for "${fields}" isn't one of the form's options. Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
+      }
       break;
     case 'manual':
       // Naukri/LinkedIn jobs that apply on the company's own site: hand them to the generic external applier.
       if (/company site|not Easy Apply/i.test(res.reason || '') && job.apply_type !== 'external') {
         run("UPDATE jobs SET apply_type = 'external', status = 'queued', attempts = 0, status_note = 'applies on company site' WHERE id = ?", job.id);
+        break;
+      }
+      // Listed as an outside apply, but the LinkedIn page offers Easy Apply: back to the Easy Apply flow, once
+      // (if that flow already sent it here, it stays with the person).
+      if (/is Easy Apply/i.test(res.reason || '') && job.apply_type === 'external' && job.source === 'linkedin' && job.status_note !== 'applies on company site') {
+        run("UPDATE jobs SET apply_type = 'linkedin', status = 'queued', attempts = 0, status_note = 'Easy Apply on LinkedIn' WHERE id = ?", job.id);
         break;
       }
       // CAPTCHA: the Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
