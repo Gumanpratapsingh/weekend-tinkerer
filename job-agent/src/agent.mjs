@@ -213,6 +213,13 @@ every(15, 'mail', async () => {
 }, { delay: 30e3 });
 every(5, 'whatsapp', () => flush(), { delay: 45e3 });
 every(60, 'first-time setup', async () => startOnboarding(), { delay: 8e3, always: true });
+// Safety net: a job waiting on answers that are all in (answered elsewhere, or its questions dismissed) goes back to the queue.
+every(10, 'unstick answered jobs', async () => {
+  const stuck = all(`SELECT id FROM jobs WHERE status = 'needs_answer'
+    AND NOT EXISTS (SELECT 1 FROM asks a WHERE a.job_id = jobs.id AND a.status = 'open')`);
+  for (const j of stuck) run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'answers received' WHERE id = ?", j.id);
+  if (stuck.length) activity(`↩️ ${stuck.length} job(s) had all their answers: back in the queue`);
+}, { delay: 60e3 });
 
 // Setup questions, asked once when WhatsApp is first connected.
 every(30, 'setup', async () => {

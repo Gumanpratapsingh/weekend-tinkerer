@@ -201,7 +201,8 @@ export default {
       if (res.status !== 'filled') return { ...res, shot };
       if (!res.fields) return { status: 'manual', reason: 'no fillable form found', shot };
 
-      const submit = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /submit|apply|send application|send/i }).last();
+      // Only a Submit the person could actually press (hidden duplicates made clicks time out).
+      const submit = page.locator('button[type="submit"]:visible, input[type="submit"]:visible, button:visible').filter({ hasText: /submit|apply|send application|send/i }).last();
       if (!await submit.count()) return { status: 'manual', reason: 'no submit button found', shot };
       // Submit stays disabled while a required field is empty: name the empty fields instead of clicking in vain.
       if (!await submit.isEnabled().catch(() => true)) {
@@ -209,7 +210,11 @@ export default {
           .filter((e) => !e.value && e.type !== 'hidden').map((e) => (e.labels?.[0]?.innerText || e.getAttribute('aria-label') || e.placeholder || e.name || '').trim()).filter(Boolean).slice(0, 6));
         return { status: 'failed', reason: `form incomplete, Submit disabled${empty.length ? `: empty ${empty.join(', ')}` : ''}`, shot };
       }
-      await submit.click({ timeout: 10000 });
+      await submit.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+      // A sticky footer or cookie bar can sit on top of it: then press it directly.
+      await submit.click({ timeout: 10000 }).catch(async () => {
+        await submit.click({ force: true, timeout: 5000 }).catch(() => submit.evaluate((b) => (b.form?.requestSubmit ? b.form.requestSubmit(b.type === 'submit' ? b : undefined) : b.click())));
+      });
       await page.waitForTimeout(6000);
       // Emailed "security code" / "confirm you're a human" step (Greenhouse and others): a human check for the owner.
       if (/security code|verification code (was|has been) sent|confirm you'?re a human/i.test(await page.innerText('body').catch(() => '')))
