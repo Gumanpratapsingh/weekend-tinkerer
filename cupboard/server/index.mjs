@@ -197,7 +197,7 @@ const together = installTogether({ postMessage, updateMessage, emit, memberIds, 
   convTitle: (id, me) => convSummary(id, me).title });
 const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, postMessage, together });
 const assistant = installAssistant({ postMessage, emit, memberIds, together, log });
-const love = installLove({ postMessage, updateMessage, log });
+const love = installLove({ postMessage, updateMessage, log, botConv });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'

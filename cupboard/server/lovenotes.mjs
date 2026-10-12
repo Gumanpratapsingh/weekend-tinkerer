@@ -1,4 +1,6 @@
-// "Our corner 🌙" (the name is changeable with "love name: …"): a small chat shared by Guman and Vertika.
+// "Our corner 🌙" (the name is changeable with "love name: …"): a chat that belongs to Vertika alone (Guman is not a member).
+// What she does there (reads a note, taps a button, reacts, writes) arrives in a separate chat of his own, "Her activity 👀",
+// with a notification.
 // Once a week (a random day each week, "love per week: N" changes how many), at a random moment between 10:30 PM and
 // 5:00 AM India time, the AI writes a NEW short note (praise, gratitude, "I'm lucky to have you") in Guman's voice and it
 // pops up on her phone only. There is no stock list.
@@ -12,6 +14,7 @@ import * as push from './push.mjs';
 
 const IST = 5.5 * 3600e3, HOUR = 3600e3, DAY = 24 * HOUR;
 const NAME = 'Our corner 🌙';
+const ACTIVITY_NAME = 'Her activity 👀';
 const WIN_START = 22.5, WIN_END = 5;          // 10:30 PM to 5:00 AM (next morning), India time
 const MIN_GAP = 12 * HOUR;                    // never two close together
 
@@ -53,7 +56,7 @@ const PROVIDERS = () => [
     models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], extra: { reasoning_effort: 'low', include_reasoning: false } },
 ].filter((p) => p.key).concat(process.env.CUPBOARD_AI_TEST_URL ? [{ name: 'test', key: 'test', url: process.env.CUPBOARD_AI_TEST_URL, models: ['test'], extra: {} }] : []);
 
-export function install({ postMessage, updateMessage, log }) {
+export function install({ postMessage, updateMessage, log, botConv }) {
   const jget = (k, d) => { try { return JSON.parse(getKv(k)) ?? d; } catch { return d; } };
   const partnerId = () => Number(getKv('love_partner')) || null;
 
@@ -64,10 +67,34 @@ export function install({ postMessage, updateMessage, log }) {
     if (id && one('SELECT 1 FROM convs WHERE id = ?', id)) return id;
     const now = Date.now();
     const conv = Number(run("INSERT INTO convs(kind, name, created_by, created) VALUES('group', ?, ?, ?)", NAME, o.id, now).lastInsertRowid);
-    for (const uid of [o.id, p]) run('INSERT INTO members(conv_id, user_id) VALUES(?, ?)', conv, uid);
-    setKv('love_conv', conv);
+    run('INSERT INTO members(conv_id, user_id) VALUES(?, ?)', conv, p);      // hers alone
+    setKv('love_conv', conv); setKv('love_private', '1');
     log(`notes chat ${conv} created`);
     return conv;
+  }
+
+  // Guman's own chat where her actions show up (only he is in it).
+  function activityChat() {
+    const o = owner();
+    if (!o) return null;
+    const id = Number(getKv('love_activity_conv'));
+    if (id && one('SELECT 1 FROM convs WHERE id = ?', id)) return id;
+    const now = Date.now();
+    const conv = Number(run("INSERT INTO convs(kind, name, created_by, created) VALUES('group', ?, ?, ?)", ACTIVITY_NAME, o.id, now).lastInsertRowid);
+    run('INSERT INTO members(conv_id, user_id) VALUES(?, ?)', conv, o.id);
+    run("INSERT INTO messages(conv_id, user_id, kind, text, extra, created) VALUES(?, ?, 'card', ?, ?, ?)", conv, botId(),
+      'When she reads one of your notes, taps a button, reacts or writes back in her chat, it shows up here, and you get a notification.\n' +
+      'Her chat itself is hers alone: you are not in it.', JSON.stringify({ title: '👀 Her activity' }), now);
+    setKv('love_activity_conv', conv);
+    log(`notes activity chat ${conv} created`);
+    return conv;
+  }
+
+  // A chat made earlier with both of them in it: take Guman out, once.
+  if (getKv('love_private') !== '1' && Number(getKv('love_conv')) && owner()) {
+    run('DELETE FROM members WHERE conv_id = ? AND user_id = ?', Number(getKv('love_conv')), owner().id);
+    setKv('love_private', '1');
+    log('notes chat is now hers alone');
   }
 
   // ----- writing a new note -----
@@ -151,6 +178,7 @@ Output ONLY the note text.`;
     await deliver({ text });
     afterSend();
   }
+  if (partnerId()) activityChat();
   setInterval(() => tick().catch((e) => log('notes', e.message)), 60e3);
   setTimeout(() => tick().catch(() => {}), 5000);
 
@@ -170,13 +198,16 @@ Output ONLY the note text.`;
 
   // ----- what she does here, shown to Guman: a push to his phone and a short history ("love activity") -----
   const isHer = (me, convId) => me.id === partnerId() && convId === Number(getKv('love_conv'));
-  function activity(text, url) {
+  // A line in Guman's "Her activity" chat (tapping the notification opens it), plus a short history for "love activity".
+  function activity(text) {
     const o = owner(); if (!o) return;
     const list = jget('love_activity', []); list.push({ at: Date.now(), text }); setKv('love_activity', JSON.stringify(list.slice(-30)));
-    push.notify(o.id, { title: '💌 ' + text.slice(0, 60), body: 'In Our corner', url, tag: 'love-activity' });
+    const conv = activityChat();
+    if (!conv) return;
+    postMessage(conv, botId(), { kind: 'text', text }, { pushAs: { title: `💌 ${text.slice(0, 70)}`, body: 'Her activity' } })
+      .catch((e) => log('notes activity', e.message));
     log(`notes activity: ${text}`);
   }
-  const snippet = (t) => `"${String(t || '').replace(/\s+/g, ' ').slice(0, 50)}${String(t || '').length > 50 ? '…' : ''}"`;
   // She opened the chat and read notes (once per note).
   function onRead(me, convId, upTo) {
     if (!isHer(me, convId)) return;
@@ -186,25 +217,23 @@ Output ONLY the note text.`;
       if (!m.extra || !JSON.parse(m.extra).love || getKv(`love_read:${m.id}`)) continue;
       setKv(`love_read:${m.id}`, '1'); n++;
     }
-    if (n) activity(`${me.name.split(' ')[0]} read ${n === 1 ? 'your note' : `${n} of your notes`}`, `/c/${convId}`);
+    if (n) activity(`${me.name.split(' ')[0]} read ${n === 1 ? 'your note' : `${n} of your notes`}`);
   }
   function onReact(me, row, emoji) {
     if (!isHer(me, row.conv_id) || !emoji) return;
-    activity(`${me.name.split(' ')[0]} reacted ${emoji} to a note`, `/c/${row.conv_id}`);
+    activity(`${me.name.split(' ')[0]} reacted ${emoji} to your note`);
   }
-  // Her own messages in this chat already reach him as normal messages; this adds a line to the history.
-  function onMessage(me, convId, text) { if (isHer(me, convId)) { const list = jget('love_activity', []); list.push({ at: Date.now(), text: `${me.name.split(' ')[0]} wrote ${snippet(text)}` }); setKv('love_activity', JSON.stringify(list.slice(-30))); } }
+  // What she writes in her chat reaches him too (the notes are his, so a reply is meant for him).
+  function onMessage(me, convId, text) { if (isHer(me, convId)) activity(`${me.name.split(' ')[0]} wrote: ${String(text).replace(/\s+/g, ' ').slice(0, 300)}`); }
 
   // The buttons on the "shall I tell him?" card.
   async function action(me, row, act) {
-    const o = owner(), first = me.name.split(' ')[0];
+    const first = me.name.split(' ')[0];
     if (act === 'tell') {
-      activity(`${first} tapped "Yes, tell him"`, `/c/${row.conv_id}`);
-      await postMessage(row.conv_id, botId(), { kind: 'text', text: `💌 ${first} is thinking of you, and she is going to call you soon. 📞` },
-        { pushOnly: o ? [o.id] : [], pushAs: { title: `💌 ${first} is thinking of you`, body: 'She will call you soon 📞' } });
+      activity(`${first} tapped "Yes, tell him": she is thinking of you and will call you soon 📞`);
       return updateMessage(row.id, { done: 'Told him 💌', actions: [] });
     }
-    if (act === 'later') { activity(`${first} tapped "Not now"`, `/c/${row.conv_id}`); return updateMessage(row.id, { done: 'Okay, a surprise then 😉', actions: [] }); }
+    if (act === 'later') { activity(`${first} tapped "Not now" (she'll surprise you 😉)`); return updateMessage(row.id, { done: 'Okay, a surprise then 😉', actions: [] }); }
     throw new Error('Unknown action.');
   }
 
@@ -236,7 +265,7 @@ Output ONLY the note text.`;
     }
     if (/^love\s+activity$/i.test(t)) {
       const list = jget('love_activity', []).slice(-10).reverse();
-      return list.length ? `👀 What she did lately:\n${list.map((a) => `• ${fmtTime(a.at)}: ${a.text}`).join('\n')}` : 'Nothing yet. Anything she does in the chat (reads a note, taps a button, reacts, replies) shows up here and as a notification.';
+      return list.length ? `👀 What she did lately (it also appears in your "Her activity" chat):\n${list.map((a) => `• ${fmtTime(a.at)}: ${a.text}`).join('\n')}` : 'Nothing yet. Anything she does in the chat (reads a note, taps a button, reacts, replies) shows up here and as a notification.';
     }
     if (/^love\s+pause$/i.test(t)) { setKv('love_paused', '1'); return '⏸ Notes for her are paused. Say "love resume" to start again.'; }
     if (/^love\s+resume$/i.test(t)) { setKv('love_paused', ''); if (!Number(getKv('love_next')) || Number(getKv('love_next')) < Date.now()) plan(); return `▶️ Notes for her are on. Next one around ${fmtTime(Number(getKv('love_next')))}.`; }
