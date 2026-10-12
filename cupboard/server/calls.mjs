@@ -20,6 +20,7 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
   const calls = new Map();          // call id -> call
   const busy = new Map();           // user id -> call id (one call at a time each)
   let iceCache = null;
+  const logRate = new Map();
 
   const first = (id) => one('SELECT name FROM users WHERE id = ?', id)?.name?.split(' ')[0] || 'Someone';
   const peerOf = (c, uid) => (uid === c.from ? c.to : c.from);
@@ -74,6 +75,13 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
     const M = req.method;
     let m;
     if (M === 'GET' && path === '/api/calls/ice') return send(res, 200, await iceServers()), true;
+    if (M === 'POST' && path === '/api/calls/log') {                  // what went wrong on a phone during a call, so it can be fixed
+      const b = await readJson(req, 1500);
+      const now = Date.now(), r = (logRate.get(me.id) || []).filter((t) => now - t < 60e3);
+      r.push(now); logRate.set(me.id, r);
+      if (r.length <= 20) log(`calls: ${first(me.id)} saw: ${String(b.msg || '').replace(/\s+/g, ' ').slice(0, 240)}${b.ctx ? ` [${String(b.ctx).slice(0, 120)}]` : ''}`);
+      return send(res, 200, { ok: true }), true;
+    }
     if (M === 'GET' && path === '/api/calls/state') {                  // the app was just opened: is someone ringing me?
       const c = calls.get(busy.get(me.id));
       return send(res, 200, { call: c ? view(c, me.id) : null }), true;
@@ -152,5 +160,5 @@ export function install({ emit, canSee, readJson, send, err, postMessage, notify
         (readCfg() ? 'A relay key is saved but the provider did not accept it; check the details.' : 'Add a relay key (set-relay.sh) to switch the relay on.');
   }
 
-  return { route, command, iceServers };
+  return { route, command, iceServers, activeCount: () => calls.size };
 }

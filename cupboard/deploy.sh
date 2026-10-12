@@ -13,6 +13,14 @@ V=$(cat "$DIR/web/app.js" "$DIR/web/app.css" | shasum | cut -c1-10)
 sed -i '' "s|/app.css\"|/app.css?v=$V\"|; s|/app.js\"|/app.js?v=$V\"|" "$STAGE/www/cupboard/index.html"
 for HOST in $HOSTS; do
   ssh -o ConnectTimeout=8 "$HOST" true 2>/dev/null || { echo "$HOST: unreachable, skipped"; continue; }
+  # A restart ends any call in progress: wait (up to 10 minutes) for calls to finish instead of cutting them off.
+  for i in $(seq 1 40); do
+    N=$(ssh "$HOST" "curl -s -m 4 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8086/calls-active" 2>/dev/null | grep -o '"active":[0-9]*' | grep -o '[0-9]*$')
+    [ -z "$N" ] || [ "$N" = 0 ] && break
+    [ "$i" = 1 ] && echo "$HOST: a call is in progress, waiting for it to end before restarting…"
+    sleep 15
+  done
+  [ -z "$N" ] || [ "$N" = 0 ] || { echo "$HOST: a call is still in progress, NOT deploying. Run again later."; continue; }
   ssh "$HOST" 'mkdir -p ~/cupboard/data && chmod 700 ~/cupboard ~/cupboard/data'
   COPYFILE_DISABLE=1 tar --no-xattrs -C "$STAGE" -czf - www server | ssh "$HOST" 'tar -xzf - -C ~/cupboard'
   # Restart where it runs: the laptop's systemd unit, or the phone's start.sh (both skip it while ~/STANDBY exists).

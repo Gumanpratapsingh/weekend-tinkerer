@@ -75,7 +75,16 @@ function withIcon(label) {
 }
 
 let toastT;
+// While a call is on, what went wrong is also sent to the laptop's log, so it can be found and fixed afterwards.
+let callBeacon = null;
+function reportCall(msg, ctx) {
+  if (!callBeacon?.()) return;
+  fetch('/api/calls/log', { method: 'POST', credentials: 'same-origin', headers: { 'X-Cup': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ msg: String(msg), ctx }) }).catch(() => {});
+}
+window.addEventListener('error', (e) => reportCall(`${e.message} @${String(e.filename || '').split('/').pop()}:${e.lineno}`, 'uncaught'));
+window.addEventListener('unhandledrejection', (e) => reportCall(`${e.reason?.message || e.reason}`, 'promise'));
 function toast(msg, bad = false) {
+  if (bad) reportCall(msg, 'toast');
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false;
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600);
@@ -1589,6 +1598,7 @@ async function eventForm(ev = {}, opts = {}) {
 // Reactions, hearts, confetti, drawing, filters and "watch together" travel on a data channel of that same direct
 // connection, so they are instant and never touch the laptop. ----------
 let call = null;
+callBeacon = () => !!call;
 const callName = () => (call?.peer?.name || '').split(' ')[0] || 'them';
 const FX_EMOJI = ['❤️', '😂', '🔥', '👏', '🎉', '😘', '😍', '🥹'];
 const FX_FILTERS = { none: '', warm: 'f-warm', vintage: 'f-vintage', bw: 'f-bw', glow: 'f-glow', cool: 'f-cool' };
@@ -1599,9 +1609,13 @@ async function getMedia() {
   const md = navigator.mediaDevices;
   if (!md?.getUserMedia) throw new Error('This browser cannot make video calls.');
   try {
-    return await md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } });
+    // Ask for a picture in the shape of the screen: upright on a phone held in portrait, wide on a laptop.
+    const portrait = window.innerHeight > window.innerWidth;
+    return await md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true },
+      video: { facingMode: 'user', width: { ideal: portrait ? 720 : 1280 }, height: { ideal: portrait ? 1280 : 720 } } });
   } catch (e) {
     if (e.name === 'NotAllowedError' || e.name === 'SecurityError') throw new Error('Allow the camera and microphone for Cupboard (iPhone: Settings → Cupboard), then try again.');
+    if (e.name === 'OverconstrainedError') { try { return await md.getUserMedia({ audio: true, video: { facingMode: 'user' } }); } catch { /* fall through */ } }
     try { return await md.getUserMedia({ audio: true }); } catch { throw new Error('No camera or microphone was found.'); }   // a voice-only call is still a call
   }
 }
@@ -1636,7 +1650,16 @@ function buildCallUi() {
     h('div', { class: 'cbar' }, btns.decline, btns.accept, btns.mute, btns.cam, btns.flip, btns.end));
   document.body.append(root);
   const ui = { root, remote, local, status, who, btns, fxl, conf, doodle, watch, reactTray, filterTray };
-  const fit = () => { for (const c of [conf, doodle]) { c.width = root.clientWidth; c.height = root.clientHeight; } };
+  // The other person's picture is shown whole when its shape is far from the screen's (a wide picture on a tall phone would
+  // otherwise be cropped to a tiny, zoomed-in strip of their face); close shapes still fill the screen.
+  const fitRemote = () => {
+    const vw = remote.videoWidth, vh = remote.videoHeight;
+    if (!vw || !vh) return;
+    const ratio = (vw / vh) / (root.clientWidth / Math.max(1, root.clientHeight));
+    remote.classList.toggle('whole', Math.abs(Math.log(ratio)) > 0.3);
+  };
+  remote.addEventListener('loadedmetadata', fitRemote); remote.addEventListener('resize', fitRemote);
+  const fit = () => { for (const c of [conf, doodle]) { c.width = root.clientWidth; c.height = root.clientHeight; } fitRemote(); };
   fit(); ui.fit = fit; window.addEventListener('resize', fit);
   // double-tap the picture: a heart for both of you (a plain tap does nothing)
   let lastTap = 0;

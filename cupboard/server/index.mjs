@@ -721,6 +721,7 @@ createServer(async (req, res) => {
       const r = await love.send({ text, ask, now: b.now === true, title: String(b.title || '💌 A little note for you').slice(0, 40), pushTitle: String(b.pushTitle || '💌 A little note for you').slice(0, 60) });
       return send(res, 200, r.queued ? { queued: r.queued } : { id: r.id, conv: r.conv });
     }
+    if (req.url === '/calls-active') return send(res, 200, { active: calls.activeCount() });   // deploy.sh: never restart under a live call
     if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
       const u = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to || '').toLowerCase());

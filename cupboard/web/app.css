@@ -573,3 +573,6 @@ button,input,textarea,select{font-family:inherit}
 .callui.watching .cremote{inset:auto;left:12px;top:calc(env(safe-area-inset-top) + 64px + 56.25vw + 12px);width:30vw;max-width:140px;height:auto;aspect-ratio:3/4;border-radius:14px;z-index:5;opacity:1}
 .callui.watching .ctop{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:16px;margin:0;text-align:left}
 .callui.watching .clocal{right:auto;left:calc(12px + min(30vw,140px) + 10px);top:calc(env(safe-area-inset-top) + 64px + 56.25vw + 12px);width:30vw;max-width:140px;min-width:0;z-index:5}
+
+/* the other person's picture: whole (with dark bars) when its shape is far from the screen's, filling otherwise */
+.callui .cremote.whole{object-fit:contain}
