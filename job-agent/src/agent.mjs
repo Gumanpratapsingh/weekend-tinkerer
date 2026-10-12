@@ -99,6 +99,12 @@ createServer((req, res) => {
         }
         return reply(404, 'not found');
       }
+      // The self-review for a day (default today), read-only: used by the morning fix-up session.
+      if (url.pathname === '/internal/review' && req.method === 'GET' && !req.headers['x-visitor-ip']) {
+        const { buildReview } = await import('./review.mjs');
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : undefined;
+        return reply(200, JSON.stringify(buildReview(day)), 'application/json');
+      }
       // Dashboard data for this person's Cupboard app (Cupboard -> here; localhost only, read-only).
       if (url.pathname.startsWith('/internal/dash/') && req.method === 'GET' && !req.headers['x-visitor-ip']) {
         const dash = await import('./dash.mjs');
@@ -246,6 +252,15 @@ every(10, 'digest', async () => {
     + `\n\nQueue ${s.queued} · apply-yourself ${s.manual} (send "manual") · open questions ${openQuestions().length}`
     + `\nAll time: ${s.appliedTotal} applied, ${s.interviews} interview stage.`);
 });
+
+// Nightly self-review (21:00 IST): what needed a human today, grouped into patterns, saved for the morning fix-up session.
+every(10, 'nightly review', async () => {
+  const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
+  if (n.getUTCHours() !== 21 || getKv('review_day') === day) return;
+  setKv('review_day', day);
+  const { nightlyReview } = await import('./review.mjs');
+  nightlyReview();
+}, { always: true });
 
 // Nightly housekeeping (03:30 IST): rotate logs over 5 MB, delete screenshots older than 30 days.
 every(30, 'housekeeping', async () => {
