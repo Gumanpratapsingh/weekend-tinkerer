@@ -159,6 +159,7 @@ export default {
       if (dryRun) return { status: 'dry_run', shot: await snap(page, 'naukri-dry') };
       await apply.click();
       await page.waitForTimeout(4000);
+      if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply for this account ("error while processing your request")', shot: await snap(page, 'naukri-limit') };
 
       // Questions drawer: one question at a time, chat-style.
       for (let i = 0; i < 25; i++) {
@@ -179,10 +180,17 @@ export default {
         await page.waitForTimeout(2500);
       }
       if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
+      if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply for this account ("error while processing your request")', shot: await snap(page, 'naukri-limit') };
       return { status: 'failed', reason: 'no confirmation seen', shot: await snap(page, 'naukri-unsure') };
     } finally { await c.saveSession().catch(() => {}); await page.close(); }
   },
 };
+
+// Naukri's banner when it stops accepting applies from one account (a daily limit or a temporary block; other accounts unaffected).
+async function refused(page) {
+  const t = await page.innerText('body').catch(() => '');
+  return /error while processing your request|reached (the|your) (daily )?(limit|maximum)|apply limit/i.test(t.slice(0, 3000));
+}
 
 async function done(page) {
   const t = await page.innerText('body').catch(() => '');
