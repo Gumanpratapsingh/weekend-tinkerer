@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import {
   send, readBody, visitorIp, log, push, passwordSet, checkPassword, loginLocked, noteFailure,
   newSession, endSession, sessionOf, sessionWho, sessionFull, cookie, checkPerson, personFull, inviteOf, useInvite,
+  deviceOf, trustDevice, deviceWho, deviceCookie, listDevices, removeDevice, makeDeviceLink, deviceLinkValid, useDeviceLink, loggedInBefore,
 } from './core.mjs';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +25,7 @@ const PORT = 8082;
 const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop];
 const routes = Object.assign({}, ...MODULES.map((m) => m.routes || {}));
 
-async function login(req, res) {
+async function login(req, res, device) {
   const ip = visitorIp(req);
   if (loginLocked(ip)) return send(res, 429, { error: 'Too many attempts. Try again in 15 minutes.' });
   let body;
@@ -38,6 +39,7 @@ async function login(req, res) {
     return send(res, 401, { error: who ? 'Wrong username or password.' : 'Wrong password.' });
   }
   log(`login ok from ${ip}${who ? ` as ${who}` : ''}`);
+  deviceWho(device.id, who || 'owner');
   return send(res, 200, { ok: true }, { 'Set-Cookie': cookie(newSession(who, who && personFull(who)), 30 * 86400) });
 }
 
@@ -45,7 +47,7 @@ async function login(req, res) {
 const isPerson = (who) => /^[a-z0-9_-]{1,30}$/.test(who) && existsSync(join(HOME, 'jobagent', 'people', who, 'port'));
 
 // One-time invite link: the person chooses their own password (nobody else ever sees it).
-async function setup(req, res, url) {
+async function setup(req, res, url, device) {
   const ip = visitorIp(req);
   if (loginLocked(ip)) return send(res, 429, { error: 'Too many attempts. Try again in 15 minutes.' });
   if (req.method === 'GET') {
@@ -61,7 +63,8 @@ async function setup(req, res, url) {
   if (!r) { noteFailure(ip); return send(res, 400, { error: 'This link has expired or was already used. Ask Guman for a new one.' }); }
   log(`password set by ${r.who} from ${ip}`);
   push('Hub login ready', `${r.who} set their own hub password and is logged in.`, { tags: 'key' });
-  return send(res, 200, { ok: true, who: r.who, full: r.full }, { 'Set-Cookie': cookie(newSession(r.who, r.full), 30 * 86400) });
+  // The invite link also trusts the browser it was opened in.
+  return send(res, 200, { ok: true, who: r.who, full: r.full }, { 'Set-Cookie': [cookie(newSession(r.who, r.full), 30 * 86400), ...(device ? [] : [trustDevice(req, r.who, 'invite')])] });
 }
 
 // What a person's login may use: their own job agent's pages. Their name is forced onto every call.
@@ -79,15 +82,39 @@ createServer(async (req, res) => {
   // without CORS, and SameSite=Strict keeps the cookie off cross-site requests anyway).
   if (req.method !== 'GET' && req.headers['x-hub'] !== '1') return send(res, 403, { error: 'Forbidden' });
 
-  if (key === 'POST /api/login') return login(req, res);
-  if (key === 'GET /api/setup' || key === 'POST /api/setup') return setup(req, res, url);
+  // Trusted devices only: an unknown browser can use an add-device link or a person's invite link, nothing else.
+  const device = deviceOf(req);
+  if (!device) {
+    if (key === 'GET /api/device') return send(res, 200, { valid: deviceLinkValid(url.searchParams.get('t')) });
+    if (key === 'POST /api/device') {
+      const c = useDeviceLink(String((await readBody(req)).token || ''), req);
+      return c ? send(res, 200, { ok: true }, { 'Set-Cookie': c }) : send(res, 410, { error: 'This add-device link has expired or was already used. Make a new one on a trusted device (Devices).' });
+    }
+    if (key === 'GET /api/me') {
+      const t = sessionOf(req);
+      if (loggedInBefore(t)) return send(res, 200, { loggedIn: true, passwordSet: passwordSet(), who: sessionWho(t), full: sessionFull(t), device: true },
+        { 'Set-Cookie': trustDevice(req, sessionWho(t) || 'owner', 'already logged in') });
+      return send(res, 200, { device: false });
+    }
+    if (key !== 'GET /api/setup' && key !== 'POST /api/setup') return send(res, 404, { error: 'Not found' });
+  }
+  if (key === 'POST /api/login') return login(req, res, device);
+  if (key === 'GET /api/setup' || key === 'POST /api/setup') return setup(req, res, url, device);
   const token = sessionOf(req);
   const who = token ? sessionWho(token) : '';
   const limited = !!who && !sessionFull(token);                     // a person without full access
-  if (key === 'GET /api/me') return send(res, 200, { loggedIn: !!token, passwordSet: passwordSet(), who, full: !limited });
+  if (key === 'GET /api/me') return send(res, 200, { loggedIn: !!token, passwordSet: passwordSet(), who, full: !limited, device: true });
   if (!token) return send(res, 401, { error: 'Log in first.' });
   if (key === 'POST /api/logout') { endSession(token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
   if (limited && !PERSON_ROUTES.test(key)) return send(res, 403, { error: 'Not available.' });
+  if (key === 'GET /api/devices') return send(res, 200, { devices: listDevices().map((d) => ({ ...d, current: d.id === device.id })) });
+  if (key === 'POST /api/devices/link') return send(res, 200, { token: makeDeviceLink(who || 'owner') });
+  if (key === 'DELETE /api/devices/:id') {
+    const id = /\/([0-9a-f]{16})$/.exec(path)?.[1];
+    if (!id || !removeDevice(id)) return send(res, 404, { error: 'Not found' });
+    log(`device removed by ${who || 'owner'}`);
+    return send(res, 200, { ok: true }, id === device.id ? { 'Set-Cookie': deviceCookie('') } : {});
+  }
 
   if (key === 'GET /api/room/stream') return roomStream(req, res);   // long-lived SSE, owner-only like the rest
   const handler = routes[key];

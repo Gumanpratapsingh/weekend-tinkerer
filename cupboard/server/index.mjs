@@ -4,13 +4,14 @@
 //                   owner through the "S20" bot. nginx never proxies this port.
 // All text is stored and sent as plain text; the web app inserts it as text, never as HTML.
 import { createServer } from 'node:http';
-import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
+import { install as installWedding } from './wedding.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -53,9 +54,43 @@ const cookie = (token, maxAge) => `cb=${token}; Path=/; HttpOnly; Secure; SameSi
 function userOf(req) {
   const m = /(?:^|;\s*)cb=([a-f0-9]{64})/.exec(req.headers.cookie || '');
   if (!m) return null;
-  return one('SELECT u.*, s.token FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ? AND u.active = 1', m[1], Date.now()) || null;
+  return one('SELECT u.*, s.token, s.expires FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ? AND u.active = 1', m[1], Date.now()) || null;
 }
 const publicUser = (u) => u && ({ id: u.id, username: u.username, name: u.name, role: u.role });
+
+// ---------- trusted devices ----------
+// A browser reaches Cupboard only once it is trusted: through a one-time "add a device" link made on a trusted device
+// (or by the owner's add-device.sh), or an invite link. Unknown browsers get 404 for everything, so there is no login
+// form to guess at. Browsers already signed in when this started were trusted automatically on their next visit.
+const DEVICE_YEARS = 2;
+if (!getKv('devices_since')) setKv('devices_since', Date.now());
+const sha = (t) => createHash('sha256').update(t).digest('hex');
+const devCookie = (token) => `cbd=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${token ? DEVICE_YEARS * 365 * 86400 : 0}`;
+function deviceOf(req) {
+  const m = /(?:^|;\s*)cbd=([a-f0-9]{64})/.exec(req.headers.cookie || '');
+  const d = m && one('SELECT * FROM devices WHERE hash = ?', sha(m[1]));
+  if (d && Date.now() - (d.seen || 0) > 3600e3) run('UPDATE devices SET seen = ? WHERE id = ?', Date.now(), d.id);
+  return d || null;
+}
+function deviceName(req) {
+  const ua = String(req.headers['user-agent'] || '');
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? (/; ([^;)]+?) Build/.exec(ua)?.[1] || 'Android') : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : /Linux/.test(ua) ? 'Linux' : 'Browser';
+  const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return `${os}${br ? ` · ${br}` : ''}`.slice(0, 60);
+}
+function trustDevice(req, userId, addedBy) {          // returns the Set-Cookie value for the new device
+  const token = randomBytes(32).toString('hex');
+  run('INSERT INTO devices(hash, name, user_id, added_by, created, seen) VALUES(?,?,?,?,?,?)', sha(token), deviceName(req), userId, addedBy, Date.now(), Date.now());
+  log(`device trusted: ${deviceName(req)} (user ${userId ?? '-'})`);
+  return devCookie(token);
+}
+function deviceLink(createdBy) {
+  const token = randomBytes(16).toString('hex');
+  setKv(`devlink:${token}`, JSON.stringify({ by: createdBy, exp: Date.now() + 15 * 60e3 }));
+  return `/device/${token}`;
+}
+// A session that existed before devices were required (sessions last SESSION_DAYS from sign-in).
+const signedInBefore = (u) => u && u.expires - SESSION_DAYS * 86400e3 < Number(getKv('devices_since'));
 
 function validSignup({ name, username, password }) {
   name = String(name || '').trim(); username = String(username || '').trim().toLowerCase();
@@ -156,6 +191,7 @@ const FILES = { 'application/pdf': 'pdf' };
 // Shared lists, calendar and reminders (together.mjs).
 const together = installTogether({ postMessage, updateMessage, emit, memberIds, canSee, readJson, send, err, log, botConv,
   convTitle: (id, me) => convSummary(id, me).title });
+const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, postMessage, together });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -207,13 +243,35 @@ async function api(req, res, path, query) {
   // CSRF: state-changing calls must carry a header a cross-site form cannot set.
   if (M !== 'GET' && req.headers['x-cup'] !== '1') throw err(403, 'Forbidden');
 
-  // ----- public: sign in, invites -----
+  // ----- an unknown browser: only the add-device and invite links work -----
+  const device = deviceOf(req);
+  if (!device) {
+    const dm = /^\/api\/device\/([a-f0-9]{32})$/.exec(path);
+    if (dm) {
+      const link = JSON.parse(getKv(`devlink:${dm[1]}`) || 'null');
+      if (!link || link.exp < Date.now()) throw err(410, 'This add-device link has expired or was already used. Make a new one on a device that already uses Cupboard.');
+      if (M === 'GET') return send(res, 200, { valid: true });
+      run('DELETE FROM kv WHERE k = ?', `devlink:${dm[1]}`);
+      return send(res, 200, { ok: true }, { 'Set-Cookie': trustDevice(req, null, link.by) });
+    }
+    if (path === '/api/me' && M === 'GET') {
+      const u = userOf(req);
+      if (signedInBefore(u)) {                            // already signed in before devices were required: trusted as it is
+        return send(res, 200, { user: publicUser(u), vapid: push.publicKey, push: push.hasPush(u.id), device: true }, { 'Set-Cookie': trustDevice(req, u.id, null) });
+      }
+      return send(res, 200, { user: null, device: false });
+    }
+    if (!/^\/api\/invite\/[a-f0-9]{32}$/.test(path)) throw err(404, 'Not found.');
+  }
+
+  // ----- sign in (trusted devices only), invites -----
   if (M === 'POST' && path === '/api/login') {
     const ip = visitorIp(req);
     if (locked(ip)) throw err(429, 'Too many attempts. Try again in 15 minutes.');
     const b = await readJson(req, 2000);
     const u = one('SELECT * FROM users WHERE username = ? AND active = 1', String(b.username || '').trim().toLowerCase());
     if (!u || u.role === 'bot' || !checkPw(u, b.password)) { fail(ip); log(`login failed from ${ip}`); throw err(401, 'Wrong username or password.'); }
+    run('UPDATE devices SET user_id = ? WHERE id = ?', u.id, device.id);
     return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': cookie(newSession(u.id), SESSION_DAYS * 86400) });
   }
   let m;
@@ -236,12 +294,13 @@ async function api(req, res, path, query) {
       const o = owner();
       if (o) { const dm = openDm(o.id, u.id); await postMessage(dm, u.id, { text: `👋 ${u.name} joined Cupboard` }); }
     }
-    return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': cookie(newSession(u.id), SESSION_DAYS * 86400) });
+    // The invite link also trusts the browser it was opened in.
+    return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': [cookie(newSession(u.id), SESSION_DAYS * 86400), ...(device ? [] : [trustDevice(req, u.id, inv.created_by)])] });
   }
 
   // ----- signed in -----
   const me = userOf(req);
-  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), vapid: push.publicKey, push: me ? push.hasPush(me.id) : false });
+  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
   if (!me) throw err(401, 'Sign in first.');
   if (M === 'POST' && path === '/api/logout') { run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 
@@ -284,6 +343,20 @@ async function api(req, res, path, query) {
     run('DELETE FROM push_subs WHERE user_id = ?', id);
     for (const res2 of streams.get(id) || []) res2.end();
     return send(res, 200, { ok: true });
+  }
+  // ----- trusted devices: list (mine, and ones I added), add one through a link, remove one -----
+  if (M === 'GET' && path === '/api/devices') {
+    const rows = me.role === 'owner' ? all('SELECT d.*, u.name AS uname FROM devices d LEFT JOIN users u ON u.id = d.user_id ORDER BY d.seen DESC')
+      : all('SELECT d.*, u.name AS uname FROM devices d LEFT JOIN users u ON u.id = d.user_id WHERE d.user_id = ? OR d.added_by = ? ORDER BY d.seen DESC', me.id, me.id);
+    return send(res, 200, { devices: rows.map((d) => ({ id: d.id, name: d.name, who: d.uname, created: d.created, seen: d.seen, current: d.id === device.id })) });
+  }
+  if (M === 'POST' && path === '/api/devices/link') return send(res, 200, { path: deviceLink(me.id), expires: Date.now() + 15 * 60e3 });
+  if ((m = /^\/api\/devices\/(\d+)$/.exec(path)) && M === 'DELETE') {
+    const d = one('SELECT * FROM devices WHERE id = ?', Number(m[1]));
+    if (!d || (me.role !== 'owner' && d.user_id !== me.id && d.added_by !== me.id)) throw err(404, 'Not found.');
+    run('DELETE FROM devices WHERE id = ?', d.id);
+    log(`device removed: ${d.name} by ${me.username}`);
+    return send(res, 200, { ok: true }, d.id === device.id ? { 'Set-Cookie': devCookie('') } : {});
   }
   if (M === 'POST' && path === '/api/invites') {
     if (me.role !== 'owner') throw err(403, 'Only the owner can invite.');
@@ -559,6 +632,7 @@ async function api(req, res, path, query) {
   }
 
   if (await together.route(req, res, path, query, me)) return;
+  if (await wedding.route(req, res, path, query, me)) return;
 
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));
@@ -610,6 +684,7 @@ createServer(async (req, res) => {
       const msg = await botSay(text, extra, target);
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
+    if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
       const u = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to || '').toLowerCase());
       if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });

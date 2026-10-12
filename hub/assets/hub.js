@@ -5,6 +5,7 @@ const view = document.getElementById('view');
 const logoutBtn = document.querySelector('.logout');
 const tabs = document.querySelector('.tabs');
 const statusEl = document.getElementById('status');
+const devicesLink = document.querySelector('.devices');
 // The phone's tab row sticks just below the header, whatever the header's height.
 const setTopHeight = () => document.documentElement.style.setProperty('--toph', `${document.querySelector('.top')?.offsetHeight || 64}px`);
 setTopHeight(); addEventListener('resize', setTopHeight);
@@ -330,6 +331,50 @@ const pages = {
       catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
     });
     return [h('h1', {}, 'Log in'), h('p', { class: 'lede' }, me.passwordSet ? 'Private tools.' : 'No password set yet. Run set-password.sh from the Mac.'), form];
+  },
+
+  // A one-time add-device link (?t=), made under Devices on a trusted browser: this browser becomes trusted.
+  async '/device'() {
+    const token = new URLSearchParams(location.search).get('t') || '';
+    const ok = await api(`/device?t=${encodeURIComponent(token)}`).then((r) => r.valid).catch(() => false);
+    if (!ok) return [h('h1', {}, 'Link expired'), h('p', { class: 'lede' }, 'Add-device links work once, for 15 minutes. Make a new one under Devices on a phone or computer that already uses the hub.')];
+    const btn = h('button', { class: 'btn', type: 'button' }, 'Trust this device');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { await api('/device', { method: 'POST', body: { token } }); me = null; history.replaceState(null, '', '/login'); render(); }
+      catch (x) { toast(x.message, true); btn.disabled = false; }
+    });
+    return [h('h1', {}, 'Add this device'), h('p', { class: 'lede' }, 'Only trusted phones and computers can open the Tinker hub. Trust this one, then log in as usual.'), btn];
+  },
+
+  // Trusted phones and computers: add one with a 15-minute link, or remove a lost one.
+  async '/devices'() {
+    const box = h('div', {});
+    const paint = async () => {
+      const { devices } = await api('/devices');
+      box.replaceChildren(...devices.map((d) => {
+        const x = h('button', { class: 'btn ghost small', type: 'button' }, 'Remove');
+        x.addEventListener('click', async () => {
+          if (!confirm(d.current ? 'Remove THIS device? It will be locked out until you add it again from another trusted device.' : `Remove ${d.name}? It will be locked out of the hub.`)) return;
+          await api(`/devices/${d.id}`, { method: 'DELETE' }); if (d.current) { me = null; location.reload(); } else paint();
+        });
+        return h('div', { class: 'conn' }, h('span', {}, h('b', {}, d.name, d.current ? ' (this one)' : ''), h('br'),
+          h('small', {}, `${d.who === 'owner' ? 'Guman' : d.who ? d.who[0].toUpperCase() + d.who.slice(1) : 'not logged in yet'} · last used ${new Date(d.seen).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`)), x);
+      }));
+    };
+    const out = h('div', {});
+    const add = h('button', { class: 'btn', type: 'button' }, 'Add a device');
+    add.addEventListener('click', async () => {
+      const { token } = await api('/devices/link', { method: 'POST' });
+      const url = `${location.origin}/device?t=${token}`;
+      const copy = h('button', { class: 'btn ghost', type: 'button' }, 'Copy');
+      copy.addEventListener('click', async () => { await navigator.clipboard.writeText(url); toast('Copied'); });
+      const share = navigator.share ? h('button', { class: 'btn ghost', type: 'button' }, 'Share…') : null;
+      share?.addEventListener('click', () => navigator.share({ url }).catch(() => {}));
+      out.replaceChildren(h('p', { class: 'lede' }, 'Open this on the new phone or computer within 15 minutes. It works once.'), h('p', { class: 'mono' }, url), h('div', { class: 'row' }, copy, share));
+    });
+    await paint();
+    return [h('h1', {}, 'Devices'), h('p', { class: 'lede' }, 'Only these phones and computers can open the hub; anything else gets a blank page.'), box, h('div', { class: 'sec' }, 'Add one'), add, out];
   },
 
   // One-time invite link (?t=): the person chooses their own password, then lands on their job agent.
@@ -796,7 +841,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/setup': 'Welcome', '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();
@@ -834,12 +879,21 @@ async function render() {
   roomStream?.close(); roomStream = null;
   clearInterval(jobsTimer); jobsTimer = null;
   clearInterval(pageTimer); pageTimer = null;
-  const inside = path !== '/login' && path !== '/setup';
+  // An untrusted browser sees nothing but this note (add-device and invite links still work).
+  if (path !== '/device' && path !== '/setup') {
+    me ??= await api('/me').catch(() => null);
+    if (me?.device === false) {
+      me = null; tabs.hidden = true; logoutBtn.hidden = true; devicesLink.hidden = true; statusEl.hidden = true;
+      view.replaceChildren(h('h1', {}, 'Not available'), h('p', { class: 'lede' }, 'This device isn\'t set up. Open an add-device link from a trusted device.'));
+      return;
+    }
+  }
+  const inside = path !== '/login' && path !== '/setup' && path !== '/device';
   if (inside) {
     me ??= await api('/me').catch(() => null);
     if (limited() && (!path.startsWith('/jobs') || who() !== me.who)) return go(`/jobs?who=${encodeURIComponent(me.who)}`, false);   // only their own agent
   }
-  tabs.hidden = !inside; logoutBtn.hidden = !inside;
+  tabs.hidden = !inside; logoutBtn.hidden = !inside; devicesLink.hidden = !inside || limited();
   if (!inside || limited()) statusEl.hidden = true;
   markTabs();
   if (inside) addPeopleTabs().catch(() => { peopleTabs = false; });

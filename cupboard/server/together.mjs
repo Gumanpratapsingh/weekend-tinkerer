@@ -243,7 +243,27 @@ export function install({ postMessage, updateMessage, emit, memberIds, canSee, r
   setInterval(() => tick().catch((x) => log('reminders', x.message)), 20e3);
   setTimeout(() => tick().catch(() => {}), 3000);
 
-  return { route, action, isRemind, fromChat, tick };
+  // Calendar entries kept in step with other features (wedding functions, vendor payments): create or update, and remove.
+  function setEvent(id, { conv, title, starts, allDay = false, remind = 1440, by }) {
+    if (allDay) starts = istMidnight(starts);
+    const at = remindAt(starts, allDay, remind), sent = at != null && at < Date.now() - 60e3 ? 1 : 0;
+    const old = id ? one('SELECT * FROM events WHERE id = ?', id) : null;
+    if (old) {
+      run('UPDATE events SET conv_id = ?, title = ?, starts = ?, all_day = ?, remind_at = ?, sent = ? WHERE id = ?', conv, title.slice(0, 120), starts, allDay ? 1 : 0, at, sent, id);
+      if (old.conv_id !== conv) emitEvent(old, true);
+    } else {
+      id = Number(run("INSERT INTO events(conv_id, title, starts, all_day, remind_at, for_all, kind, created_by, created, sent) VALUES(?,?,?,?,?,1,'event',?,?,?)",
+        conv, title.slice(0, 120), starts, allDay ? 1 : 0, at, by, Date.now(), sent).lastInsertRowid);
+    }
+    emitEvent(one('SELECT * FROM events WHERE id = ?', id));
+    return id;
+  }
+  function removeEvent(id) {
+    const e = id ? one('SELECT * FROM events WHERE id = ?', id) : null;
+    if (e) { run('DELETE FROM events WHERE id = ?', e.id); emitEvent(e, true); }
+  }
+
+  return { route, action, isRemind, fromChat, tick, setEvent, removeEvent };
 }
 
 // ---------- reading "Sunday 10am call Mom" ----------

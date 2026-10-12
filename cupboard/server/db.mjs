@@ -39,6 +39,20 @@ CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, conv_id INTEGER NOT N
   all_day INTEGER NOT NULL DEFAULT 0, remind_at INTEGER, for_all INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL DEFAULT 'event',
   repeat TEXT, created_by INTEGER, created INTEGER NOT NULL, sent INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS events_due ON events (sent, remind_at);
+-- Trusted devices: only browsers approved by someone already in reach the app at all (cookie cbd; the hash is stored).
+CREATE TABLE IF NOT EXISTS devices (id INTEGER PRIMARY KEY, hash TEXT UNIQUE NOT NULL, name TEXT, user_id INTEGER, added_by INTEGER,
+  created INTEGER NOT NULL, seen INTEGER);
+-- Wedding planner (Together → Wedding): one wedding per chat; its members plan it. data = {partner1, partner2, date, city, budget, plan}
+CREATE TABLE IF NOT EXISTS weddings (id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL UNIQUE, data TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS w_functions (id INTEGER PRIMARY KEY, wedding_id INTEGER NOT NULL, name TEXT NOT NULL, starts INTEGER, venue TEXT, map TEXT,
+  note TEXT, sort INTEGER NOT NULL DEFAULT 0, event_id INTEGER, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS w_tasks (id INTEGER PRIMARY KEY, wedding_id INTEGER NOT NULL, text TEXT NOT NULL, phase TEXT, owner TEXT, done INTEGER NOT NULL DEFAULT 0,
+  done_by INTEGER, done_at INTEGER, sort INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS w_guests (id INTEGER PRIMARY KEY, wedding_id INTEGER NOT NULL, name TEXT NOT NULL, side TEXT, grp TEXT, phone TEXT,
+  adults INTEGER NOT NULL DEFAULT 1, kids INTEGER NOT NULL DEFAULT 0, invited TEXT NOT NULL DEFAULT '[]', rsvp TEXT NOT NULL DEFAULT '{}', meal TEXT, note TEXT,
+  message TEXT, token TEXT UNIQUE, responded INTEGER, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS w_vendors (id INTEGER PRIMARY KEY, wedding_id INTEGER NOT NULL, name TEXT NOT NULL, category TEXT, phone TEXT, status TEXT NOT NULL DEFAULT 'considering',
+  quote INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0, due INTEGER, note TEXT, event_id INTEGER, created INTEGER NOT NULL);
 `);
 // Per-person chat settings (added later): mute until a time (0 = not muted), archived.
 for (const sql of ['ALTER TABLE members ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE members ADD COLUMN archived INTEGER NOT NULL DEFAULT 0']) {

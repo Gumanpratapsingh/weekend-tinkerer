@@ -1,6 +1,6 @@
 // Shared plumbing for the tinker server: storage, HTTP helpers, auth, ntfy, Groq, schedules.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, renameSync } from 'node:fs';
-import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -187,5 +187,58 @@ export function useInvite(token, pw) {          // sets the person's password, t
   save('sessions.json', sessions);
   return { who: i.who, full: !!i.full };
 }
+// ---------- trusted devices: only browsers approved from a trusted one reach the hub at all ----------
+// Unknown browsers get 404 for every API call (no login form to guess at). Browsers already logged in when this
+// started are trusted on their next visit; a new one needs a 15-minute add-device link made on a trusted device.
+let devices = load('devices.json', {});                    // sha256(token) -> {name, who, by, created, seen}
+let devicesSince = load('devices-since.json', 0);
+if (!devicesSince) { devicesSince = Date.now(); save('devices-since.json', devicesSince); }
+let deviceLinks = load('device-links.json', {});           // token -> {by, exp}
+const sha = (t) => createHash('sha256').update(t).digest('hex');
+export const deviceCookie = (token) => `td=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${token ? 2 * 365 * 86400 : 0}`;
+export function deviceOf(req) {
+  const m = /(?:^|;\s*)td=([a-f0-9]{64})/.exec(req.headers.cookie || '');
+  const hash = m && sha(m[1]), d = hash && devices[hash];
+  if (!d) return null;
+  if (Date.now() - (d.seen || 0) > 3600e3) { d.seen = Date.now(); save('devices.json', devices); }
+  return { id: hash.slice(0, 16), ...d };
+}
+function deviceName(req) {
+  const ua = String(req.headers['user-agent'] || '');
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : 'Browser';
+  const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return `${os}${br ? ` · ${br}` : ''}`;
+}
+export function trustDevice(req, who, by) {                // returns the Set-Cookie value
+  const token = randomBytes(32).toString('hex');
+  devices[sha(token)] = { name: deviceName(req), who, by, created: Date.now(), seen: Date.now() };
+  save('devices.json', devices);
+  return deviceCookie(token);
+}
+export function deviceWho(id, who) { const k = Object.keys(devices).find((h) => h.startsWith(id)); if (k) { devices[k].who = who; save('devices.json', devices); } }
+export const listDevices = () => Object.entries(devices).map(([h, d]) => ({ id: h.slice(0, 16), ...d })).sort((a, b) => (b.seen || 0) - (a.seen || 0));
+export function removeDevice(id) {
+  const k = Object.keys(devices).find((h) => h.startsWith(String(id)));
+  if (!k || String(id).length !== 16) return false;
+  delete devices[k]; save('devices.json', devices); return true;
+}
+export function makeDeviceLink(by) {
+  deviceLinks = load('device-links.json', {});
+  for (const [t, v] of Object.entries(deviceLinks)) if (v.exp < Date.now()) delete deviceLinks[t];
+  const token = randomBytes(16).toString('hex');
+  deviceLinks[token] = { by, exp: Date.now() + 15 * 60e3 };
+  save('device-links.json', deviceLinks);
+  return token;
+}
+// Read fresh each time: add-device.sh on the server can write a link too.
+export const deviceLinkValid = (token) => ((deviceLinks = load('device-links.json', {}))[String(token)]?.exp || 0) > Date.now();
+export function useDeviceLink(token, req) {
+  if (!deviceLinkValid(token)) return null;
+  const by = deviceLinks[token].by; delete deviceLinks[token]; save('device-links.json', deviceLinks);
+  return trustDevice(req, null, by);
+}
+// A login that already existed before devices were required (sessions last SESSION_DAYS).
+export const loggedInBefore = (token) => !!token && expOf(sessions[token]) - SESSION_DAYS * 86400e3 < devicesSince;
+
 export const cookie = (token, maxAge) =>
   `tk=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;

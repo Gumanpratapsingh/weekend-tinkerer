@@ -166,6 +166,7 @@ function route() {
   if ((m = /^\/c\/(\d+)\/media$/.exec(p))) return { name: 'media', id: Number(m[1]) };
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
+  if ((m = /^\/device\/([a-f0-9]{32})$/.exec(p))) return { name: 'device', token: m[1] };
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
   if ((m = /^\/together(\/calendar)?$/.exec(p))) return { name: 'together', tab: m[1] ? 'cal' : 'lists' };
   if ((m = /^\/together\/list\/(\d+)$/.exec(p))) return { name: 'tlist', id: Number(m[1]) };
@@ -182,8 +183,10 @@ async function render() {
   const r = route();
   state.cur = r.name === 'chat' ? state.cur : null;
   if (r.name === 'invite') return screens.invite(r.token);
+  if (r.name === 'device') return screens.device(r.token);
   if (!state.me) {
     const me = await api('/me').catch(() => ({}));
+    if (me.device === false) return screens.untrusted();
     state.vapid = me.vapid; state.push = me.push;
     if (!me.user) return screens.login();
     state.me = me.user; connect(); presence(); await loadConvs().catch(() => {});
@@ -231,6 +234,26 @@ const screens = {
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
       h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
         h('p', { class: 'lede' }, inv.owner ? 'Set up the owner account for your phone server.' : 'Cupboard is a private chat that runs on Guman\'s phone server. Messages are stored on that phone (not end-to-end encrypted).')), f));
+  },
+
+  // Only trusted devices reach Cupboard. An unknown browser sees this and nothing else.
+  untrusted() {
+    app.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, 'Not available'),
+      h('p', { class: 'lede' }, 'This device isn\'t set up. Open an add-device link from a phone or computer that already uses it.'))));
+  },
+  // A one-time add-device link (made under Settings → Devices): this browser becomes trusted, then signs in as usual.
+  async device(token) {
+    const ok = await api(`/device/${token}`).then((r) => r.valid).catch(() => false);
+    if (!ok) return app.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, 'Link expired'),
+      h('p', { class: 'lede' }, 'Add-device links work once, for 15 minutes. Make a new one in Settings → Devices on a phone or computer that already uses Cupboard.'))));
+    const b = h('button', { class: 'btn full', type: 'button' }, 'Trust this device');
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await api(`/device/${token}`, { method: 'POST' }); state.me = null; go('/login', true); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    });
+    app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')), h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, 'Add this device'),
+      h('p', { class: 'lede' }, 'Only trusted phones and computers can open Cupboard. Trust this one, then sign in as usual.')), b));
   },
 
   // Sign in to LinkedIn/Naukri on the phone's browser: live screen, tap to click, type below. Polls while open.
@@ -429,6 +452,33 @@ const screens = {
         return h('div', { class: 'kv' }, h('span', {}, `${u.name} · @${u.username}`), x);
       });
     }
+    // Trusted devices: remove a lost one, or add a new one with a 15-minute link.
+    const devBox = h('div', {}), devOut = h('div', {});
+    const paintDevices = async () => {
+      const { devices } = await api('/devices').catch(() => ({ devices: [] }));
+      devBox.replaceChildren(...devices.map((d) => {
+        const x = h('button', { class: 'x', type: 'button' }, 'Remove');
+        x.addEventListener('click', async () => {
+          if (!confirm(d.current ? 'Remove THIS device? It will be locked out until you add it again from another trusted device.' : `Remove ${d.name}? It will be locked out of Cupboard.`)) return;
+          await api(`/devices/${d.id}`, { method: 'DELETE' }); if (d.current) location.reload(); else paintDevices();
+        });
+        return h('div', { class: 'kv' }, h('span', {}, `${d.name}${d.current ? ' (this one)' : ''}`, h('br'),
+          h('small', { class: 'soft' }, `${d.who || 'not signed in yet'} · last used ${when(d.seen || d.created)}`)), x);
+      }));
+    };
+    const addDev = h('button', { class: 'btn ghost', type: 'button' }, 'Add a device');
+    addDev.addEventListener('click', async () => {
+      try {
+        const { path } = await api('/devices/link', { method: 'POST' });
+        const url = location.origin + path;
+        const copy = h('button', { class: 'btn ghost', type: 'button' }, 'Copy');
+        copy.addEventListener('click', async () => { await navigator.clipboard.writeText(url); toast('Copied'); });
+        const share = navigator.share ? h('button', { class: 'btn', type: 'button' }, 'Share…') : null;
+        share?.addEventListener('click', () => navigator.share({ url }).catch(() => {}));
+        devOut.replaceChildren(h('p', { class: 'lede' }, 'Open this on the new phone or computer within 15 minutes. It works once.'), h('div', { class: 'link' }, url), h('div', { style: 'display:flex;gap:.5rem' }, share, copy));
+      } catch (e) { toast(e.message, true); }
+    });
+    paintDevices();
     app.replaceChildren(
       h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), h('div', { class: 't' }, h('b', {}, 'Settings'))),
       h('div', { class: 'page' },
@@ -438,6 +488,9 @@ const screens = {
         notif,
         !isStandalone() ? h('div', {}, h('div', { class: 'sec' }, 'Install'), h('p', { class: 'lede' }, isIOS() ? 'Safari → Share (□↑) → Add to Home Screen.' : 'Browser menu → Install app / Add to Home screen.')) : null,
         owner ? h('div', {}, h('div', { class: 'sec' }, 'People'), ...(people.length ? people : [h('p', { class: 'lede' }, 'Nobody yet. Invite friends from ✎ → Invite a friend.')])) : null,
+        h('div', { class: 'sec' }, 'Devices'),
+        h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
+        devBox, addDev, devOut,
         h('div', { class: 'sec' }, 'Privacy'),
         h('p', { class: 'lede' }, 'Messages and voice notes are stored on Guman\'s S20 phone server. They are not end-to-end encrypted.'),
         h('div', { style: 'margin-top:1.5rem' }, out)));
