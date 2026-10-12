@@ -57,6 +57,8 @@ const ICONS = {
   micOff: '<path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 10V6a3 3 0 0 0-5.9-.8"/><path d="M5.5 11a6.5 6.5 0 0 0 10.3 5.2M18.5 11a6.5 6.5 0 0 1-.6 2.7M12 17.5V21M4 4l16 16"/>',
   flip: '<path d="M20 11a8 8 0 0 0-14-4L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14 4l2-2"/><path d="M20 20v-5h-5"/>',
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+  smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14a4 4 0 0 0 7 0"/><circle cx="9.2" cy="10" r=".6" fill="currentColor"/><circle cx="14.8" cy="10" r=".6" fill="currentColor"/>',
+  play: '<path d="M8 5.5v13l11-6.5z"/>',
 };
 function ic(name, cls) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1583,9 +1585,16 @@ async function eventForm(ev = {}, opts = {}) {
 }
 
 // ---------- video calls: one to one. The laptop only passes the "who is calling" and connection messages; the video and
-// audio go phone to phone (or through the relay when you are on different networks) and are end-to-end encrypted. ----------
+// audio go phone to phone (or through a relay when you are on different networks) and are end-to-end encrypted.
+// Reactions, hearts, confetti, drawing, filters and "watch together" travel on a data channel of that same direct
+// connection, so they are instant and never touch the laptop. ----------
 let call = null;
 const callName = () => (call?.peer?.name || '').split(' ')[0] || 'them';
+const FX_EMOJI = ['❤️', '😂', '🔥', '👏', '🎉', '😘', '😍', '🥹'];
+const FX_FILTERS = { none: '', warm: 'f-warm', vintage: 'f-vintage', bw: 'f-bw', glow: 'f-glow', cool: 'f-cool' };
+const FX_COLORS = ['#ffd60a', '#ff6fb5', '#64d2ff', '#5cffa0'];
+const rnd = (a, b) => a + Math.random() * (b - a);
+
 async function getMedia() {
   const md = navigator.mediaDevices;
   if (!md?.getUserMedia) throw new Error('This browser cannot make video calls.');
@@ -1596,11 +1605,13 @@ async function getMedia() {
     try { return await md.getUserMedia({ audio: true }); } catch { throw new Error('No camera or microphone was found.'); }   // a voice-only call is still a call
   }
 }
+
 function buildCallUi() {
   const remote = h('video', { class: 'cremote', autoplay: true, playsinline: true });
   const local = h('video', { class: 'clocal', autoplay: true, playsinline: true, muted: true });
   local.muted = true;
   const status = h('div', { class: 'cstatus' }), who = h('div', { class: 'cwho' });
+  const face = h('div', { class: 'cring' }, h('i'), h('i'), h('i'), h('div', { class: 'cface' }, initials(call.peer.name || '?')));
   const mk = (cls, icon, label, fn) => { const b = h('button', { type: 'button', class: 'cbtn ' + cls, 'aria-label': label }, h('span', { class: 'ci' }, ic(icon)), h('small', {}, label)); b.addEventListener('click', fn); return b; };
   const btns = {
     decline: mk('red c-in', 'phone', 'Decline', () => declineCall()),
@@ -1609,10 +1620,33 @@ function buildCallUi() {
     cam: mk('c-live', 'video', 'Camera', () => toggleTrack('video')),
     flip: mk('c-live', 'flip', 'Flip', () => flipCamera()),
     end: mk('red c-out c-live', 'phone', 'End', () => endCall()),
+    react: mk('c-fx', 'smile', 'React', () => toggleTray('react')),
+    filt: mk('c-fx', 'spark', 'Filters', () => toggleTray('filters')),
+    draw: mk('c-fx', 'edit', 'Draw', () => toggleDraw()),
+    watch: mk('c-fx', 'play', 'Watch', () => openWatchSheet()),
   };
-  const root = h('div', { id: 'callui', class: 'callui' }, remote, local, h('div', { class: 'ctop' }, who, status), h('div', { class: 'cbar' }, ...Object.values(btns)));
+  const tray = (cls, kids) => h('div', { class: 'ctray ' + cls }, ...kids);
+  const reactTray = tray('rtray', FX_EMOJI.map((e) => { const b = h('button', { type: 'button' }, e); b.addEventListener('click', () => sendReaction(e)); return b; }));
+  const filterTray = tray('ftray', [['none', 'Normal'], ['warm', 'Warm'], ['vintage', 'Vintage'], ['bw', 'B&W'], ['glow', 'Glow'], ['cool', 'Cool']].map(([k, l]) => {
+    const b = h('button', { type: 'button', 'data-f': k, class: k === 'none' ? 'on' : '' }, l); b.addEventListener('click', () => setMyFilter(k)); return b; }));
+  const fxl = h('div', { class: 'fxl' }), conf = h('canvas', { class: 'cconf' }), doodle = h('canvas', { class: 'cdoodle' }), watch = h('div', { class: 'cwatch' });
+  const root = h('div', { id: 'callui', class: 'callui' }, remote, watch, local, doodle, fxl, conf, face, h('div', { class: 'ctop' }, who, status),
+    reactTray, filterTray,
+    h('div', { class: 'cfxbar' }, btns.react, btns.filt, btns.draw, btns.watch),
+    h('div', { class: 'cbar' }, btns.decline, btns.accept, btns.mute, btns.cam, btns.flip, btns.end));
   document.body.append(root);
-  return { root, remote, local, status, who, btns };
+  const ui = { root, remote, local, status, who, btns, fxl, conf, doodle, watch, reactTray, filterTray };
+  const fit = () => { for (const c of [conf, doodle]) { c.width = root.clientWidth; c.height = root.clientHeight; } };
+  fit(); ui.fit = fit; window.addEventListener('resize', fit);
+  // double-tap the picture: a heart for both of you (a plain tap does nothing)
+  let lastTap = 0;
+  root.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button,.ctray,.cwatch,.cdoodle.on') || call?.phase !== 'live') return;
+    const now = Date.now();
+    if (now - lastTap < 320) { const r = root.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height; heartAt(x, y); fx({ t: 'heart', x, y }); }
+    lastTap = now;
+  });
+  return ui;
 }
 function setPhase(phase, text) {
   if (!call) return;
@@ -1622,6 +1656,8 @@ function setPhase(phase, text) {
   u.who.textContent = callName();
   u.status.textContent = text ?? ({ outgoing: 'Calling…', incoming: 'Video call', connecting: 'Connecting…', live: '' }[phase] || '');
 }
+
+// ----- starting, answering, ending -----
 async function startCall(c) {
   if (call) return toast('You are already in a call.', true);
   const peer = c.people.find((p) => p.id !== state.me.id);
@@ -1631,7 +1667,7 @@ async function startCall(c) {
   let info;
   try { info = await api(`/convs/${c.id}/call`, { method: 'POST' }); }
   catch (e) { local.getTracks().forEach((t) => t.stop()); return toast(e.message, true); }
-  call = { id: info.call.id, conv: c.id, peer: { id: peer.id, name: peer.name }, role: 'caller', local, pending: [], early: [], restarts: 0 };
+  call = { id: info.call.id, conv: c.id, peer: { id: peer.id, name: peer.name }, role: 'caller', local, pending: [], early: [], restarts: 0, strokes: new Map(), parts: [] };
   call.ui = buildCallUi();
   call.ui.local.srcObject = local;
   setPhase('outgoing', `Calling ${callName()}…`);
@@ -1639,7 +1675,7 @@ async function startCall(c) {
 function onCallEvent(d) {
   if (d.type === 'incoming') {
     if (call) return;                                       // already in a call: the server refuses a second one anyway
-    call = { id: d.id, conv: d.conv, peer: { id: d.from.id, name: d.from.name }, role: 'callee', local: null, pending: [], early: [], restarts: 0 };
+    call = { id: d.id, conv: d.conv, peer: { id: d.from.id, name: d.from.name }, role: 'callee', local: null, pending: [], early: [], restarts: 0, strokes: new Map(), parts: [] };
     call.ui = buildCallUi();
     setPhase('incoming', 'is calling you');
     navigator.vibrate?.([300, 150, 300, 150, 300]);
@@ -1662,6 +1698,8 @@ async function makePeer() {
   const pc = new RTCPeerConnection({ iceServers: cfg.iceServers, bundlePolicy: 'max-bundle' });
   call.pc = pc;
   for (const t of call.local.getTracks()) pc.addTrack(t, call.local);
+  if (call.role === 'caller') setupFx(pc.createDataChannel('fx'));
+  pc.ondatachannel = (e) => setupFx(e.channel);
   pc.onicecandidate = (e) => { if (e.candidate) sendSignal({ candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
   pc.ontrack = (e) => {
     call.ui.remote.srcObject = e.streams[0] || new MediaStream([e.track]);
@@ -1774,8 +1812,11 @@ function teardown(reason) {
   const c = call;
   if (!c) return;
   call = null;
-  clearTimeout(c.dropT); clearInterval(c.tick);
+  clearTimeout(c.dropT); clearInterval(c.tick); clearInterval(c.w?.tick); clearInterval(c.drawT);
+  if (c.fxRaf) cancelAnimationFrame(c.fxRaf);
+  try { window.removeEventListener('resize', c.ui?.fit); } catch { /* ignore */ }
   try { c.wake?.release(); } catch { /* ignore */ }
+  try { c.dc?.close(); } catch { /* ignore */ }
   try { c.pc?.close(); } catch { /* ignore */ }
   c.local?.getTracks().forEach((t) => t.stop());
   c.ui?.root.remove();
@@ -1791,5 +1832,236 @@ async function checkCall() {
   if (c.role === 'callee' && c.state === 'ringing') onCallEvent({ type: 'incoming', id: c.id, conv: c.conv, from: c.peer });
   else api(`/calls/${c.id}/end`, { method: 'POST' }).catch(() => {});       // a call this page can no longer carry
 }
+
+// ----- effects: reactions, hearts, confetti, drawing, filters. They travel on the call's own data channel. -----
+function setupFx(dc) {
+  call.dc = dc;
+  dc.onopen = () => call?.ui.root.classList.add('fxok');
+  dc.onclose = () => call?.ui.root.classList.remove('fxok');
+  dc.onmessage = (e) => { try { onFx(JSON.parse(e.data)); } catch { /* ignore */ } };
+}
+const fx = (msg) => { try { if (call?.dc?.readyState === 'open') call.dc.send(JSON.stringify(msg)); } catch { /* ignore */ } };
+function toggleTray(which) {
+  const u = call.ui, open = (el) => el.classList.contains('open');
+  const want = which === 'react' ? u.reactTray : u.filterTray, other = which === 'react' ? u.filterTray : u.reactTray;
+  other.classList.remove('open');
+  want.classList.toggle('open', !open(want));
+}
+const closeTrays = () => { call?.ui.reactTray.classList.remove('open'); call?.ui.filterTray.classList.remove('open'); };
+function sendReaction(e) {
+  if (e === '🎉') { confetti(); fx({ t: 'confetti' }); } else { floatEmoji(e); fx({ t: 'react', e }); }
+  closeTrays();
+}
+function floatEmoji(e) {
+  const box = call?.ui.fxl; if (!box) return;
+  const w = call.ui.root.clientWidth;
+  for (let i = 0; i < 7; i++) setTimeout(() => {
+    const el = h('div', { class: 'cfloat' }, e);
+    el.style.left = rnd(0.12, 0.85) * w + 'px'; el.style.setProperty('--d', rnd(2.3, 3.3) + 's');
+    el.style.setProperty('--x1', rnd(-18, 18) + 'px'); el.style.setProperty('--x2', rnd(-60, 60) + 'px'); el.style.setProperty('--r', rnd(-25, 25) + 'deg');
+    box.append(el); setTimeout(() => el.remove(), 3500);
+  }, i * 90);
+}
+function heartAt(x, y) {
+  const box = call?.ui.fxl; if (!box) return;
+  const w = call.ui.root.clientWidth, hh = call.ui.root.clientHeight;
+  const big = h('div', { class: 'cheart' }, '❤️'); big.style.left = x * w + 'px'; big.style.top = y * hh + 'px'; box.append(big); setTimeout(() => big.remove(), 1000);
+  for (let i = 0; i < 9; i++) {
+    const p = h('div', { class: 'cburst' }, ['💖', '💗', '✨', '💕'][i % 4]);
+    const a = (i / 9) * Math.PI * 2;
+    p.style.left = x * w + 'px'; p.style.top = y * hh + 'px'; p.style.setProperty('--dx', Math.cos(a) * rnd(60, 120) + 'px'); p.style.setProperty('--dy', Math.sin(a) * rnd(60, 120) + 'px');
+    box.append(p); setTimeout(() => p.remove(), 1000);
+  }
+}
+function confetti() {
+  if (!call) return;
+  const cols = ['#ff2d55', '#ff9f0a', '#ffd60a', '#30d158', '#0a84ff', '#bf5af2'], w = call.ui.conf.width, hh = call.ui.conf.height;
+  for (let i = 0; i < 110; i++) call.parts.push({ x: w / 2 + rnd(-30, 30), y: hh * 0.78, vx: rnd(-6.5, 6.5), vy: rnd(-17, -7), w: rnd(5, 9), h: rnd(8, 14), c: cols[i % 6], r: rnd(0, 6), vr: rnd(-.3, .3), life: 0 });
+  wakeFx();
+}
+function wakeFx() { if (call && !call.fxRaf) call.fxRaf = requestAnimationFrame(fxFrame); }
+function fxFrame() {
+  const c = call; if (!c) return;
+  const cv = c.ui.conf, cx = cv.getContext('2d'), dv = c.ui.doodle, dx = dv.getContext('2d');
+  cx.clearRect(0, 0, cv.width, cv.height);
+  c.parts.forEach((p) => { p.vy += .38; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life++; cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillStyle = p.c; cx.globalAlpha = Math.max(0, 1 - p.life / 120); cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); cx.restore(); });
+  c.parts = c.parts.filter((p) => p.life < 120);
+  dx.clearRect(0, 0, dv.width, dv.height);
+  const now = Date.now();
+  for (const [id, s] of c.strokes) if (now - s.t > 3400 && !s.live) c.strokes.delete(id);
+  c.strokes.forEach((s) => {
+    const a = s.live ? 1 : Math.max(0, 1 - (now - s.t - 1500) / 1800);
+    dx.strokeStyle = s.color; dx.globalAlpha = a; dx.shadowColor = s.color; dx.shadowBlur = 12; dx.lineWidth = 5; dx.lineCap = dx.lineJoin = 'round';
+    dx.beginPath(); s.pts.forEach((p, i) => (i ? dx.lineTo(p[0] * dv.width, p[1] * dv.height) : dx.moveTo(p[0] * dv.width, p[1] * dv.height))); dx.stroke();
+  });
+  dx.globalAlpha = 1;
+  c.fxRaf = (c.parts.length || c.strokes.size) ? requestAnimationFrame(fxFrame) : 0;
+}
+// Drawing: your lines are one colour, theirs another; they fade a few seconds after the last touch.
+const myColor = () => FX_COLORS[state.me.id % FX_COLORS.length];
+function toggleDraw() {
+  const u = call.ui, on = !u.doodle.classList.contains('on');
+  u.doodle.classList.toggle('on', on); u.btns.draw.classList.toggle('off', on);
+  if (!on) return;
+  closeTrays();
+  if (u.doodle.dataset.bound) return;
+  u.doodle.dataset.bound = '1';
+  const pos = (e) => { const r = u.doodle.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+  let mine = null;
+  const flush = (end) => {
+    if (!mine) return;
+    const fresh = mine.pts.slice(mine.sent); mine.sent = mine.pts.length;
+    if (fresh.length || end) fx({ t: 'draw', id: mine.id, pts: fresh.map((p) => p.map((n) => Math.round(n * 1000) / 1000)), c: mine.color, end: !!end });
+  };
+  u.doodle.addEventListener('pointerdown', (e) => {
+    const id = Math.random().toString(36).slice(2, 10);
+    mine = { id, pts: [pos(e)], sent: 0, color: myColor() };
+    call.strokes.set(id, { pts: mine.pts, color: mine.color, t: Date.now(), live: true });
+    u.doodle.setPointerCapture(e.pointerId);
+    clearInterval(call.drawT); call.drawT = setInterval(() => flush(false), 60);
+    wakeFx();
+  });
+  u.doodle.addEventListener('pointermove', (e) => { if (mine) { mine.pts.push(pos(e)); call.strokes.get(mine.id).t = Date.now(); wakeFx(); } });
+  const up = () => { if (!mine) return; flush(true); const s = call.strokes.get(mine.id); if (s) { s.live = false; s.t = Date.now(); } clearInterval(call.drawT); mine = null; wakeFx(); };
+  u.doodle.addEventListener('pointerup', up); u.doodle.addEventListener('pointercancel', up);
+}
+function setMyFilter(k) {
+  if (!(k in FX_FILTERS)) return;
+  const u = call.ui;
+  for (const c of Object.values(FX_FILTERS)) if (c) u.local.classList.remove(c);
+  if (FX_FILTERS[k]) u.local.classList.add(FX_FILTERS[k]);
+  u.filterTray.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.f === k));
+  fx({ t: 'filter', f: k });
+}
+function onFx(m) {
+  if (!call || !m || typeof m !== 'object') return;
+  if (m.t === 'react' && FX_EMOJI.includes(m.e)) floatEmoji(m.e);
+  else if (m.t === 'confetti') confetti();
+  else if (m.t === 'heart' && m.x >= 0 && m.x <= 1 && m.y >= 0 && m.y <= 1) heartAt(m.x, m.y);
+  else if (m.t === 'filter' && m.f in FX_FILTERS) {
+    const r = call.ui.remote;
+    for (const c of Object.values(FX_FILTERS)) if (c) r.classList.remove(c);
+    if (FX_FILTERS[m.f]) r.classList.add(FX_FILTERS[m.f]);
+  } else if (m.t === 'draw' && typeof m.id === 'string' && m.id.length < 24 && Array.isArray(m.pts) && m.pts.length <= 80 && FX_COLORS.includes(m.c)) {
+    const key = 'r' + m.id;
+    let s = call.strokes.get(key);
+    if (!s) { if (call.strokes.size > 60) return; s = { pts: [], color: m.c, t: Date.now(), live: true }; call.strokes.set(key, s); }
+    for (const p of m.pts) if (Array.isArray(p) && p.length === 2 && p[0] >= 0 && p[0] <= 1 && p[1] >= 0 && p[1] <= 1) s.pts.push([p[0], p[1]]);
+    s.t = Date.now(); if (m.end) s.live = false;
+    wakeFx();
+  } else if (m.t === 'watch') {
+    const src = cleanSrc(m.src);
+    if (src) { startWatch(src, false); toast(`${callName()} started a video. Watching together.`); }
+  } else if (m.t === 'wstop') closeWatch(false);
+  else if (m.t === 'w') watchRemote(m);
+}
+
+// ----- watch together: a YouTube link or a video from this chat, played in step on both phones -----
+const parseYouTube = (s) => { const m = /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/))([\w-]{11})/.exec(String(s)); return m ? m[1] : null; };
+function cleanSrc(s) {
+  if (s?.k === 'yt' && /^[\w-]{11}$/.test(s.id)) return { k: 'yt', id: s.id };
+  if (s?.k === 'file' && Number.isInteger(s.id) && s.id > 0) return { k: 'file', id: s.id };
+  return null;
+}
+async function openWatchSheet() {
+  if (!call) return;
+  closeTrays();
+  const input = h('input', { type: 'url', class: 'jsearch', placeholder: 'Paste a YouTube link', autocapitalize: 'none', 'aria-label': 'YouTube link' });
+  const go = h('button', { class: 'btn full', type: 'button', style: 'margin-top:.6rem' }, 'Watch together');
+  let close = () => {};
+  go.addEventListener('click', () => {
+    const id = parseYouTube(input.value);
+    if (!id) return toast('Paste a YouTube link (youtube.com or youtu.be).', true);
+    close(); startWatch({ k: 'yt', id }, true);
+  });
+  const { media } = await api(`/convs/${call.conv}/media`).catch(() => ({ media: [] }));
+  const vids = (media || []).filter((m) => m.kind === 'video').slice(0, 8);
+  close = sheet('Watch together', [
+    h('div', { class: 'tform' }, input, go),
+    ...(vids.length ? [h('div', { class: 'mfoot' }, 'Or a video from this chat')] : []),
+    ...vids.map((v) => [`${v.text || v.extra?.name || 'Video'} · ${when(v.at)}`, () => startWatch({ k: 'file', id: v.id }, true)]),
+  ]);
+}
+const ytPost = (w, msg) => { try { w.frame?.contentWindow?.postMessage(JSON.stringify(msg), 'https://www.youtube-nocookie.com'); } catch { /* ignore */ } };
+const ytCmd = (w, func, args = []) => ytPost(w, { event: 'command', func, args });
+const curTime = (w) => (w.video ? w.video.currentTime : w.t || 0);
+function startWatch(src, mine) {
+  if (!call) return;
+  closeWatch(false);
+  const box = call.ui.watch; box.replaceChildren();
+  const w = { src, mine, applying: false, playing: false, t: 0, lastAt: 0 };
+  call.w = w;
+  const x = h('button', { class: 'wclose', type: 'button', 'aria-label': 'Stop watching' }, ic('x'));
+  x.addEventListener('click', () => closeWatch(true));
+  if (src.k === 'yt') {
+    const f = h('iframe', { class: 'wplayer', src: `https://www.youtube-nocookie.com/embed/${src.id}?enablejsapi=1&playsinline=1&rel=0&modestbranding=1&origin=${encodeURIComponent(location.origin)}`,
+      allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: true, referrerpolicy: 'strict-origin-when-cross-origin', title: 'Video' });
+    w.frame = f;
+    // Say "I'm listening" until the player answers (it can take a moment to be ready), then stop.
+    f.addEventListener('load', () => {
+      let tries = 0;
+      w.hello = setInterval(() => { if (w.heard || ++tries > 40 || call?.w !== w) return clearInterval(w.hello); ytPost(w, { event: 'listening', id: 1, channel: 'widget' }); }, 700);
+    });
+    box.append(f);
+  } else {
+    const v = h('video', { class: 'wplayer', src: `/api/media/${src.id}`, controls: true, playsinline: true, preload: 'auto' });
+    w.video = v;
+    v.addEventListener('play', () => { w.playing = true; localAct('play', v.currentTime); });
+    v.addEventListener('pause', () => { w.playing = false; localAct('pause', v.currentTime); });
+    v.addEventListener('seeked', () => localAct('seek', v.currentTime));
+    box.append(v);
+  }
+  box.append(x);
+  call.ui.root.classList.add('watching');
+  if (mine) fx({ t: 'watch', src });
+  w.tick = setInterval(() => { if (w.mine && w.playing) fx({ t: 'w', a: 'tick', time: curTime(w), playing: true }); }, 2500);   // keeps the other phone from drifting
+}
+function localAct(a, time) { const w = call?.w; if (w && !w.applying) fx({ t: 'w', a, time }); }
+function watchRemote(m) {
+  const w = call?.w; if (!w || typeof m.time !== 'number' || !['play', 'pause', 'seek', 'tick'].includes(m.a)) return;
+  w.applying = true; clearTimeout(w.applyT); w.applyT = setTimeout(() => { w.applying = false; }, 900);
+  const t = Math.max(0, m.time);
+  if (w.video) {
+    const v = w.video, drift = Math.abs(v.currentTime - t);
+    if (m.a === 'pause') { v.pause(); if (drift > 0.5) v.currentTime = t; }
+    else if (m.a === 'seek') v.currentTime = t;
+    else { if (drift > (m.a === 'tick' ? 2 : 0.7)) v.currentTime = t; if (v.paused) v.play().catch(() => toast('Tap play to join in.')); }
+  } else {
+    if (m.a === 'pause') { ytCmd(w, 'pauseVideo'); ytCmd(w, 'seekTo', [t, true]); }
+    else if (m.a === 'seek') ytCmd(w, 'seekTo', [t, true]);
+    else { if (Math.abs((w.t || 0) - t) > (m.a === 'tick' ? 2 : 0.7)) ytCmd(w, 'seekTo', [t, true]); if (!w.playing) ytCmd(w, 'playVideo'); }
+  }
+}
+function closeWatch(notify) {
+  const w = call?.w; if (!w) return;
+  clearInterval(w.tick); clearInterval(w.hello); clearTimeout(w.applyT);
+  try { w.video?.pause(); } catch { /* ignore */ }
+  call.ui.watch.replaceChildren();
+  call.ui.root.classList.remove('watching');
+  call.w = null;
+  if (notify) fx({ t: 'wstop' });
+}
+// What the YouTube player tells us (it posts messages to the page): state changes and the current time.
+window.addEventListener('message', (e) => {
+  const w = call?.w;
+  if (e.origin !== 'https://www.youtube-nocookie.com' || !w || w.src.k !== 'yt' || e.source !== w.frame?.contentWindow) return;
+  let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+  w.heard = true;
+  const info = d?.info;
+  if (d?.event === 'onStateChange' || (d?.event === 'infoDelivery' && info && typeof info.playerState === 'number')) {
+    const st = d.event === 'onStateChange' ? d.info : info.playerState;
+    if (st === 1 || st === 2) {
+      const playing = st === 1;
+      if (playing !== w.playing) { w.playing = playing; if (!w.applying) fx({ t: 'w', a: playing ? 'play' : 'pause', time: w.t || 0 }); }
+    }
+  }
+  if (d?.event === 'infoDelivery' && info && typeof info.currentTime === 'number') {
+    const now = Date.now(), expected = (w.t || 0) + (w.playing ? (now - (w.lastAt || now)) / 1000 : 0);
+    if (w.lastAt && Math.abs(info.currentTime - expected) > 1.8 && !w.applying) fx({ t: 'w', a: 'seek', time: info.currentTime });   // they dragged the bar
+    w.t = info.currentTime; w.lastAt = now;
+    w.frame.dataset.t = info.currentTime.toFixed(1);               // handy when checking that the player is talking to us
+  }
+  if (typeof info?.playerState === 'number') w.frame.dataset.s = String(info.playerState);
+});
 
 render();

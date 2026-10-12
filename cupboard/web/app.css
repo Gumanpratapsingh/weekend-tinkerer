@@ -523,3 +523,53 @@ button,input,textarea,select{font-family:inherit}
 .callui[data-phase=connecting] .c-live,.callui[data-phase=live] .c-live{display:flex}
 .callui[data-phase=incoming] .clocal,.callui[data-phase=outgoing] .clocal{opacity:.0}
 .callui[data-phase=outgoing] .clocal{opacity:1;position:absolute;inset:0;width:100%;max-width:none;height:100%;aspect-ratio:auto;border-radius:0;box-shadow:none;opacity:.5}
+
+/* ===== call effects: ringing rings, reactions, hearts, confetti, drawing, filters, watch together ===== */
+.sheet{z-index:120}
+.callui .cring{position:absolute;left:50%;top:36%;width:120px;height:120px;transform:translate(-50%,-50%);z-index:2;display:none}
+.callui .cring i{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.6);animation:cpulse 2.4s ease-out infinite}
+.callui .cring i:nth-child(2){animation-delay:.8s}.callui .cring i:nth-child(3){animation-delay:1.6s}
+.callui .cface{position:absolute;inset:0;border-radius:50%;background:rgba(255,255,255,.18);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:grid;place-items:center;font-size:2.6rem;font-weight:700;letter-spacing:-.03em}
+@keyframes cpulse{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.6);opacity:0}}
+.callui[data-phase=incoming] .cring,.callui[data-phase=outgoing] .cring,.callui[data-phase=connecting] .cring{display:block}
+.callui .cbtn.green .ci{animation:cwiggle 1.2s ease-in-out infinite}
+@keyframes cwiggle{0%,100%{transform:rotate(0)}15%{transform:rotate(-14deg)}30%{transform:rotate(12deg)}45%{transform:rotate(-9deg)}60%{transform:rotate(0)}}
+
+.callui .cfxbar{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 118px);display:none;justify-content:center;gap:18px;z-index:6}
+.callui[data-phase=live] .cfxbar{display:flex}
+.callui .cbtn.c-fx{display:flex}
+.callui .cbtn.c-fx .ci{width:46px;height:46px}
+.callui .cbtn.c-fx .ic{width:22px;height:22px}
+.callui .cbtn.c-fx small{display:none}
+.callui .cbtn.c-fx.off .ci{background:#fff;color:#111}
+.callui:not(.fxok) .cfxbar .cbtn:not(.watch){opacity:.55}
+.callui .ctray{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 176px);transform:translate(-50%,10px);display:flex;gap:4px;padding:8px 10px;border-radius:999px;background:rgba(30,30,32,.72);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:8;max-width:94vw;overflow-x:auto}
+.callui .ctray.open{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.callui .ctray button{border:0;background:none;color:#fff;font-size:1.55rem;cursor:pointer;padding:2px 5px;transition:transform .12s}
+.callui .ctray button:active{transform:scale(1.4)}
+.callui .ftray button{font-size:.85rem;font-weight:600;border-radius:999px;padding:.35rem .7rem}
+.callui .ftray button.on{background:#fff;color:#111}
+.callui .fxl{position:absolute;inset:0;z-index:9;pointer-events:none;overflow:hidden}
+.callui .cfloat{position:absolute;bottom:130px;font-size:2.1rem;animation:crise var(--d,2.6s) cubic-bezier(.2,.6,.3,1) forwards;filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))}
+@keyframes crise{0%{transform:translate(0,0) scale(.4);opacity:0}12%{opacity:1;transform:translate(var(--x1,0),-60px) scale(1.1)}60%{opacity:1}100%{transform:translate(var(--x2,0),-460px) scale(.9) rotate(var(--r,0deg));opacity:0}}
+.callui .cheart{position:absolute;font-size:5rem;animation:cbeat .9s ease-out forwards;filter:drop-shadow(0 6px 18px rgba(255,45,85,.6))}
+@keyframes cbeat{0%{transform:translate(-50%,-50%) scale(.2);opacity:0}25%{transform:translate(-50%,-50%) scale(1.25);opacity:1}45%{transform:translate(-50%,-50%) scale(.95)}100%{transform:translate(-50%,-72%) scale(1.1);opacity:0}}
+.callui .cburst{position:absolute;font-size:1.5rem;animation:cpop 1s ease-out forwards}
+@keyframes cpop{0%{transform:translate(0,0) scale(.2);opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(1.2);opacity:0}}
+.callui .cconf{position:absolute;inset:0;z-index:10;pointer-events:none}
+.callui .cdoodle{position:absolute;inset:0;z-index:4;pointer-events:none;touch-action:none}
+.callui .cdoodle.on{pointer-events:auto;cursor:crosshair}
+.callui .f-warm{filter:sepia(.35) saturate(1.3) hue-rotate(-10deg) brightness(1.05)}
+.callui .f-vintage{filter:sepia(.6) contrast(.9) brightness(1.05) saturate(.8)}
+.callui .f-bw{filter:grayscale(1) contrast(1.1)}
+.callui .f-glow{filter:brightness(1.15) contrast(.95) saturate(1.2) blur(.4px)}
+.callui .f-cool{filter:hue-rotate(160deg) saturate(1.1) brightness(1.02)}
+/* watch together: the player on top, the faces in small tiles */
+.callui .cwatch{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top) + 64px);z-index:5;display:none}
+.callui.watching .cwatch{display:block}
+.callui .wplayer{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}
+.callui .wclose{position:absolute;right:8px;top:8px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;display:grid;place-items:center;cursor:pointer}
+.callui .wclose .ic{width:16px;height:16px;stroke-width:2.4}
+.callui.watching .cremote{inset:auto;left:12px;top:calc(env(safe-area-inset-top) + 64px + 56.25vw + 12px);width:30vw;max-width:140px;height:auto;aspect-ratio:3/4;border-radius:14px;z-index:5;opacity:1}
+.callui.watching .ctop{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:16px;margin:0;text-align:left}
+.callui.watching .clocal{right:auto;left:calc(12px + min(30vw,140px) + 10px);top:calc(env(safe-area-inset-top) + 64px + 56.25vw + 12px);width:30vw;max-width:140px;min-width:0;z-index:5}
