@@ -114,7 +114,11 @@ export default {
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
-        if (/no longer (accepting|available)|position (has been )?(filled|closed)|job (is )?(closed|expired)/i.test(await page.innerText('body').catch(() => ''))) return { status: 'closed' };
+        const bodyText = await page.innerText('body').catch(() => '');
+        if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired/i.test(bodyText)) return { status: 'closed' };
+        // Already applied on the job board (an earlier attempt or by hand): nothing left to do.
+        if ((/naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0))
+          || (/linkedin\.com/.test(url) && /\bApplied \d+ (seconds?|minutes?|hours?|days?|weeks?|months?) ago\b/i.test(bodyText.slice(0, 4000)))) return { status: 'already_applied' };
 
         // A form embedded in an iframe: open the iframe's page directly.
         // Only visible frames, never trackers (LinkedIn job pages carry a hidden doubleclick frame whose URL mentions
