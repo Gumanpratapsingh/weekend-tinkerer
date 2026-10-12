@@ -14,6 +14,7 @@ import { install as installTogether } from './together.mjs';
 import { install as installWedding } from './wedding.mjs';
 import { install as installAssistant } from './assistant.mjs';
 import { install as installLove } from './lovenotes.mjs';
+import { install as installCalls } from './calls.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -198,6 +199,7 @@ const together = installTogether({ postMessage, updateMessage, emit, memberIds, 
 const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, postMessage, together });
 const assistant = installAssistant({ postMessage, emit, memberIds, together, log });
 const love = installLove({ postMessage, updateMessage, log, botConv });
+const calls = installCalls({ emit, canSee, readJson, send, err, postMessage, notify: (uid, p) => push.notify(uid, p), isActive, log });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -419,7 +421,7 @@ async function api(req, res, path, query) {
       else if (conv.kind === 'bot') setImmediate(async () => {
         try {
           // Guman's own commands for the notes to her ("love: …") come first; everything else goes to the bot as before.
-          const lr = me.role === 'owner' ? await love.command(text).catch((e) => `Could not do that: ${e.message}`) : null;
+          const lr = me.role === 'owner' ? await (love.command(text).then((r) => r ?? calls.command(text))).catch((e) => `Could not do that: ${e.message}`) : null;
           if (lr) return await botSay(lr, null, me);
           await botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage });
         } catch (e) { log('bot', e.message); }
@@ -659,6 +661,7 @@ async function api(req, res, path, query) {
 
   if (await together.route(req, res, path, query, me)) return;
   if (await wedding.route(req, res, path, query, me)) return;
+  if (await calls.route(req, res, path, query, me)) return;
 
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {
     const row = one('SELECT * FROM messages WHERE id = ?', Number(m[1]));

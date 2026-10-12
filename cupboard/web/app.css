@@ -497,3 +497,29 @@ button,input,textarea,select{font-family:inherit}
 .m.out.lc .meta .read{color:var(--accent)}
 .compose textarea{scrollbar-width:none;overflow-y:auto}
 .compose textarea::-webkit-scrollbar{display:none}
+
+/* video call */
+.callui{position:fixed;inset:0;z-index:90;background:#0b0b0d;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.callui .cremote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:0;transition:opacity .25s}
+.callui[data-phase=live] .cremote{opacity:1}
+.callui .clocal{position:absolute;right:max(12px,env(safe-area-inset-right));top:calc(env(safe-area-inset-top) + 14px);width:26vw;max-width:128px;min-width:84px;aspect-ratio:3/4;object-fit:cover;border-radius:14px;background:#222;transform:scaleX(-1);box-shadow:0 4px 18px rgba(0,0,0,.45);z-index:2}
+.callui .ctop{position:relative;z-index:1;text-align:center;padding:0 1.5rem;margin-top:-6rem}
+.callui .cwho{font-size:2rem;font-weight:700;letter-spacing:-.02em;text-shadow:0 1px 8px rgba(0,0,0,.5)}
+.callui .cstatus{margin-top:.35rem;font-size:1.05rem;opacity:.85;font-variant-numeric:tabular-nums;text-shadow:0 1px 8px rgba(0,0,0,.5)}
+.callui[data-phase=live] .ctop{position:absolute;top:calc(env(safe-area-inset-top) + 16px);left:16px;text-align:left;margin:0;padding:0}
+.callui[data-phase=live] .cwho{font-size:1.1rem}
+.callui[data-phase=live] .cstatus{margin-top:0;font-size:.9rem}
+.callui .cbar{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 30px);display:flex;justify-content:center;gap:22px;z-index:3}
+.callui .cbtn{display:none;flex-direction:column;align-items:center;gap:.4rem;background:none;border:0;color:#fff;cursor:pointer;padding:0}
+.callui .cbtn .ci{width:62px;height:62px;border-radius:50%;background:rgba(255,255,255,.2);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);display:grid;place-items:center}
+.callui .cbtn .ic{width:26px;height:26px;stroke-width:1.9}
+.callui .cbtn small{font-size:.72rem;opacity:.85}
+.callui .cbtn.red .ci{background:#ff3b30}
+.callui .cbtn.green .ci{background:#30d158}
+.callui .cbtn.red .ic{transform:rotate(135deg)}
+.callui .cbtn.off .ci{background:#fff;color:#111}
+.callui[data-phase=incoming] .c-in{display:flex}
+.callui[data-phase=outgoing] .c-out{display:flex}
+.callui[data-phase=connecting] .c-live,.callui[data-phase=live] .c-live{display:flex}
+.callui[data-phase=incoming] .clocal,.callui[data-phase=outgoing] .clocal{opacity:.0}
+.callui[data-phase=outgoing] .clocal{opacity:1;position:absolute;inset:0;width:100%;max-width:none;height:100%;aspect-ratio:auto;border-radius:0;box-shadow:none;opacity:.5}
