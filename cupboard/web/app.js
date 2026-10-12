@@ -144,7 +144,7 @@ async function loadConvs() { state.convs = (await api('/convs')).convs; }
 async function openConv(id, refresh) {
   const [{ conv }, { messages, more }] = await Promise.all([api(`/convs/${id}`), api(`/convs/${id}/messages`)]);
   state.cur = conv; state.msgs = messages; state.more = more; state.newer = false; upsertConv(conv);
-  if (!refresh) { state.replyTo = null; state.editing = null; state.pinIdx = 0; }
+  if (!refresh) { state.replyTo = null; state.editing = null; state.pinIdx = 0; clearTray(); state.draft = ''; }
   drawMessages(true); drawHeader(); drawPins(); markRead();
 }
 let readT;
@@ -583,7 +583,7 @@ function drawHeader() {
       .then(({ conv }) => { upsertConv(conv); state.cur = conv; drawHeader(); }).catch((e) => toast(e.message, true)));
     if (c.assistant.quiet && !(t && t.until > Date.now())) sub.textContent = 'assistant is quiet · start with @ai to ask';
   }
-  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, ai, more);
+  bar.replaceChildren(h('a', { class: 'icon back', href: c.archived ? '/archived' : '/', 'data-link': true, 'aria-label': 'Back' }, '‹'), avatar(c, true), title, ...(ai ? [ai] : []), more);
 }
 
 // Pinned messages: a bar under the header; a tap jumps to the message (and on to the next pin).
@@ -770,6 +770,20 @@ function drawComposer() {
     x.addEventListener('click', () => { state.replyTo = null; drawComposer(); });
     parts.push(h('div', { class: 'replying' }, h('span', {}, 'Replying to: ' + preview(state.replyTo)), x));
   }
+  if (state.tray?.length && !rec) {
+    const strip = h('div', { class: 'tray' });
+    state.tray.forEach((t, i) => {
+      const x = h('button', { type: 'button', class: 'tx', 'aria-label': 'Remove' }, '✕');
+      x.addEventListener('click', () => { URL.revokeObjectURL(t.url); state.tray.splice(i, 1); state.draft = document.querySelector('.compose textarea')?.value || ''; drawComposer(); });
+      strip.append(h('div', { class: 'th' }, t.file.type.startsWith('video/') ? h('span', { class: 'tv' }, '🎥') : h('img', { src: t.url, alt: `Photo ${i + 1}` }), x));
+    });
+    if (state.tray.length < 10) {
+      const more = h('button', { type: 'button', class: 'tadd2', 'aria-label': 'Add another photo' }, '＋');
+      more.addEventListener('click', () => document.getElementById('trayPick')?.click());
+      strip.append(more);
+    }
+    parts.push(h('div', { class: 'traywrap' }, strip, h('small', {}, `${state.tray.length} ready · add the other hand, then press send`)));
+  }
   if (state.editing) {
     const x = h('button', { class: 'icon', type: 'button', 'aria-label': 'Cancel editing' }, '✕');
     x.addEventListener('click', () => { state.editing = null; drawComposer(); });
@@ -784,15 +798,18 @@ function drawComposer() {
   } else {
     const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
     if (state.editing) setTimeout(() => { ta.value = state.editing?.text || ''; sync(); ta.focus(); }, 0);
+    else if (state.draft) { ta.value = state.draft; state.draft = ''; }
     const btn = h('button', { class: 'send', type: 'button', 'aria-label': 'Record a voice note' }, '🎤');
     let lastTyping = 0;
-    const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim() || !!state.editing; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
+    const sync = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 128) + 'px'; const has = !!ta.value.trim() || !!state.editing || !!state.tray?.length; btn.textContent = state.editing ? '✓' : has ? '➤' : '🎤'; btn.setAttribute('aria-label', state.editing ? 'Save edit' : has ? 'Send' : 'Record a voice note'); };
+    sync();                                                  // photos waiting in the tray, or a kept draft: show ➤ at once
     ta.addEventListener('input', () => {
       sync();
       if (c.kind !== 'bot' && Date.now() - lastTyping > 3000 && ta.value.trim()) { lastTyping = Date.now(); api(`/convs/${c.id}/typing`, { method: 'POST' }).catch(() => {}); }
     });
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !isIOS()) { e.preventDefault(); if (ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); } } });
-    btn.addEventListener('click', () => { if (ta.value.trim() || state.editing) { sendText(ta.value); ta.value = ''; sync(); ta.focus(); } else startRec(); });
+    const sendAll = () => { if (state.tray?.length) { const cap = ta.value.trim(); ta.value = ''; sync(); sendTray(c, cap); return true; } return false; };
+    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !isIOS()) { e.preventDefault(); if (!sendAll() && ta.value.trim()) { sendText(ta.value); ta.value = ''; sync(); } } });
+    btn.addEventListener('click', () => { if (sendAll()) return; if (ta.value.trim() || state.editing) { sendText(ta.value); ta.value = ''; sync(); ta.focus(); } else startRec(); });
     // 📎 PDF (a resume) for the bot chat: the person's job agent receives it.
     let clip = null;
     if (c.kind === 'bot') {
@@ -811,13 +828,21 @@ function drawComposer() {
       clip = [pick, clip];
     } else if (!state.editing) {
       // 📎 in chats with people: photos and videos, or documents. The text box becomes the caption.
-      const media = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: '' });
+      const media = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: '', id: 'trayPick' });
       const docs = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip', multiple: true, hidden: '' });
       const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, '📎');
       b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()],
         ['📝 List', () => chatList(c)], ['⏰ Reminder or event', () => eventForm({}, { conv: c.id, reminder: true })]]));
-      for (const inp of [media, docs]) inp.addEventListener('change', async () => {
-        const files = [...(inp.files || [])].slice(0, 10); inp.value = '';
+      // Photos wait in a tray so you can take the second hand (or more), then send them all together.
+      media.addEventListener('change', () => {
+        const files = [...(media.files || [])]; media.value = '';
+        if (!files.length) return;
+        state.tray = state.tray || [];
+        for (const f of files.slice(0, 10 - state.tray.length)) state.tray.push({ file: f, url: URL.createObjectURL(f) });
+        state.draft = ta.value; drawComposer();
+      });
+      docs.addEventListener('change', async () => {
+        const files = [...(docs.files || [])].slice(0, 10); docs.value = '';
         const caption = ta.value.trim(); if (files.length) { ta.value = ''; sync(); }
         for (const [i, f] of files.entries()) await upload(c, f, i === 0 ? caption : '');
       });
@@ -826,6 +851,14 @@ function drawComposer() {
     parts.push(h('div', { class: 'compose' }, ...(clip || []), ta, btn));
   }
   wrap.replaceChildren(...parts);
+}
+
+function clearTray() { for (const t of state.tray || []) URL.revokeObjectURL(t.url); state.tray = []; }
+// Send everything in the tray in order; the caption goes on the first one.
+async function sendTray(c, caption) {
+  const files = (state.tray || []).map((t) => t.file);
+  clearTray(); drawComposer();
+  for (const [i, f] of files.entries()) await upload(c, f, i === 0 ? caption : '');
 }
 
 async function sendText(text) {

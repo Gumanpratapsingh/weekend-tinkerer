@@ -412,6 +412,7 @@ async function api(req, res, path, query) {
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
+      else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
       else if (conv.kind === 'bot') setImmediate(() => botReply({ text, msgId: msg.id, user: me, agent: agentFor(me), replyTo: b.replyTo ? one('SELECT * FROM messages WHERE id = ? AND conv_id = ?', Number(b.replyTo), convId) : null, say: (t, e) => botSay(t, e, me), update: updateMessage }).catch((e) => log('bot', e.message)));
       return send(res, 200, { msg });
     }
@@ -469,7 +470,7 @@ async function api(req, res, path, query) {
       writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
       const msg = await postMessage(convId, me.id, { kind, text: caption, media: `${file}|${type}`,
         extra: { name, size: buf.length, w: dim('x-width'), h: dim('x-height'), ...(Number(query.replyTo) ? { replyTo: Number(query.replyTo) } : {}) } });
-      if (kind === 'image' && assistant.isAssistant(convId) && assistant.shouldReply(caption)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
+      if (kind === 'image') assistant.onImage(me, convId, caption);
       return send(res, 200, { msg });
     }
     if (M === 'GET' && sub === '/media') {                  // the chat's gallery: photos and videos, and documents

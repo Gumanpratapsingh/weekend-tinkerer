@@ -289,3 +289,14 @@ mark{background:none;color:var(--accent);font-weight:700}
 .tip{font-size:.78rem;margin:.6rem 0 1.5rem}
 .chips.twrap{flex-wrap:wrap;overflow:visible;padding-top:.8rem}
 .field select{padding-right:2rem;background-image:linear-gradient(45deg,transparent 50%,var(--ink) 50%),linear-gradient(135deg,var(--ink) 50%,transparent 50%);background-position:calc(100% - 17px) 55%,calc(100% - 12px) 55%;background-size:5px 5px;background-repeat:no-repeat}
+
+/* photo tray: photos waiting to be sent together */
+.traywrap{flex:none;background:var(--bg);border-top:1px solid var(--line);padding:.55rem .8rem .2rem}
+.traywrap small{display:block;color:var(--soft);font-size:.72rem;margin-top:.3rem}
+.tray{display:flex;gap:.55rem;overflow-x:auto;padding-top:.4rem}
+.tray .th{position:relative;flex:none;width:4.4rem;height:4.4rem;background:var(--tint);border:1px solid var(--line)}
+.tray .th img{width:100%;height:100%;object-fit:cover;display:block}
+.tray .tv{display:grid;place-items:center;width:100%;height:100%;font-size:1.5rem}
+.tray .tx{position:absolute;top:-.4rem;right:-.4rem;width:1.35rem;height:1.35rem;border:0;border-radius:50%;background:var(--ink);color:var(--bg);font-size:.65rem;line-height:1;cursor:pointer}
+.tray .tadd2{flex:none;width:4.4rem;height:4.4rem;border:2px dashed var(--ink);background:none;color:var(--ink);font-size:1.5rem;cursor:pointer;margin-top:0}
+.traywrap + .compose{border-top:0}
