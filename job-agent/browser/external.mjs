@@ -85,7 +85,8 @@ export default {
     progress(`Company site: opening ${job.title} @ ${job.company}`);
     const snap = (name) => capture(page, name);
     try {
-      await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      const startUrl = /^https:\/\/www\.naukri\.com(undefined)?\/?$/.test(job.apply_url || '') ? `https://www.naukri.com/job-listings-${String(job.id).replace(/^naukri:/, '')}` : job.apply_url;
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await page.waitForTimeout(3000);
 
       // Follow Apply links/buttons (new tabs included) until a form shows up. At most 4 hops.
@@ -245,6 +246,9 @@ export default {
         await submit.click({ force: true, timeout: 5000 }).catch(() => submit.evaluate((b) => (b.form?.requestSubmit ? b.form.requestSubmit(b.type === 'submit' ? b : undefined) : b.click())));
       });
       await page.waitForTimeout(6000);
+      // Some company forms submit by ajax and show a spinner for a while: give them up to ~20 s more before judging.
+      for (let w = 0; w < 7 && !DONE.test(await page.innerText('body').catch(() => '')) && !/thank|success|confirm/i.test(page.url())
+          && await page.locator('[class*="spinner"]:visible, [class*="loading"]:visible, [class*="loader"]:visible, [role="progressbar"]:visible').count().catch(() => 0); w++) await page.waitForTimeout(3000);
       // Emailed "security code" / "confirm you're a human" step (Greenhouse and others): a human check for the owner.
       if (/security code|verification code (was|has been) sent|confirm you'?re a human/i.test(await page.innerText('body').catch(() => '')))
         return { status: 'manual', reason: 'captcha (emailed security code)', shot: await snap('ext-securitycode') };
