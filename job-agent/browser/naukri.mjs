@@ -16,9 +16,15 @@ async function ctx() {
   if (!c || !c.browser()?.isConnected()) ctxs.set(key, siteContext('naukri'));
   return ctxs.get(key);
 }
+// A page that crashed stays in context.pages() and fails every goto in ~50 ms ("Page crashed"): it wiped whole search cycles.
+// Use a live page, and open a fresh one when the old one closed or crashed.
+const crashed = new WeakSet();
+const watch = (page) => { if (!page.__jaWatched) { page.__jaWatched = true; page.on('crash', () => crashed.add(page)); } return page; };
 async function home() {
   const c = await ctx();
-  const page = c.pages()[0] || await c.newPage();
+  let page = c.pages().find((p) => !p.isClosed() && !crashed.has(p));
+  for (const p of c.pages()) if (crashed.has(p)) await p.close().catch(() => {});
+  page = watch(page || await c.newPage());
   if (!page.url().includes('naukri.com')) { await page.goto('https://www.naukri.com/mnjuser/homepage', { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(3000); }
   return page;
 }
@@ -36,12 +42,20 @@ export default {
   async naukri_search({ plan, experience = 2, pages = 1, jobAge = 1 }) {
     const out = [];
     const seen = new Set();
+    const tries = new Map();                                       // retries per search page after a crash
     for (const { location: loc, queries } of plan) for (const q of queries) for (let pg = 1; pg <= pages; pg++) {
       // Open the normal search page and read the results the page itself fetches (no API calls of our own).
       const page = await home();
       const slug = `${q.trim().toLowerCase().replace(/\s+/g, '-')}-jobs${loc ? `-in-${loc.toLowerCase()}` : ''}${pg > 1 ? `-${pg}` : ''}`;   // no location = all India
       const respP = page.waitForResponse((res) => res.url().includes('/jobapi/v3/search') && res.request().method() === 'GET', { timeout: 45000 }).catch(() => null);
-      await page.goto(`https://www.naukri.com/${slug}?experience=${experience}&jobAge=${jobAge}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      try { await page.goto(`https://www.naukri.com/${slug}?experience=${experience}&jobAge=${jobAge}`, { waitUntil: 'domcontentloaded', timeout: 60000 }); }
+      catch (e) {
+        if (!/crash|closed|detached/i.test(e.message)) throw e;
+        console.error('naukri search page died, retrying on a fresh page:', e.message.split('\n')[0]);
+        crashed.add(page); await page.close().catch(() => {});
+        if ((tries.get(slug) || 0) < 2) { tries.set(slug, (tries.get(slug) || 0) + 1); pg--; }   // same query again, on a new page (home() opens one)
+        continue;
+      }
       if (loggedOut(page)) return { status: 'session_expired', jobs: out };
       const resp = await respP;
       const r = { status: resp?.status() || 0, body: resp ? await resp.json().catch(() => ({})) : {} };
@@ -53,7 +67,7 @@ export default {
         seen.add(j.jobId);
         const ph = Object.fromEntries((j.placeholders || []).map((p) => [p.type, p.label]));
         out.push({ jobId: j.jobId, title: j.title, company: j.companyName, location: ph.location || '', experience: ph.experience || '', salary: ph.salary || '',
-          url: `https://www.naukri.com${j.jdURL}`, snippet: j.jobDescription || '', skills: j.tagsAndSkills || '', posted: j.footerPlaceholderLabel || '' });
+          url: j.jdURL ? `https://www.naukri.com${j.jdURL}` : `https://www.naukri.com/job-listings-${j.jobId}`, snippet: j.jobDescription || '', skills: j.tagsAndSkills || '', posted: j.footerPlaceholderLabel || '' });
       }
       await page.waitForTimeout(4000 + Math.random() * 4000);
     }
@@ -144,7 +158,9 @@ export default {
     const c = await ctx();
     const page = await c.newPage();
     try {
-      await page.goto(job.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      // Search results once stored "https://www.naukri.comundefined" when the listing had no jdURL: rebuild it from the job id.
+      const jobUrl = /^https:\/\/www\.naukri\.com(undefined)?\/?$/.test(job.url || '') ? `https://www.naukri.com/job-listings-${String(job.id).replace(/^naukri:/, '')}` : job.url;
+      await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await page.waitForTimeout(4000);
       if (loggedOut(page)) return { status: 'session_expired' };
       const body = await page.innerText('body');

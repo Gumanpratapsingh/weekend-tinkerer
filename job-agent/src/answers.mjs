@@ -134,6 +134,14 @@ export async function resolve(items, context = '') {
     ...(persona().facts || ['Citizenship: Indian, lives in India. Not authorized to work in the US or EU; holds no foreign visa.']),
     `Skills: ${Object.values(m.skills).flat().join(', ')}.`,
   ].join('\n');
+  // Not the whole saved list: it had grown past Groq's free request limit (HTTP 413 on every call, then a slower model).
+  // The answers sharing words with the questions asked, plus the core ones the rules above refer to (pay, notice, gender…).
+  const CORE = /ctc|salary|compensation|notice|gender|pronoun|relocat|hear about|consent|authori[sz]|sponsor|visa|citizen|disab|veteran|communicat/i;
+  const askWords = words(pending.map((p) => p.label).join(' '));
+  const scored = known.map((k) => [k, [...words(k.question)].filter((w) => askWords.has(w)).length]);
+  let chars = 0;
+  const prompted = [...scored.filter(([k]) => CORE.test(k.question)), ...scored.filter(([k, n]) => n > 0 && !CORE.test(k.question)).sort((a, b) => b[1] - a[1])]
+    .map(([k]) => k).filter((k) => (chars += k.question.length + String(k.answer).length) < 7000).slice(0, 40);
   let out = {};
   try {
     out = await llm([
@@ -173,7 +181,7 @@ export async function resolve(items, context = '') {
   have too many options to show: answer with the plain value (e.g. "India") and it will be matched.
 - "Have you worked for / been employed by <company>?": answer from the employment history in FACTS.
 Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
-      { role: 'user', content: `FACTS:\n${facts}\n\nKNOWN ANSWERS:\n${known.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n')}\n\n`
+      { role: 'user', content: `FACTS:\n${facts}\n\nKNOWN ANSWERS:\n${prompted.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n')}\n\n`
         + `CONTEXT: ${context}\n\nFIELDS:\n${JSON.stringify(pending.map(({ key, label, type, options }) =>
           (options?.length > 40 ? { key, label, type: 'long_list' } : { key, label, type, options })))}` },
     ], { json: true, maxTokens: 900, temperature: 0, why: `answering ${pending.length} form question(s) from your memory` });
