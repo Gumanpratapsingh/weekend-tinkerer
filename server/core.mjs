@@ -177,15 +177,50 @@ export function inviteOf(token) {
   const i = readJ(INVITES)[String(token)];
   return i && i.exp > Date.now() ? i : null;
 }
-export function useInvite(token, pw) {          // sets the person's password, the link stops working
+export function makeInvite(who = '', full = false, hours = 2) {
+  const token = randomBytes(24).toString('hex');
+  const inv = readJ(INVITES);
+  inv[token] = { who, full: !!full, exp: Date.now() + hours * 3600e3, reset: true };
+  writeJ(INVITES, inv);
+  return token;
+}
+
+export async function sendEmail({ to, subject, text, html }) {
+  if (!to) return false;
+  try {
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const nodemailer = req(join(HOME, 'jobagent', 'node_modules', 'nodemailer'));
+    const pwPath = join(HOME, '.jobagent', 'gmail_app_password');
+    if (!existsSync(pwPath)) return false;
+    const pass = readFileSync(pwPath, 'utf8').trim();
+    const from = 'gumanpratapsinghparmar@gmail.com';
+    const smtp = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: from, pass } });
+    await smtp.sendMail({ from: `Tinker Hub <${from}>`, to, subject, text, html });
+    return true;
+  } catch (e) {
+    log(`sendEmail failed: ${e.message}`);
+    return false;
+  }
+}
+
+export function useInvite(token, pw) {          // sets the person's or owner's password
   const i = inviteOf(token);
   if (!i) return null;
   const salt = randomBytes(16);
-  const auth = readJ(PEOPLE_AUTH); auth[i.who] = { salt: salt.toString('hex'), hash: scryptSync(String(pw), salt, 64).toString('hex'), full: !!i.full }; writeJ(PEOPLE_AUTH, auth);
+  const isOwner = !i.who || i.who === 'owner';
+  if (isOwner) {
+    writeJ(AUTH_FILE, { salt: salt.toString('hex'), hash: scryptSync(String(pw), salt, 64).toString('hex') });
+    for (const [t, v] of Object.entries(sessions)) if (typeof v === 'number') delete sessions[t]; // clear old owner sessions
+  } else {
+    const auth = readJ(PEOPLE_AUTH);
+    auth[i.who] = { salt: salt.toString('hex'), hash: scryptSync(String(pw), salt, 64).toString('hex'), full: !!i.full };
+    writeJ(PEOPLE_AUTH, auth);
+    for (const [t, v] of Object.entries(sessions)) if (typeof v === 'object' && v.who === i.who) delete sessions[t];   // old logins out
+  }
   const inv = readJ(INVITES); delete inv[String(token)]; writeJ(INVITES, inv);
-  for (const [t, v] of Object.entries(sessions)) if (typeof v === 'object' && v.who === i.who) delete sessions[t];   // old logins out
   save('sessions.json', sessions);
-  return { who: i.who, full: !!i.full };
+  return { who: isOwner ? '' : i.who, full: !!i.full };
 }
 // ---------- trusted devices: only browsers approved from a trusted one reach the hub at all ----------
 // Unknown browsers get 404 for every API call (no login form to guess at). Browsers already logged in when this
@@ -198,10 +233,13 @@ const sha = (t) => createHash('sha256').update(t).digest('hex');
 export const deviceCookie = (token) => `td=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${token ? 2 * 365 * 86400 : 0}`;
 export function deviceOf(req) {
   const m = /(?:^|;\s*)td=([a-f0-9]{64})/.exec(req.headers.cookie || '');
-  const hash = m && sha(m[1]), d = hash && devices[hash];
+  if (!m) return null;
+  const hash = sha(m[1]);
+  const d = devices[hash] || devices[m[1]];
   if (!d) return null;
+  const id = devices[hash] ? hash.slice(0, 16) : m[1].slice(0, 16);
   if (Date.now() - (d.seen || 0) > 3600e3) { d.seen = Date.now(); save('devices.json', devices); }
-  return { id: hash.slice(0, 16), ...d };
+  return { id, ...d };
 }
 function deviceName(req) {
   const ua = String(req.headers['user-agent'] || '');

@@ -196,6 +196,61 @@ const pages = {
     ];
   },
 
+  // One button: a full 6-scene (~48 s) story as copy-paste prompts for Google Flow. The character/style text is fixed
+  // and repeated in every scene, so the series looks the same every time. Nothing is posted from here.
+  async '/reels'() {
+    const meta = await api('/reels');
+    const out = h('div', {});
+    const topic = h('input', { placeholder: 'Idea (optional), e.g. "AI deletes the tests"', 'aria-label': 'Idea', autocomplete: 'off', enterkeyhint: 'go' });
+    const btn = h('button', { type: 'submit' }, 'Make Flow prompt');
+    const form = h('form', { class: 'quick' }, topic, btn);
+    const copy = async (text, what) => {
+      try { await navigator.clipboard.writeText(text); }
+      catch { const ta = h('textarea', {}, text); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+      toast(`Copied ${what}`);
+    };
+    const copyBtn = (text, what, label = 'Copy', ghost = true) => {
+      const b = h('button', { class: 'btn small' + (ghost ? ' ghost' : ''), type: 'button', style: 'margin:.5rem .4rem 0 0' }, label);
+      b.addEventListener('click', () => copy(text, what));
+      return b;
+    };
+    const show = (p) => {
+      const all = p.scenes.map((s) => `SCENE ${s.n} of ${p.scenes.length}\n${s.prompt}`).join('\n\n----------------\n\n');
+      const post = `${p.caption}\n\n${p.hashtags.join(' ')}`;
+      out.replaceChildren(
+        h('div', { class: 'sec' }, p.title),
+        h('p', { class: 'lede' }, `${p.logline} · ${p.scenes.length} scenes × ${p.scenes[0].seconds}s = ${p.totalSeconds}s, with dialogue and sound`),
+        h('div', { class: 'btns' }, copyBtn(all, 'all scene prompts', 'Copy all prompts', false), copyBtn(post, 'caption and hashtags', 'Copy caption'),
+          h('a', { class: 'btn small ghost', href: '/assets/character-ref.png', download: 'character-ref.png', style: 'margin:.5rem .4rem 0 0' }, 'Character image')),
+        h('div', { class: 'sec' }, 'In Flow'),
+        h('p', { class: 'lede' }, '1) New project → Ingredients to video → add the character image. 2) Paste Scene 1, generate (8 s, with audio). ',
+          '3) For scenes 2–6, start from the previous clip\'s last frame (Frames to video / Extend) and paste that scene. ',
+          '4) Download the 6 clips and join them in order, then post.'),
+        ...p.scenes.map((s) => h('div', { class: 'item', style: 'display:block' },
+          h('div', { class: 'main' }, `Scene ${s.n} · ${s.seconds}s`),
+          h('p', { class: 'lede' }, s.action),
+          ...s.lines.map((l) => h('p', { class: 'lede' }, h('b', {}, l.who + ': '), l.text)),
+          h('p', { class: 'lede' }, `Sound: ${s.sfx}`),
+          h('details', {}, h('summary', {}, 'Full prompt'), h('pre', { style: 'white-space:pre-wrap;font-size:.8rem;margin:.5rem 0' }, s.prompt)),
+          copyBtn(s.prompt, `scene ${s.n} prompt`, `Copy scene ${s.n}`, false))),
+        h('div', { class: 'sec' }, 'Post'),
+        h('p', { class: 'lede', style: 'white-space:pre-wrap' }, post));
+    };
+    form.addEventListener('submit', busy(btn, async () => {
+      btn.textContent = 'Writing the story…';
+      try { show(await api('/reels/prompt', { method: 'POST', body: { topic: topic.value.trim() } })); }
+      finally { btn.textContent = 'Make Flow prompt'; }
+    }));
+    const past = meta.packs.length ? [h('div', { class: 'sec' }, 'Earlier'), h('div', { class: 'chips' }, meta.packs.map((p) => {
+      const c = h('a', { class: 'chip', href: '#' }, `${p.title} `, h('small', {}, p.date));
+      c.addEventListener('click', busy(null, async (e) => { e?.preventDefault(); show(await api(`/reels/pack?id=${p.id}`)); }));
+      return c;
+    }))] : [];
+    return [h('div', { class: 'hello' }, h('h1', {}, 'Reels'),
+      h('p', { class: 'lede' }, 'Press the button for a new story. You get six Google Flow prompts that keep the same two characters, a script with sound, and a caption.')),
+      form, out, ...past];
+  },
+
   async '/laptop'() {
     const box = h('div', {}, h('p', { class: 'loading' }, 'Asking the laptop'));
     const gb = (b) => `${(b / 1073741824).toFixed(1)} GB`;
@@ -320,17 +375,100 @@ const pages = {
   async '/login'() {
     const me = await api('/me');
     if (me.loggedIn) return go('/');
-    const user = h('input', { name: 'username', autocomplete: 'username', placeholder: 'Username (owner: leave empty)', autocapitalize: 'none' });
+
+    const container = h('div', {});
+    const h1 = h('h1', {}, 'Log in');
+    const lede = h('p', { class: 'lede' }, me.passwordSet ? 'Private tools.' : 'No password set yet. Run set-password.sh from the Mac.');
+
+    // Login form elements
+    const user = h('input', { name: 'username', autocomplete: 'username', placeholder: 'Username or email (owner: leave empty)', autocapitalize: 'none' });
     const pw = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true, placeholder: 'Password' });
     const err = h('p', { class: 'err' });
     const btn = h('button', { class: 'btn', type: 'submit' }, 'Log in');
-    const form = h('form', { class: 'login' }, user, pw, btn, err);
-    form.addEventListener('submit', async (e) => {
+    const forgotLink = h('a', { href: '#', class: 'muted', style: 'display:inline-block;margin-top:.85rem;font-size:.85rem;text-decoration:underline' }, 'Forgot password?');
+    const loginForm = h('form', { class: 'login' }, user, pw, btn, forgotLink, err);
+
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault(); btn.disabled = true; err.textContent = '';
-      try { await api('/login', { method: 'POST', body: { user: user.value.trim(), password: pw.value } }); me = null; go('/'); }
-      catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
+      try {
+        await api('/login', { method: 'POST', body: { user: user.value.trim(), password: pw.value } });
+        me = null;
+        go('/');
+      } catch (x) {
+        err.textContent = x.message;
+      } finally {
+        btn.disabled = false;
+      }
     });
-    return [h('h1', {}, 'Log in'), h('p', { class: 'lede' }, me.passwordSet ? 'Private tools.' : 'No password set yet. Run set-password.sh from the Mac.'), form];
+
+    // Forgot password form elements
+    const resetUser = h('input', { name: 'username', autocomplete: 'username', placeholder: 'Username or email (owner: leave empty)', autocapitalize: 'none' });
+    const resetBtn = h('button', { class: 'btn', type: 'submit' }, 'Send reset link');
+    const resetErr = h('p', { class: 'err' });
+    const backLink = h('a', { href: '#', class: 'muted', style: 'display:inline-block;margin-top:.85rem;font-size:.85rem;text-decoration:underline' }, '← Back to log in');
+    const resetForm = h('form', { class: 'login', style: 'display:none' }, resetUser, resetBtn, backLink, resetErr);
+    const resetResult = h('div', { class: 'login', style: 'display:none' });
+
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      err.textContent = '';
+      resetErr.textContent = '';
+      resetResult.style.display = 'none';
+      resetResult.replaceChildren();
+      loginForm.style.display = 'none';
+      resetForm.style.display = 'block';
+      h1.textContent = 'Reset password';
+      lede.textContent = 'Enter your username or email. We’ll send you a password reset link.';
+      resetUser.value = user.value.trim();
+      resetUser.focus();
+    });
+
+    const showLogin = (e) => {
+      if (e) e.preventDefault();
+      err.textContent = '';
+      resetErr.textContent = '';
+      resetForm.style.display = 'none';
+      resetResult.style.display = 'none';
+      loginForm.style.display = 'block';
+      h1.textContent = 'Log in';
+      lede.textContent = me.passwordSet ? 'Private tools.' : 'No password set yet. Run set-password.sh from the Mac.';
+    };
+
+    backLink.addEventListener('click', showLogin);
+
+    resetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resetBtn.disabled = true;
+      resetErr.textContent = '';
+      try {
+        const r = await api('/forgot-password', { method: 'POST', body: { user: resetUser.value.trim() } });
+        resetForm.style.display = 'none';
+        resetResult.style.display = 'block';
+        h1.textContent = 'Reset link sent';
+        lede.textContent = r.email ? `A reset link was sent to ${r.email} (valid for 2 hours).` : 'A reset link has been created (valid for 2 hours).';
+
+        const directBtn = r.token ? h('button', { class: 'btn', type: 'button', style: 'margin-top:1rem;width:100%' }, 'Choose New Password Now →') : null;
+        directBtn?.addEventListener('click', () => go(`/setup?t=${encodeURIComponent(r.token)}`));
+
+        const doneBack = h('a', { href: '#', class: 'muted', style: 'display:inline-block;margin-top:1rem;font-size:.85rem;text-decoration:underline' }, '← Back to log in');
+        doneBack.addEventListener('click', showLogin);
+
+        resetResult.replaceChildren(
+          h('p', { class: 'lede', style: 'margin-bottom:1rem' }, r.token
+            ? 'Since this device is already trusted, you can choose your new password right now, or use the link sent to your email.'
+            : 'Please check your email and click the link to choose your new password.'),
+          ...(directBtn ? [directBtn] : []),
+          doneBack
+        );
+      } catch (x) {
+        resetErr.textContent = x.message;
+      } finally {
+        resetBtn.disabled = false;
+      }
+    });
+
+    container.replaceChildren(h1, lede, loginForm, resetForm, resetResult);
+    return [container];
   },
 
   // A one-time add-device link (?t=), made under Devices on a trusted browser: this browser becomes trusted.
@@ -841,7 +979,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();
