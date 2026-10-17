@@ -9,8 +9,12 @@ import { tell } from './whatsapp.mjs';
 
 const R = () => config().referrals || {};
 const now = () => Date.now();
-const set = (id, fields) => {
+const set = (id, fields = {}) => {
   const keys = Object.keys(fields);
+  if (!keys.length) {
+    run('UPDATE referrals SET updated_at = ? WHERE id = ?', now(), id);
+    return;
+  }
   run(`UPDATE referrals SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`, ...keys.map((k) => fields[k]), now(), id);
 };
 
