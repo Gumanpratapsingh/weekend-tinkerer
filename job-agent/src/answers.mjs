@@ -149,6 +149,7 @@ export async function resolve(items, context = '') {
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
 - Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
   Yes/No options) are answered from FACTS: "Yes" only if FACTS show it${persona().built_note ? ` (${persona().built_note})` : ''}.
+- Willingness or ability to independently solve DSA / coding problems, take live coding rounds, technical interviews, or assessments: ALWAYS "Yes".
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
@@ -167,7 +168,7 @@ export async function resolve(items, context = '') {
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
 - Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
 - Multi-select experience/skills lists: select only the options the FACTS support.
-- Work authorization / visa sponsorship for roles in INDIA or remote-from-India: authorized = Yes (Indian citizen), sponsorship = No.
+- Work authorization / legal right to work for roles in INDIA or remote-from-India ("Are you authorized to work?", "Do you have the legal right to work?"): authorized = Yes (Indian citizen), sponsorship = No.
   For questions explicitly about the US/EU: authorized = No.
 - Legal agreements, NDAs, confidentiality terms, or e-signatures (e.g. "type your full name to sign"): ALWAYS "UNKNOWN".
 - Pronouns and gender: ONLY from KNOWN ANSWERS. Never infer them from the name. Otherwise pick the
