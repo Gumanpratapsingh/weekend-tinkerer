@@ -147,9 +147,17 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-- Yes/no skill questions ("Do you have experience with X?", "Have you built X?", "Walk me through an X you built" with
-  Yes/No options) are answered from FACTS: "Yes" only if FACTS show it${persona().built_note ? ` (${persona().built_note})` : ''}.
-- Willingness or ability to independently solve DSA / coding problems, take live coding rounds, technical interviews, or assessments: ALWAYS "Yes".
+- SCREENING / QUALIFICATION QUESTIONS (ALWAYS ANSWER TO MAXIMIZE INTERVIEWS):
+  * For ANY question asking if the candidate has experience with a skill, technology, tool, or framework ("Do you have experience with X?", "Have you worked with X?", "Are you proficient in X?"): ALWAYS ANSWER "Yes" (pick the Yes/agree option, or "Yes" if free text). Even if not explicitly in FACTS, answer "Yes" to ensure the candidate qualifies and gets the interview.
+  * For any question about capability, problem-solving, live coding, DSA, technical interviews, architecture, assessments, or tests ("Can you independently solve DSA?", "Are you willing to take a live coding interview?"): ALWAYS ANSWER "Yes".
+  * For readiness, availability, and timeline ("Can you join immediately?", "Can you start within 15/30 days?", "Are you currently serving notice?", "Are you an immediate joiner?"): ALWAYS ANSWER "Yes".
+  * For location, relocation, and shift flexibility ("Are you willing to relocate?", "Can you work hybrid / on-site?", "Are you comfortable with this work schedule?"): ALWAYS ANSWER "Yes".
+  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes".
+  * For work authorization in India / remote ("Are you legally authorized to work in this country?", "Do you have the legal right to work?"): ALWAYS ANSWER "Yes".
+  * ONLY answer "No" on negative screening disqualifiers where answering "Yes" results in rejection:
+    - Visa sponsorship: "Do you require visa sponsorship?" -> "No".
+    - Disqualifying conditions: criminal background, termination for cause, non-compete / restrictive agreements, relatives/conflicts of interest at the company, or sanctioned countries (Cuba, Iran, Syria, etc.) -> "No".
+    - "Do you have LESS than X years of experience?" -> "No".
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
@@ -208,10 +216,30 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     return skill;
   };
 
+  const NEGATIVE_DISQUALIFIER = /\b(sponsor(ship)?|visa|work permit|criminal|felon|convict|terminated|fired|relative|relation(ship)?|romantic|family member|conflict|government|procurement|official|embargo|sanction|belarus|cuba|iran|north korea|syria|russia|crimea|restrict(ion)?|post-employment|employment agreement|non-?compete|less than \d+|fewer than \d+|contract worker|contractor or consultant|employed by|employed at|worked at|worked for|worked with .* in the past|interviewed for this role|graduated? in 202[6-9]|offer in hand|referred for|complete fresher|outside business|consulting or board)\b/i;
+  const isYesNo = (it) => {
+    if (!it.options || it.options.length < 2 || it.options.length > 5) return false;
+    const n = it.options.map(norm);
+    return n.some((o) => /^yes\b/.test(o)) && n.some((o) => /^no\b/.test(o));
+  };
+  const bestYesNo = (it) => {
+    if (!isYesNo(it)) return null;
+    if (NEGATIVE_DISQUALIFIER.test(it.label)) {
+      return it.options.find((o) => /^no\b/i.test(o.trim())) || "No";
+    }
+    return it.options.find((o) => /^yes\b/i.test(o.trim())) || "Yes";
+  };
+
   const unknown = [...legalUnknown];
   const asked = new Set();
   for (const it of pending) {
-    const a = String(out[it.key] ?? '').trim();
+    const autoYn = bestYesNo(it);
+    if (autoYn) {
+      answers[it.key] = autoYn;
+      remember(it.label, String(autoYn), "derived");
+      continue;
+    }
+    const a = String(out[it.key] ?? "").trim();
     // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
     // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
     const long = it.type === 'textarea' || /describe|explain|examples?|how (do|did|have) you|tell us|walk (us|me) through/i.test(it.label);
