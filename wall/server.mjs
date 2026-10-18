@@ -44,6 +44,11 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(await state()));
     }
+    if (url.pathname === '/api/wifi') {                   // WiFi devices feed from the laptop (tunnelled to the phone's 8096)
+      const w = await get('http://127.0.0.1:8096/wifi.json');
+      res.writeHead(w ? 200 : 502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(w || { error: 'wifi feed not reachable' }));
+    }
     if (url.pathname === '/api/log') {                    // small status notes from the page (e.g. wake lock)
       console.log(new Date().toISOString(), 'page:', url.searchParams.toString().slice(0, 200));
       res.writeHead(204); return res.end();
