@@ -35,8 +35,18 @@ createServer((req, res) => {
       }
       // Only the browser worker on this phone may call /internal (nginx never proxies it; tunnel traffic carries X-Visitor-IP).
       if (url.pathname === '/internal/resolve' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
-        const { fields, context } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        try { return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json'); }
+        const { fields, context, job_id } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        // Fill-and-show (NCR chat): the answers shown in the screenshots are kept per job and reused when it is submitted.
+        const memoKey = job_id && getKv(`fillans:${job_id}`) != null ? `fillans:${job_id}` : null;
+        const memo = memoKey ? JSON.parse(getKv(memoKey, '{}')) : null;
+        try {
+          if (!memo) return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json');
+          const known = fields.filter((f) => memo[f.label] != null), rest = fields.filter((f) => memo[f.label] == null);
+          const r = rest.length ? await resolve(rest, context) : { answers: {}, unknown: [] };
+          for (const f of rest) if (r.answers[f.key] != null) memo[f.label] = r.answers[f.key];
+          setKv(memoKey, JSON.stringify(memo));
+          return reply(200, JSON.stringify({ ...r, answers: { ...r.answers, ...Object.fromEntries(known.map((f) => [f.key, memo[f.label]])) } }), 'application/json');
+        }
         catch (e) { if (e.retryLater) return reply(503, '{"error":"AI busy"}', 'application/json'); throw e; }
       }
       if (url.pathname === '/internal/security-code' && !req.headers['x-visitor-ip']) {
@@ -60,6 +70,13 @@ createServer((req, res) => {
         const ref = b.ref?.ref_kind ? { ref_kind: String(b.ref.ref_kind), ref_id: String(b.ref.ref_id) } : null;
         if (ref?.ref_kind === 'onboard') { onboardReply(ref.ref_id, String(b.text || '').slice(0, 2000), b.msgId); return reply(200, '{"ok":true}', 'application/json'); }
         await handleOwner(String(b.text || '').trim().slice(0, 2000), ref);
+        return reply(200, '{"ok":true}', 'application/json');
+      }
+      // Free text in the "📍 Delhi NCR jobs" chat: a job link to fill and show, or an answer. Replies go back to that chat.
+      if (url.pathname === '/internal/ncr' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
+        const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const { ncrChat } = await import('./ncr.mjs');
+        ncrChat(String(b.text || '').trim().slice(0, 2000)).catch((e) => logError('ncr chat', e));
         return reply(200, '{"ok":true}', 'application/json');
       }
       // A person's free text in their Cupboard bot chat (not the owner's): a setup answer or a question about their search.

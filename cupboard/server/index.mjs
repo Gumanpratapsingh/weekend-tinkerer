@@ -5,7 +5,7 @@
 // All text is stored and sent as plain text; the web app inserts it as text, never as HTML.
 import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
-import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync } from 'node:fs';
+import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync, realpathSync, readFileSync as readFileSyncFs } from 'node:fs';
 import { join } from 'node:path';
 import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
 import * as push from './push.mjs';
@@ -129,7 +129,7 @@ function convSummary(convId, forUser) {
   const mine = people.find((p) => p.id === forUser.id);
   const unread = one('SELECT count(*) AS n FROM messages WHERE conv_id = ? AND id > ? AND user_id != ?', convId, mine?.last_read || 0, forUser.id).n;
   const other = people.find((p) => p.id !== forUser.id);
-  const title = c.kind === 'group' ? c.name : other?.name || 'Chat';
+  const title = c.kind === 'group' || (c.kind === 'bot' && c.name === NCR_CHAT) ? c.name : other?.name || 'Chat';
   const set = one('SELECT muted_until, archived FROM members WHERE conv_id = ? AND user_id = ?', convId, forUser.id) || {};
   const pins = all('SELECT m.* FROM pins p JOIN messages m ON m.id = p.msg_id WHERE p.conv_id = ? ORDER BY p.at DESC LIMIT 10', convId).map(rowToMsg);
   return { id: c.id, kind: c.kind, title, people: people.map(({ last_read, ...p }) => ({ ...p, lastRead: last_read })),
@@ -180,11 +180,33 @@ function updateMessage(id, patch) {
 // Every person has their own private bot conversation (the owner's is "S20"; a friend's is their job agent).
 function botConv(user) {
   const b = botId();
-  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ?", user.id);
+  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ? AND COALESCE(c.name, '') != ?", user.id, NCR_CHAT);
   if (row) return row.id;
   const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", user.role === 'owner' ? 'S20' : 'Job agent', user.id, Date.now());
   run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, b);
   return Number(id);
+}
+// A second bot chat per person for the job agent's Delhi NCR jobs (cards, screenshots, fill-and-submit), apart from "Job agent".
+const NCR_CHAT = '📍 Delhi NCR jobs';
+function ncrConv(user) {
+  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND c.name = ? AND m.user_id = ?", NCR_CHAT, user.id);
+  if (row) return row.id;
+  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", NCR_CHAT, user.id, Date.now());
+  run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, botId());
+  return Number(id);
+}
+const isNcrConv = (conv) => conv?.kind === 'bot' && conv.name === NCR_CHAT;
+// Screenshots a local job agent sends with a message: only its own shots folders, copied into Cupboard media.
+const SHOTS = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?data\/shots\/[\w.-]+\.png$/;
+function shotToMedia(path) {
+  let real;
+  try { real = realpathSync(String(path)); } catch { return null; }
+  if (!SHOTS.test(real)) return null;
+  const buf = readFileSyncFs(real);
+  if (buf.length < 16 || buf.length > 15 * 1048576) return null;
+  const file = `${randomBytes(12).toString('hex')}.png`;
+  writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
+  return { media: `${file}|image/png`, size: buf.length, w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 }
 const botSay = async (text, extra = null, user = owner()) => {
   if (!user) return null;
@@ -418,6 +440,14 @@ async function api(req, res, path, query) {
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
+      else if (isNcrConv(conv)) setImmediate(async () => {
+        const agent = getKv(`ncragent:${me.id}`) || agentFor(me);
+        try {
+          const r = await fetch(`${agent}/internal/ncr`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
+            body: JSON.stringify({ text, msgId: msg.id }) });
+          if (!r.ok) throw new Error(`${r.status}`);
+        } catch (e) { postMessage(convId, botId(), { kind: 'text', text: `Couldn't reach your job agent (${e.message}). Try again in a minute.` }); }
+      });
       else if (conv.kind === 'bot') setImmediate(async () => {
         try {
           // Guman's own commands for the notes to her ("love: …") come first; everything else goes to the bot as before.
@@ -703,14 +733,23 @@ createServer(async (req, res) => {
       const replyTo = /^http:\/\/127\.0\.0\.1:\d+\//.test(b.replyTo || '') ? b.replyTo : null;
       const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '' })) : [];
       const link = b.link && /^\/signin\/[a-f0-9]{32}$/.test(b.link.path || '') ? { label: String(b.link.label || 'Open').slice(0, 40), path: b.link.path } : null;
-      const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo, link };
+      const links = Array.isArray(b.links) ? b.links.filter((l) => /^https:\/\/[^\s"'<>]+$/.test(String(l?.url || ''))).slice(0, 6)
+        .map((l) => ({ label: String(l.label || 'Open ↗').slice(0, 40), url: String(l.url).slice(0, 1000) })) : [];
+      const extra = { title: String(b.title || '').slice(0, 40) || null, actions, ref: b.ref ?? null, replyTo, link, ...(links.length ? { links } : {}) };
       let target = o;
       if (b.to) {
         target = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to).toLowerCase());
         if (!target) return send(res, 404, { error: `No Cupboard user ${b.to}`, pushable: false });
         if (/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') && target.role !== 'owner') setKv(`agent:${target.id}`, b.agent);
       }
-      const msg = await botSay(text, extra, target);
+      const convId = b.chat === 'ncr' ? ncrConv(target) : botConv(target);
+      if (b.chat === 'ncr' && /^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '')) setKv(`ncragent:${target.id}`, b.agent);
+      for (const p of (Array.isArray(b.images) ? b.images : []).slice(0, 8)) {    // screenshots first, then the card about them
+        const m = shotToMedia(p);
+        if (m) await postMessage(convId, botId(), { kind: 'image', media: m.media, extra: { name: 'screenshot.png', size: m.size, w: m.w, h: m.h } }, { pushOnly: [] });
+      }
+      // silent: no phone notification (a batch of job cards pings once, through its own summary message)
+      const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true ? { pushOnly: [] } : {});
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
     if (req.url === '/love') {                          // the server's own sweet notes to her: {text, ask?, partner?}

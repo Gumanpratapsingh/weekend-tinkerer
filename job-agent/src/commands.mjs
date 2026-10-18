@@ -4,7 +4,7 @@ import { answerQuestion, openQuestions } from './asks.mjs';
 import { composeDraft, sendDraft } from './mail.mjs';
 import { todayStats } from './apply.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
-import { ncrOn, isNcr, ncrSweep, ncrNotify } from './ncr.mjs';
+import { ncrOn, isNcr, ncrSweep, ncrNotify, ncrAction, ncrAfterAnswer } from './ncr.mjs';
 
 const HELP = `Job agent commands:
 • status — today's numbers
@@ -25,12 +25,14 @@ export async function onAnswered(qid, text) {
   for (const d of r.drafts) await composeDraft(d);
   const left = openQuestions().length;
   tell(`✅ Saved Q${qid}.${r.jobs.length ? ` ${r.jobs.length} application(s) back in the queue.` : ''}${left ? ` ${left} question(s) still open.` : ''}`);
+  ncrAfterAnswer().catch(() => {});                       // NCR fill-and-show jobs waiting on this answer fill again
 }
 
 export async function handleOwner(text, ref) {
   const t = text.trim();
   const lc = t.toLowerCase();
 
+  if (ref?.ref_kind === 'ncrjob' || ref?.ref_kind === 'ncrsubmit') return ncrAction(ref, t);
   if (ref?.ref_kind === 'question') return onAnswered(+ref.ref_id, t);
   if (ref?.ref_kind === 'referral') {
     const { decide } = await import('./referrals.mjs');

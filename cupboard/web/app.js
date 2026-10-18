@@ -732,7 +732,7 @@ function drawHeader() {
   if (!bar || !c) return;
   const t = state.typing[c.id];
   const sub = t && t.until > Date.now() ? h('small', { class: 'typing' }, c.kind === 'group' ? `${t.name} is typing…` : 'typing…')
-    : h('small', {}, c.kind === 'bot' ? 'your phone server' : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
+    : h('small', {}, isNcrChat(c) ? 'paste a job link · I fill, you approve' : c.kind === 'bot' ? 'your phone server' : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
   const title = h('button', { class: 't tbtn', type: 'button', 'aria-label': 'Chat options' }, h('b', {}, chatTitle(c), c.muted ? ic('bellOff', 'mini') : null), sub);
   title.addEventListener('click', () => chatMenu(state.cur));
   const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, ic('more'));
@@ -816,6 +816,9 @@ function voiceBubble(m) {
   return h('div', { class: 'voice' }, btn, wave, len);
 }
 
+// http(s) links in message text become tappable (opened in a new tab); everything else stays plain text.
+const linkify = (s) => String(s || '').split(/(https?:\/\/[^\s<>"']+)/g).map((p, i) => (i % 2 ? h('a', { href: p, target: '_blank', rel: 'noopener noreferrer' }, p) : p));
+const isNcrChat = (c) => c?.kind === 'bot' && c.title === '📍 Delhi NCR jobs';
 function bubble(m, prev) {
   const c = state.cur, mine = m.from === state.me.id;
   const who = c.people.find((p) => p.id === m.from);
@@ -847,7 +850,7 @@ function bubble(m, prev) {
   else if (m.kind === 'card' && m.extra?.list) kids.push(h('span', { class: 'h' }, m.extra.title || '📝 List'), listCard(m));
   else if (m.kind === 'card') {
     if (m.extra?.title) kids.push(h('span', { class: 'h' }, m.extra.title));
-    kids.push(m.text || '');
+    kids.push(...linkify(m.text));
     if (m.extra?.done) kids.push(h('div', {}, h('span', { class: 'done' }, '✓ ' + m.extra.done)));
     else {
       const acts = (m.extra?.actions || []).map((a) => {
@@ -856,10 +859,11 @@ function bubble(m, prev) {
         return b;
       });
       if (m.extra?.link) { const l = h('button', { type: 'button', class: 'go' }, m.extra.link.label); l.addEventListener('click', () => go(m.extra.link.path)); acts.unshift(l); }
+      for (const l of [...(m.extra?.links || [])].reverse()) if (/^https:\/\//.test(l.url)) acts.unshift(h('a', { class: 'btn', href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.label));
       if (m.extra?.replyTo) { const r = h('button', { type: 'button' }, '↩ Reply'); r.addEventListener('click', () => { state.replyTo = m; drawComposer(); document.querySelector('.compose textarea')?.focus(); }); acts.push(r); }
       if (acts.length) kids.push(h('div', { class: 'acts' }, acts));
     }
-  } else if (m.kind !== 'image' && m.kind !== 'video') kids.push(m.text || '');
+  } else if (m.kind !== 'image' && m.kind !== 'video') kids.push(...linkify(m.text));
   kids.push(meta);
   const reacts = Object.entries(m.extra?.reactions || {});
   if (reacts.length) kids.push(h('div', { class: 'reacts' }, reacts.map(([e, ids]) => {
@@ -931,7 +935,7 @@ function drawComposer() {
   const c = state.cur;
   const parts = [];
   const cmds = state.me.role === 'owner' ? ['status', 'room', 'arm', 'disarm', 'spent today', 'spent month', 'help'] : ["what's waiting for me?", 'applied today', 'help'];
-  if (c.kind === 'bot') parts.push(h('div', { class: 'chips' }, cmds.map((cmd) => {
+  if (c.kind === 'bot' && !isNcrChat(c)) parts.push(h('div', { class: 'chips' }, cmds.map((cmd) => {
     const b = h('button', { type: 'button' }, cmd); b.addEventListener('click', () => sendText(cmd)); return b;
   })));
   if (state.replyTo) {
@@ -965,7 +969,7 @@ function drawComposer() {
     send.addEventListener('click', () => stopRec(true));
     parts.push(h('div', { class: 'compose' }, cancel, h('div', { class: 'rec' }, h('i'), h('span', { id: 'rect' }, '0:00'), h('div', { class: 'lvl' }, h('b', { id: 'recl' }))), send));
   } else {
-    const ta = h('textarea', { rows: '1', placeholder: c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
+    const ta = h('textarea', { rows: '1', placeholder: isNcrChat(c) ? 'Paste a job link…' : c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
     if (state.editing) setTimeout(() => { ta.value = state.editing?.text || ''; sync(); ta.focus(); }, 0);
     else if (state.draft) { ta.value = state.draft; state.draft = ''; }
     const btn = h('button', { class: 'send mic', type: 'button', 'aria-label': 'Record a voice note' }, ic('mic'));

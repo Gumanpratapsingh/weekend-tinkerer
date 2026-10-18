@@ -31,12 +31,13 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
 // toOwner: technical alerts from someone else's agent go to the owner (who maintains it), not to that person.
-export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null } = {}) {
+// chat: 'ncr' = the person's separate "📍 Delhi NCR jobs" chat; links: [{label, url}] buttons; images: screenshot paths.
+export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null, chat = null, links = null, images = null, silent = false } = {}) {
   if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
     (async () => {
-      if (await toCupboard(body, refKind, refId, options, toOwner, link)) return;
+      if (await toCupboard(body, refKind, refId, options, toOwner, link, { chat, links, images, silent })) return;
       if (!OWNER && toOwner) return;
       ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
     })().catch((e) => log(`tell: ${e.message}`));
@@ -46,17 +47,20 @@ export function tell(body, { refKind = null, refId = null, urgent = false, optio
   flush().catch((e) => log(`wa flush: ${e.message}`));
 }
 
-async function toCupboard(body, refKind, refId, options, toOwner = false, link = null) {
+async function toCupboard(body, refKind, refId, options, toOwner = false, link = null, more = {}) {
   const to = OWNER || toOwner ? null : privateProfile().cupboard_user;
   if (!OWNER && !toOwner && !to) { log('tell: no cupboard_user in private.json, message not sent'); return false; }
   const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
   const actions = refKind === 'draft' || refKind === 'emailapp' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
     : refKind === 'referral' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Skip', value: 'skip' }]
+    : refKind === 'ncrjob' ? [{ id: 'fill', label: '🖊 Fill & show me', value: 'fill', style: 'go' }, { id: 'done', label: '✓ I applied', value: 'applied' }, { id: 'skip', label: '✕ Not for me', value: 'skip' }]
+    : refKind === 'ncrsubmit' ? [{ id: 'ok', label: '✓ Submit', value: 'submit', style: 'go' }, { id: 'no', label: '✕ Cancel', value: 'cancel' }]
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
   try {
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
-        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}) }) });
+        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
+        ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.silent ? { silent: true } : {}) }) });
     if (!r.ok) return false;
     const out = await r.json();
     if (ref && out.id) setKv(`cupcard:${refKind}:${refId}`, String(out.id));   // so the card can be closed later

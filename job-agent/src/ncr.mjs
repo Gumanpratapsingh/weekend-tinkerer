@@ -1,10 +1,15 @@
 // Gurgaon / Noida / Delhi NCR watch. The person is moving north: every good NCR match goes to their own chat as a link
 // within minutes of being found, NCR is searched on its own every half hour, and those jobs are never applied to
 // automatically (the person applies themselves). "ncr off" in the chat stops it; "ncr on" starts it again.
-import { config, log, activity, istHour, hasSession } from './core.mjs';
-import { all, run, getKv, setKv } from './db.mjs';
-import { tell } from './whatsapp.mjs';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { config, log, activity, istHour, hasSession, resumeFile } from './core.mjs';
+import { one, all, run, getKv, setKv, dedupeKey } from './db.mjs';
+import { tell, cardDone } from './whatsapp.mjs';
 import { browserTask } from './browser.mjs';
+import { askOwner } from './asks.mjs';
+import { tailor, baseResume } from './tailor.mjs';
+import { getText, htmlToText, decode } from './sources/common.mjs';
 
 run('CREATE TABLE IF NOT EXISTS ncr_sent (job_id TEXT PRIMARY KEY, sent_at INTEGER NOT NULL)');
 
@@ -64,21 +69,150 @@ export function ncrSweep() {
   return rows.length;
 }
 
-// Send unsent NCR links (good matches from the last two weeks), best first, a few per message.
+// Each unsent NCR match (good matches from the last two weeks) as its own card in the "📍 Delhi NCR jobs" chat, best first:
+// an "Open job" link plus Fill & show me / I applied / Not for me. Ten per run so the chat stays readable.
 export async function ncrNotify() {
   if (!ncrOn()) return 0;
   const [from, to] = N().hours, h = istHour();
   if (h < from || h >= to) return 0;                            // found at night: sent in the morning
+  if (getKv('ncr_chat_v2') !== 'done') { run('DELETE FROM ncr_sent'); setKv('ncr_chat_v2', 'done'); }   // re-send the earlier text links as cards
   const rows = all(`SELECT id, title, company, location, score, apply_url, url, posted_at FROM jobs WHERE status = 'manual' AND score >= ?
     AND found_at >= ? AND id NOT IN (SELECT job_id FROM ncr_sent) ORDER BY score DESC, found_at DESC`, ncrMin(), Date.now() - 14 * 864e5)
-    .filter(isNcr).slice(0, 24);
-  for (let i = 0; i < rows.length; i += 8) {
-    const part = rows.slice(i, i + 8);
-    tell(`📍 ${part.length} Gurgaon/Noida job${part.length > 1 ? 's' : ''} for you — apply yourself\n\n`
-      + part.map((j, k) => `${k + 1}. ${j.title} @ ${j.company} · ${j.score}%\n   ${j.location}${j.posted_at && !/^\d{4}-/.test(j.posted_at) ? ` · ${j.posted_at}` : ''}\n   ${j.apply_url || j.url}`).join('\n\n')
-      + '\n\nApplied? Mark it on your dashboard. "ncr off" stops these.');
-    for (const j of part) run('INSERT OR IGNORE INTO ncr_sent(job_id, sent_at) VALUES(?,?)', j.id, Date.now());
+    .filter(isNcr).slice(0, 10);
+  if (rows.length) say(`📍 ${rows.length} new Gurgaon/Noida job${rows.length > 1 ? 's' : ''} ↓`);   // the one ping for this batch
+  for (const j of rows) {
+    const posted = j.posted_at && !/^\d{4}-/.test(j.posted_at) ? ` · ${j.posted_at}` : '';
+    tell(`📍 ${j.title} @ ${j.company} · ${j.score}%\n${j.location}${posted}`,
+      { chat: 'ncr', refKind: 'ncrjob', refId: j.id, links: [{ label: 'Open job ↗', url: j.apply_url || j.url }], silent: true });
+    run('INSERT OR IGNORE INTO ncr_sent(job_id, sent_at) VALUES(?,?)', j.id, Date.now());
   }
-  if (rows.length) log(`ncr: sent ${rows.length} link(s)`);
+  if (rows.length) log(`ncr: sent ${rows.length} card(s)`);
   return rows.length;
+}
+
+function say(text, more = {}) { return tell(text, { chat: 'ncr', ...more }); }
+const label = (j) => `${j.title} @ ${j.company}`;
+
+// A job link pasted in the NCR chat: known job, or a new row (Naukri / LinkedIn / any company page).
+async function jobFromUrl(url) {
+  let m, base;
+  if ((m = /naukri\.com\/.*?-(\d{9,})(?:[/?#]|$)/.exec(url))) base = { id: `naukri:${m[1]}`, source: 'naukri', apply_type: 'naukri', url, apply_url: url };
+  else if ((m = /linkedin\.com\/jobs\/(?:view\/(?:[^/?#]*-)?|.*[?&]currentJobId=)(\d{6,})/.exec(url))) {
+    const u = `https://www.linkedin.com/jobs/view/${m[1]}/`;
+    base = { id: `linkedin:${m[1]}`, source: 'linkedin', apply_type: 'linkedin', url: u, apply_url: u };
+  } else base = { id: `paste:${createHash('sha1').update(url).digest('hex').slice(0, 12)}`, source: 'paste', apply_type: 'external', url, apply_url: url };
+  const known = one('SELECT * FROM jobs WHERE id = ?', base.id);
+  if (known) return known;
+  let title = 'Job from your link', company = '', location = '', description = '';
+  try {
+    if (base.source === 'naukri') {
+      const d = await browserTask('naukri_job', { jobId: base.id.split(':')[1], url }, 90000);
+      description = htmlToText(d.description || ''); if (d.external) base.apply_type = 'external';
+    } else if (base.source === 'linkedin') {
+      const html = await getText(`https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${base.id.split(':')[1]}`);
+      const pick = (re) => decode((re.exec(html)?.[1] || '').replace(/<[^>]+>/g, '').trim());
+      title = pick(/top-card-layout__title[^>]*>([\s\S]*?)<\/h2>/) || title;
+      company = pick(/topcard__org-name-link[^>]*>([\s\S]*?)<\/a>/);
+      location = pick(/topcard__flavor--bullet[^>]*>([\s\S]*?)<\/span>/);
+      description = htmlToText(/show-more-less-html__markup[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] || '');
+    }
+  } catch (e) { log(`ncr paste ${base.id}: ${e.message}`); }
+  if (base.source === 'naukri') { const t = /naukri\.com\/job-listings-(.+?)-\d{9,}/.exec(url)?.[1] || ''; title = t.replace(/-/g, ' ') || title; }
+  run(`INSERT INTO jobs(id, source, url, apply_url, apply_type, title, company, location, description, posted_at, dedupe, found_at, status, status_note, priority)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'manual','pasted in the NCR chat',1)`, base.id, base.source, base.url, base.apply_url, base.apply_type, title, company, location,
+    description, '', dedupeKey(company, title), Date.now());
+  return one('SELECT * FROM jobs WHERE id = ?', base.id);
+}
+
+// Fill-and-show: fill the form WITHOUT submitting, send the screenshots, submit only on "✓ Submit". The answers used are kept
+// (kv fillans:<job>) so the real submit types exactly what the screenshots show.
+export async function ncrFill(jobId) {
+  let job = one('SELECT * FROM jobs WHERE id = ?', jobId);
+  if (!job) return say('I can\'t find that job any more.');
+  if (job.status === 'applied') return say(`✅ Already applied: ${label(job)}.`);
+  say(`🖊 Filling ${label(job)} — I won't submit. Screenshots in a minute or two.`);
+  setKv(`fillans:${job.id}`, '{}');
+  let resume = job.resume_path && existsSync(job.resume_path) ? job.resume_path : null;
+  if (!resume && job.apply_type !== 'naukri') {
+    try { const t = job.description ? await tailor(job) : await baseResume(job.track || 'backend'); resume = t.pdf; run('UPDATE jobs SET resume_path = ? WHERE id = ?', resume, job.id); }
+    catch (e) { log(`ncr fill resume: ${e.message}`); resume = resumeFile(); }
+  }
+  let res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
+  if (job.apply_type === 'linkedin' && res.status === 'manual' && /company site|not Easy Apply/i.test(res.reason || '')) {
+    run("UPDATE jobs SET apply_type = 'external' WHERE id = ?", job.id); job = one('SELECT * FROM jobs WHERE id = ?', job.id);
+    res = await browserTask('apply_external', { job, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
+  }
+  const open = [{ label: 'Open job ↗', url: job.apply_url || job.url }];
+  switch (res.status) {
+    case 'dry_run': {
+      const shots = (res.shots?.length ? res.shots : [res.shot]).filter(Boolean).slice(0, 8);
+      const how = job.apply_type === 'naukri' ? 'Naukri applies with your Naukri profile and answers its questions from your memory.' : `Resume: ${resume ? resume.split('/').pop() : 'your profile resume'}.`;
+      return say(`📋 Filled ${label(job)} — nothing submitted yet. Check the ${shots.length} screenshot(s) above. ${how}\nSubmit it?`,
+        { refKind: 'ncrsubmit', refId: job.id, images: shots, links: open });
+    }
+    case 'needs_answer': {
+      setKv(`ncrwait:${job.id}`, '1');
+      for (const u of res.unknown || []) askOwner(u.label, { jobId: job.id, context: `${label(job)} application`, kind: u.type, options: u.options?.length ? u.options : null, chat: 'ncr' });
+      return say(`❓ ${label(job)} asks ${(res.unknown || []).length} question(s) I don't know yet (above). Answer them and I'll fill it again automatically.`,
+        { images: res.shot ? [res.shot] : [], links: open });
+    }
+    case 'already_applied': run("UPDATE jobs SET status = 'applied', status_note = 'already applied before' WHERE id = ?", job.id); return say(`✅ Already applied to ${label(job)}.`);
+    case 'closed': run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id); return say(`🚫 ${label(job)} is closed.`);
+    case 'email': return say(`✉️ ${label(job)} takes applications by email: ${res.email}.`, { links: open });
+    default:
+      return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open });
+  }
+}
+
+// "✓ Submit" after the screenshots: the real application, same answers, then the confirmation screenshot.
+export async function ncrSubmit(jobId) {
+  const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
+  if (!job) return say('I can\'t find that job any more.');
+  if (job.status === 'applied') return say(`✅ Already applied: ${label(job)}.`);
+  say(`🚀 Submitting ${label(job)}…`);
+  const { applyJob } = await import('./apply.mjs');
+  const res = await applyJob({ ...job, attempts: 0 }, { dryRun: false }).catch((e) => ({ status: 'error', reason: e.message }));
+  run('DELETE FROM kv WHERE key = ?', `fillans:${job.id}`);
+  const shots = res.shot ? [res.shot] : [];
+  if (res.status === 'applied') return say(`✅ Applied: ${label(job)}.`, { images: shots });
+  if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, job.id);
+  return say(`⚠️ ${label(job)} didn't go through: ${String(res.reason || res.status).slice(0, 200)}. ${res.status === 'needs_answer' ? 'Answer the question(s) and tap Fill again.' : 'Apply on the site yourself.'}`,
+    { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }] });
+}
+
+// Taps on the NCR cards.
+export async function ncrAction(ref, value) {
+  const id = ref.ref_id, v = String(value || '').toLowerCase();
+  const done = (text) => cardDone(ref.ref_kind, id, text);
+  if (ref.ref_kind === 'ncrjob') {
+    if (v === 'fill') { done('Filling…'); ncrFill(id).catch((e) => log(`ncr fill ${id}: ${e.message}`)); return; }   // minutes: never make the tap wait
+    if (v === 'applied') { run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = 'applied by you' WHERE id = ?", Date.now(), id); return done('Applied ✓'); }
+    if (v === 'skip') { run("UPDATE jobs SET status = 'skipped', status_note = 'not for me (NCR chat)' WHERE id = ?", id); return done('Skipped'); }
+  }
+  if (ref.ref_kind === 'ncrsubmit') {
+    if (v === 'submit') { done('Submitting…'); ncrSubmit(id).catch((e) => log(`ncr submit ${id}: ${e.message}`)); return; }
+    run('DELETE FROM kv WHERE key = ?', `fillans:${id}`);
+    return done('Cancelled — not submitted');
+  }
+}
+
+// After an answer: re-fill NCR jobs that were waiting only on questions.
+export async function ncrAfterAnswer() {
+  for (const r of all("SELECT key FROM kv WHERE key LIKE 'ncrwait:%'")) {
+    const id = r.key.slice('ncrwait:'.length);
+    if (one("SELECT 1 FROM asks WHERE job_id = ? AND status = 'open'", id)) continue;
+    run('DELETE FROM kv WHERE key = ?', r.key);
+    await ncrFill(id);
+  }
+}
+
+// Free text in the NCR chat: a job link to fill, an answer ("Q12 …"), or help.
+export async function ncrChat(text) {
+  const urls = [...new Set((text.match(/https?:\/\/\S+/g) || []).map((u) => u.replace(/[)>.,]+$/, '')))].slice(0, 10);
+  if (urls.length > 1) say(`🖊 ${urls.length} links — filling them one by one, screenshots for each. Nothing is submitted until you tap ✓ Submit.`);
+  for (const u of urls) { const job = await jobFromUrl(u); await ncrFill(job.id); }
+  if (urls.length) return;
+  const qm = /^q(\d+)[:\s]+([\s\S]+)$/i.exec(text.trim());
+  if (qm) { const { onAnswered } = await import('./commands.mjs'); return onAnswered(+qm[1], qm[2]); }
+  return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
 }

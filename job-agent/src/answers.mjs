@@ -66,6 +66,8 @@ function direct(label, m) {
   const [first, ...rest] = m.name.split(' ');
   const P = m.persona || {};
   const rules = [
+    // Follow-ups that only apply after a "Yes" ("If you answered yes to the above, please provide details"): not applicable.
+    [/^if (you )?(answered |selected |said |chose |checked )?(yes|y)\b|^if yes\b|^if so\b/, 'N/A'],
     [/country code|dial(l)?ing code|phone country/, 'India (+91)'],
     // Total experience (no specific skill named): years since the career start with one decimal, e.g. 2.2.
     [/^(total |overall |relevant )?(years of )?(work |professional |it )?experience( in years)?\??$|total experience|overall experience/,

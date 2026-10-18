@@ -246,6 +246,7 @@ export default {
       if (!found) return { status: 'failed', reason: 'Easy Apply form did not open', shot: await snap(page, 'li-noform') };
 
       let lastStep = '';
+      const steps = [];
       for (let step = 0; step < 15; step++) {
         await page.waitForTimeout(1500 + Math.random() * 1000);
         await markRoot(page);                                // the panel re-renders between steps
@@ -278,13 +279,14 @@ export default {
         if (blocking.length) return await discard(page, { status: 'needs_answer', unknown: blocking, shot: await snap(page, 'li-question') });
         progress(`LinkedIn: ${fields.map((f) => `"${f.label.slice(0, 40)}"${f.type === 'radio' ? `[${f.options.join('/')}]` : ''} = ${answers[f.key] ?? (unknown.some((u) => u.key === f.key) ? '??' : '(prefilled)')}`).join(' · ').slice(0, 380)}`);
         await fill(page, fields, answers, {});
+        if (dryRun) steps.push(await snap(page, 'li-step'));        // fill-and-show: a screenshot of every step
 
         const follow = modal.locator('input#follow-company-checkbox');
         if (await follow.count() && await follow.isChecked()) await follow.uncheck({ force: true }).catch(() => {});
 
         const submit = modal.locator('button[aria-label="Submit application"], button:has-text("Submit application")');
         if (await submit.count()) {
-          if (dryRun) return await discard(page, { status: 'dry_run', shot: await snap(page, 'li-dry') });
+          if (dryRun) { const shot = await snap(page, 'li-dry'); return await discard(page, { status: 'dry_run', shot, shots: [...steps.slice(0, -1), shot] }); }
           await submit.first().click();
           await page.waitForTimeout(5000);
           const ok = await page.locator(':text("application was sent"), :text("Application submitted"), h3:has-text("Your application was sent")').count();

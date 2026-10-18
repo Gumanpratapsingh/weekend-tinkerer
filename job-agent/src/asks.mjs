@@ -4,15 +4,15 @@ import { one, all, run, event } from './db.mjs';
 import { unanswered, remember } from './answers.mjs';
 import { tell } from './whatsapp.mjs';
 
-export function askOwner(question, { jobId = null, draftId = null, context = '', kind = 'text', options = null } = {}) {
+export function askOwner(question, { jobId = null, draftId = null, context = '', kind = 'text', options = null, chat = null } = {}) {
   const q = unanswered(question, { kind, options, source: context });
   if (q.answer) return q.id;
   const alreadyAsked = one("SELECT 1 FROM asks WHERE question_id = ? AND status = 'open'", q.id);
   run('INSERT INTO asks(question_id, job_id, thread_id, asked_at) VALUES(?,?,?,?)', q.id, jobId, draftId ? `draft:${draftId}` : null, Date.now());
-  if (!alreadyAsked) {
+  if (!alreadyAsked || chat) {                            // the NCR chat shows its own questions even if asked elsewhere
     const opts = q.options ? `\nOptions: ${JSON.parse(q.options).join(' / ')}` : '';
     tell(`❓ Q${q.id}: ${q.question}${opts}\n(${context})\n\n— Reply to this message with your answer. I'll remember it for every future application.`,
-      { refKind: 'question', refId: q.id, options: q.options ? JSON.parse(q.options) : null });
+      { refKind: 'question', refId: q.id, options: q.options ? JSON.parse(q.options) : null, chat });
   }
   return q.id;
 }
