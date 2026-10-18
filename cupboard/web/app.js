@@ -589,31 +589,6 @@ const screens = {
       } catch (e) { toast(e.message, true); }
     });
     paintDevices();
-    // 💼 Job agent: this person's own agent settings (switches + numbers), saved as they change.
-    const jobBox = h('div', {});
-    const paintJobs = async () => {
-      let s;
-      try { s = await api('/jobs/settings'); } catch { jobBox.replaceChildren(); return; }   // no agent for this person
-      const save = async (patch, el) => {
-        try { const r = await api('/jobs/settings', { method: 'POST', body: patch }); toast('Saved'); s = r; paint(); }
-        catch (e) { toast(e.message, true); if (el) el.disabled = false; }
-      };
-      const paint = () => jobBox.replaceChildren(
-        h('div', { class: 'sec' }, '💼 Job agent'),
-        h('p', { class: 'lede' }, 'Your own job agent. Changes apply within a minute.'),
-        ...s.switches.map((w) => {
-          const b = h('button', { class: 'btn' + (w.on ? '' : ' ghost'), type: 'button' }, w.on ? 'On' : 'Off');
-          b.addEventListener('click', () => { b.disabled = true; save({ [w.key]: !w.on }, b); });
-          return h('div', { class: 'kv' }, h('span', {}, w.label, h('br'), h('small', { class: 'soft' }, w.help)), b);
-        }),
-        ...s.numbers.map((n) => {
-          const i = h('input', { type: 'number', min: String(n.min), max: String(n.max), step: '1', value: String(n.value), inputmode: 'numeric', style: 'width:5.5rem' });
-          i.addEventListener('change', () => { i.disabled = true; save({ [n.key]: Number(i.value) }, i); });
-          return h('div', { class: 'kv' }, h('span', {}, n.label, h('br'), h('small', { class: 'soft' }, `${n.min}–${n.max}`)), i);
-        }));
-      paint();
-    };
-    paintJobs();
     app.replaceChildren(
       h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Settings'))),
       h('div', { class: 'page' },
@@ -623,7 +598,6 @@ const screens = {
         notif,
         !isStandalone() ? h('div', {}, h('div', { class: 'sec' }, 'Install'), h('p', { class: 'lede' }, isIOS() ? 'Safari → Share (□↑) → Add to Home Screen.' : 'Browser menu → Install app / Add to Home screen.')) : null,
         owner ? h('div', {}, h('div', { class: 'sec' }, 'People'), ...(people.length ? people : [h('p', { class: 'lede' }, 'Nobody yet. Invite friends from ✎ → Invite a friend.')])) : null,
-        jobBox,
         h('div', { class: 'sec' }, 'Devices'),
         h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
         devBox, addDev, devOut,

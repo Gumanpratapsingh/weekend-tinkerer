@@ -1,6 +1,5 @@
 // Scores how well a job fits the owner, 0-100, with an LLM. Cheap filters run before this (sources/common.mjs).
 import { llm, master, config, activity, persona, careerStart, yearsWorked } from './core.mjs';
-import { setting } from './settings.mjs';
 
 let profileCache;
 function profile() {                                  // compact text profile (~350 tokens) to save free-tier budget
@@ -49,7 +48,7 @@ export async function scoreJob(job) {
     { role: 'user', content: `CANDIDATE:\n${profile()}\n\nJOB:\n${jd}` },
   ], { json: true, maxTokens: 300, temperature: 0, small: true, why: `scoring ${job.title} @ ${job.company}` });
   const score = Math.max(0, Math.min(100, Math.round(Number(out.score) || 0)));
-  activity(`🤖 AI: ${job.title} @ ${job.company} → ${score}% ${score >= setting('min_score') ? '✓ queue it' : '✗ skip'}${out.reasons ? ` (${String(out.reasons).slice(0, 90)})` : ''}`);
+  activity(`🤖 AI: ${job.title} @ ${job.company} → ${score}% ${score >= config().min_score ? '✓ queue it' : '✗ skip'}${out.reasons ? ` (${String(out.reasons).slice(0, 90)})` : ''}`);
   return {
     score,
     track: out.track === 'ai' ? 'ai' : 'backend',

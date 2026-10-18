@@ -11,7 +11,6 @@ import { fetchAggregators } from './sources/aggregators.mjs';
 import { fetchNaukri, fetchNaukriFresh } from './sources/naukri.mjs';
 import { scoreJob } from './score.mjs';
 import { fetchNcr, ncrOn, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
-import { setting } from './settings.mjs';
 
 export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
   fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr };
@@ -49,7 +48,7 @@ export async function discover(sourceName) {
 
 // Score new jobs (oldest first). Stops quietly when the free LLM budget runs out; picks up next round.
 export async function scoreNew(limit = 25) {
-  const min = setting('min_score');                   // Cupboard settings, else config.json
+  const min = config().min_score;
   const jobs = all("SELECT * FROM jobs WHERE status = 'new' ORDER BY priority DESC, found_at LIMIT ?", limit);
   let queued = 0;
   for (const job of jobs) {

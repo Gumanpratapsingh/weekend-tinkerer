@@ -646,13 +646,6 @@ async function api(req, res, path, query) {
       if (!r) throw err(503, 'Your job agent is not responding. It may be restarting.');
       return send(res, r.status, await r.json().catch(() => ({})));
     }
-    // Settings → 💼 Job agent: the signed-in person's own agent only (agentFor maps the user server-side; the agent range-checks).
-    if (name === 'settings' && (M === 'GET' || M === 'POST')) {
-      const body = M === 'POST' ? JSON.stringify(await readJson(req, 2000)) : undefined;
-      const r = await fetch(`${agent}/internal/settings`, { method: M, headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(10000) }).catch(() => null);
-      if (!r) throw err(503, 'Your job agent is not responding. It may be restarting.');
-      return send(res, r.status, await r.json().catch(() => ({})));
-    }
     if (M === 'POST' && name === 'action') {
       const b = await readJson(req, 4000);
       if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies'].includes(b.action)) throw err(400, 'Unknown action.');

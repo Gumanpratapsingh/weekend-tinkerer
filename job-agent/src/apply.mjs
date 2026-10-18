@@ -9,7 +9,6 @@ import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 import { ncrOn, isNcr } from './ncr.mjs';
-import { caps as capsNow, setting } from './settings.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats' };
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
@@ -43,7 +42,7 @@ function companyToday(company) {
 
 export async function applyNext({ dryRun = false } = {}) {
   if (getKv('paused') === '1' || getKv('thermal_pause') === '1') return null;
-  const caps = capsNow();                                  // the person's own limits (Cupboard settings) over config.json
+  const caps = config().daily_caps;
   if (!dryRun && appliedToday() >= caps.total) return null;
   const queued = all("SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT 200");
   const job = queued.find((j) => {
@@ -182,7 +181,7 @@ export function todayStats() {
   const c = (sql, ...p) => one(sql, ...p).n;
   return {
     found: c('SELECT count(*) n FROM jobs WHERE found_at >= ?', since),
-    matched: c('SELECT count(*) n FROM jobs WHERE found_at >= ? AND score >= ?', since, setting('min_score')),
+    matched: c('SELECT count(*) n FROM jobs WHERE found_at >= ? AND score >= ?', since, config().min_score),
     applied: appliedToday(),
     queued: c("SELECT count(*) n FROM jobs WHERE status = 'queued'"),
     waiting: c("SELECT count(*) n FROM jobs WHERE status = 'needs_answer'"),
