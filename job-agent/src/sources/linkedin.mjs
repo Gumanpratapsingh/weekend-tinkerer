@@ -8,7 +8,7 @@ const pick = (html, re) => decode((re.exec(html)?.[1] || '').replace(/<[^>]+>/g,
 
 // Options (the NCR watch): other locations/queries, page count, time window (r86400 = 24 h), and allJobs = one search for
 // every job (Easy Apply included) instead of an Easy Apply pass plus a company-site pass.
-export async function fetchLinkedin({ fresh = false, locations = null, queries: only = null, pages = null, window = null, allJobs = false } = {}) {
+export async function fetchLinkedin({ fresh = false, locations = null, queries: only = null, pages = null, window = null, allJobs = false, levels = null } = {}) {
   const c = config();
   const queries = only || Object.values(c.tracks).flatMap((t) => t.queries);
   const seen = new Set();
@@ -20,7 +20,7 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
     for (let start = 0; start < (pages || (fresh ? 1 : c.linkedin_pages || 3)) * 25; start += 25) {
       // f_TPR=r86400: last 24h; f_AL=true: Easy Apply (false: all jobs, applied on the company's site); f_E=2,3: entry + associate
       const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(q)}`
-        + `&location=${encodeURIComponent(loc)}&f_TPR=${window || (fresh ? 'r3600' : 'r86400')}${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
+        + `&location=${encodeURIComponent(loc)}&f_TPR=${window || (fresh ? 'r3600' : 'r86400')}${easy ? '&f_AL=true' : ''}&f_E=${levels || '2%2C3'}${remote ? '&f_WT=2' : ''}&start=${start}`;
       let html;
       try { html = await getText(url); }
       catch (e) {

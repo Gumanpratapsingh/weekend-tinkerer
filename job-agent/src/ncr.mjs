@@ -10,7 +10,7 @@ run('CREATE TABLE IF NOT EXISTS ncr_sent (job_id TEXT PRIMARY KEY, sent_at INTEG
 
 // Naukri: "delhi-ncr" covers Gurugram, Noida and Delhi (its "ghaziabad"/"faridabad" pages fall back to all of India).
 // LinkedIn: a Gurugram search returns the whole metro area (Noida and Delhi included); "Delhi NCR" resolves to Ohio.
-const N = () => ({ enabled: true, every_min: 30, hours: [7, 23], min_score: 60, queries_per_run: 9, naukri: ['delhi-ncr'],
+const N = () => ({ enabled: true, every_min: 30, hours: [7, 23], min_score: 50, queries_per_run: 9, naukri: ['delhi-ncr'],
   linkedin: ['Gurugram, Haryana, India'], ...(config().ncr || {}) });
 export const ncrOn = () => N().enabled !== false && getKv('ncr_off') !== '1';
 export const ncrEvery = () => N().every_min;
@@ -39,15 +39,17 @@ export async function fetchNcr() {
   }
   const { fetchLinkedin } = await import('./sources/linkedin.mjs');
   out.push(...(await fetchLinkedin({ fresh: true, locations: n.linkedin.map((location) => ({ location })), queries: slice,
-    pages: backfill ? 2 : 1, window: backfill ? 'r604800' : 'r86400', allJobs: true })).filter(isNcr));
+    pages: backfill ? 2 : 1, window: backfill ? 'r604800' : 'r86400', allJobs: true, levels: '2%2C3%2C4' })).filter(isNcr));   // + Mid-Senior: many 2-4 yr roles
   if (backfill) setKv('ncr_backfill', 'done');
   return out;
 }
 
-// Jobs already in the queue (or waiting on a question) that sit in NCR: hand them over instead of applying.
+// NCR jobs anywhere short of applied: the queue, waiting on a question, failed or stuck on a CAPTCHA, or scored under the
+// apply threshold but above the NCR one (last two weeks). All handed over as links instead of being applied to.
 export function ncrSweep() {
   if (!ncrOn()) return 0;
-  const rows = all("SELECT id, location FROM jobs WHERE status IN ('queued','ready','needs_answer')").filter(isNcr);
+  const rows = all(`SELECT id, location FROM jobs WHERE status IN ('queued','ready','needs_answer')
+    OR (found_at >= ? AND (status IN ('failed','captcha') OR (status = 'scored' AND score >= ?)))`, Date.now() - 14 * 864e5, ncrMin()).filter(isNcr);
   for (const r of rows) {
     run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, r.id);
     run("UPDATE asks SET status = 'dismissed' WHERE job_id = ? AND status = 'open'", r.id);   // no questions for a job they apply to
