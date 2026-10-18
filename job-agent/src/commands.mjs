@@ -4,6 +4,7 @@ import { answerQuestion, openQuestions } from './asks.mjs';
 import { composeDraft, sendDraft } from './mail.mjs';
 import { todayStats } from './apply.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
+import { ncrOn, isNcr, ncrSweep, ncrNotify } from './ncr.mjs';
 
 const HELP = `Job agent commands:
 • status — today's numbers
@@ -14,6 +15,7 @@ const HELP = `Job agent commands:
 • forget <Q-number> — delete an answer
 • pause / resume — stop or restart applying
 • go live / dry run — submit for real, or only fill forms
+• ncr — Gurgaon/Noida jobs to apply to yourself · ncr off / ncr on — stop or restart those links
 Reply to any ❓ message to answer it, or to a ✍️ draft with ok / no / your own text.`;
 
 export async function onAnswered(qid, text) {
@@ -63,6 +65,12 @@ export async function handleOwner(text, ref) {
     case 'jobs': {
       const rows = all("SELECT title, company, score FROM jobs WHERE status = 'queued' ORDER BY score DESC LIMIT 8");
       return tell(rows.length ? `Next up:\n${rows.map((r) => `• ${r.score}% ${r.title} @ ${r.company}`).join('\n')}` : 'Queue is empty.');
+    }
+    case 'ncr off': setKv('ncr_off', '1'); return tell('📍 Gurgaon/Noida watch off: NCR jobs go back to the normal queue (applied automatically).');
+    case 'ncr on': setKv('ncr_off', '0'); ncrSweep(); await ncrNotify(); return tell('📍 Gurgaon/Noida watch on: NCR jobs come here as links, I won\'t apply to them.');
+    case 'ncr': {
+      const rows = all("SELECT title, company, score, location, apply_url FROM jobs WHERE status = 'manual' ORDER BY score DESC LIMIT 60").filter(isNcr).slice(0, 10);
+      return tell(`${ncrOn() ? '📍 Watch on.' : '📍 Watch off (send "ncr on").'}${rows.length ? `\nBest Gurgaon/Noida jobs to apply to:\n${rows.map((r) => `• ${r.score}% ${r.title} @ ${r.company} (${r.location})\n  ${r.apply_url}`).join('\n')}` : '\nNone waiting right now.'}`);
     }
     case 'manual': {
       const rows = all("SELECT title, company, score, apply_url FROM jobs WHERE status = 'manual' ORDER BY found_at DESC LIMIT 8");

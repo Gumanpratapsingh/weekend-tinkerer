@@ -8,6 +8,7 @@ import { browserTask } from './browser.mjs';
 import { getKv, setKv, all } from './db.mjs';
 import { discover, scoreNew } from './discover.mjs';
 import { applyNext, todayStats } from './apply.mjs';
+import { ncrOn, ncrEvery, ncrSweep, ncrNotify } from './ncr.mjs';
 import { checkMail, mailConfigured } from './mail.mjs';
 import { resolve, seedQuestions, seedKnown } from './answers.mjs';
 import { askOwner, openQuestions } from './asks.mjs';
@@ -70,6 +71,7 @@ createServer((req, res) => {
         if (loginCommand(text)) return json({});
         const step = pendingStep();
         if (step) { onboardReply(step, text, b.msgId); return json({}); }
+        if (/^ncr( on| off)?$/i.test(text)) { await handleOwner(text.toLowerCase()); return json({}); }   // Gurgaon/Noida watch commands
         const { ask } = await import('./assistant.mjs');
         try { return json({ answer: await ask(text) }); }
         catch (e) { return json({ answer: /rate limited/i.test(e.message) ? 'The free AI is busy right now. Ask again in a few minutes.' : `Couldn't answer: ${e.message}` }); }
@@ -182,6 +184,19 @@ every(config().fresh_lane?.every_min || 40, 'fresh lane', async () => {
     if (added) { activity(`⚡ Fast lane: ${added} fresh job(s) — scoring now, they go first`); await scoreNew(40); }
   })();
 }, { delay: 600e3 });
+
+// Gurgaon/Noida watch (src/ncr.mjs): NCR-only searches every half hour in the daytime, scored first; good matches go to the
+// person's chat as links and are never applied automatically. The link sender also catches NCR jobs from every other source.
+every(ncrEvery(), 'ncr watch', async () => {
+  const h = istHour();
+  if (!ncrOn() || h < 7 || h >= 23) return;
+  await step('Gurgaon/Noida watch: searching Naukri (Delhi NCR) and LinkedIn (Gurugram area)', async () => {
+    const added = await discover('ncr');
+    if (added) { activity(`📍 Gurgaon/Noida watch: ${added} new job(s) — scoring now`); await scoreNew(40); }
+    await ncrNotify();
+  })();
+}, { delay: 300e3 });
+every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
 every(5, 'naukri refresh', async () => {

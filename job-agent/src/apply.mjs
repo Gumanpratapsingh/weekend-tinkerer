@@ -8,6 +8,7 @@ import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
+import { ncrOn, isNcr } from './ncr.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats' };
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
@@ -47,7 +48,7 @@ export async function applyNext({ dryRun = false } = {}) {
   const job = queued.find((j) => {
     const b = BUCKET[j.apply_type];
     return b && siteReady(b) && (dryRun || appliedToday(b) < caps[b]) && companyToday(j.company) < caps.per_company
-      && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3;
+      && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && isNcr(j));   // NCR: the person applies
   });
   if (!job) return null;
   noteAttempt(BUCKET[job.apply_type]);

@@ -6,18 +6,21 @@ import { getText, htmlToText, decode, locationOk, titleOk } from './common.mjs';
 
 const pick = (html, re) => decode((re.exec(html)?.[1] || '').replace(/<[^>]+>/g, '').trim());
 
-export async function fetchLinkedin({ fresh = false } = {}) {
+// Options (the NCR watch): other locations/queries, page count, time window (r86400 = 24 h), and allJobs = one search for
+// every job (Easy Apply included) instead of an Easy Apply pass plus a company-site pass.
+export async function fetchLinkedin({ fresh = false, locations = null, queries: only = null, pages = null, window = null, allJobs = false } = {}) {
   const c = config();
-  const queries = Object.values(c.tracks).flatMap((t) => t.queries);
+  const queries = only || Object.values(c.tracks).flatMap((t) => t.queries);
   const seen = new Set();
   const out = [];
   // LinkedIn answers 429 when we search too much: then stay away for an hour.
   if (Number(getKv('linkedin_backoff_until', 0)) > Date.now()) { log('linkedin search: backing off after a 429'); return out; }
   for (const q of queries) {
-    for (const { location: loc, remote } of c.locations.linkedin) for (const easy of [true, false]) for (let start = 0; start < (fresh ? 1 : c.linkedin_pages || 3) * 25; start += 25) {
+    for (const { location: loc, remote } of locations || c.locations.linkedin) for (const easy of allJobs ? [false] : [true, false])
+    for (let start = 0; start < (pages || (fresh ? 1 : c.linkedin_pages || 3)) * 25; start += 25) {
       // f_TPR=r86400: last 24h; f_AL=true: Easy Apply (false: all jobs, applied on the company's site); f_E=2,3: entry + associate
       const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(q)}`
-        + `&location=${encodeURIComponent(loc)}&f_TPR=${fresh ? 'r3600' : 'r86400'}${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
+        + `&location=${encodeURIComponent(loc)}&f_TPR=${window || (fresh ? 'r3600' : 'r86400')}${easy ? '&f_AL=true' : ''}&f_E=2%2C3${remote ? '&f_WT=2' : ''}&start=${start}`;
       let html;
       try { html = await getText(url); }
       catch (e) {

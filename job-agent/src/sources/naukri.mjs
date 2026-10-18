@@ -36,7 +36,7 @@ export async function fetchNaukri() {
 }
 
 // New jobs only: open each job page for the full description and whether it applies on the company's site.
-async function toJobs(list, freshLane) {
+export async function toJobs(list, freshLane) {
   const out = [];
   for (const j of list || []) {
     if (!titleOk(j.title) || !locationOk(j.location) || one('SELECT 1 FROM jobs WHERE id = ?', `naukri:${j.jobId}`)) continue;

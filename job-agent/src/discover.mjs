@@ -10,9 +10,10 @@ import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
 import { fetchAggregators } from './sources/aggregators.mjs';
 import { fetchNaukri, fetchNaukriFresh } from './sources/naukri.mjs';
 import { scoreJob } from './score.mjs';
+import { fetchNcr, ncrOn, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
 
 export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
-  fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })] };
+  fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr };
 
 // Any Greenhouse/Lever/Ashby link seen in a feed adds that company's board to the list searched directly.
 function learnBoard(url) {
@@ -36,7 +37,7 @@ function insert(job) {
 
 export async function discover(sourceName) {
   // Browser-based sources wait while the phone cools down (thermal guard in agent.mjs).
-  if (['naukri', 'fresh'].includes(sourceName) && getKv('thermal_pause') === '1') { log(`discover ${sourceName}: skipped, phone cooling down`); return 0; }
+  if (['naukri', 'fresh', 'ncr'].includes(sourceName) && getKv('thermal_pause') === '1') { log(`discover ${sourceName}: skipped, phone cooling down`); return 0; }
   let jobs = [];
   try { jobs = await SOURCES[sourceName](); } catch (e) { log(`discover ${sourceName}: ${e.message}`); return 0; }
   for (const j of jobs) learnBoard(j.apply_url);
@@ -66,8 +67,11 @@ export async function scoreNew(limit = 25) {
     }
     let s;
     try { s = await scoreJob(job); } catch (e) { if (e.rateLimited) break; log(`score ${job.id}: ${e.message}`); continue; }
-    const status = s.score < min ? 'scored' : 'queued';             // external sites too: browser/external.mjs
-    run('UPDATE jobs SET score = ?, track = ?, score_reasons = ?, status = ? WHERE id = ?', s.score, s.track, s.reasons, status, job.id);
+    // Gurgaon/Noida (NCR watch): never applied automatically; a good match goes to the person's chat as a link instead.
+    const ncr = ncrOn() && isNcr(job) && s.score >= ncrMin();
+    const status = ncr ? 'manual' : s.score < min ? 'scored' : 'queued';   // external sites too: browser/external.mjs
+    run('UPDATE jobs SET score = ?, track = ?, score_reasons = ?, status = ?, status_note = ? WHERE id = ?', s.score, s.track, s.reasons, status,
+      ncr ? NCR_NOTE : null, job.id);
     if (status === 'queued') queued++;
     await sleep(6000);                                 // stay under the free tier's tokens-per-minute limit
   }
