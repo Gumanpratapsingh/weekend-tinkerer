@@ -8,6 +8,7 @@ import { one, all, run, getKv, setKv, dedupeKey } from './db.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
 import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
+import { setting, switchOn } from './settings.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { getText, htmlToText, decode } from './sources/common.mjs';
 
@@ -21,7 +22,7 @@ export const ncrOn = () => N().enabled !== false && getKv('ncr_off') !== '1';
 export const ncrEvery = () => N().every_min;
 const NCR = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
 export const isNcr = (job) => NCR.test(String(job?.location || ''));
-export const ncrMin = () => N().min_score;
+export const ncrMin = () => setting('ncr_min_score');      // Cupboard settings, else config.ncr / 50
 export const NCR_NOTE = 'NCR job: apply yourself (link sent to your chat)';
 
 // The NCR searches, in short runs that survive restarts: MNC Workday sites (every 2 h), then LinkedIn and Naukri for a slice
@@ -43,6 +44,7 @@ export async function fetchNcr() {
   // Night (23:00-05:00): only sources that don't use the person's account (Workday, LinkedIn public search). Naukri searches
   // run as their logged-in session, so they rest at night; everything found overnight is scored and ready by the morning.
   const h = istHour(), night = h >= 23 || h < 5;
+  if (night && !switchOn('ncr_night')) return [];           // the person turned night searching off
   const naukriOk = !night && hasSession('naukri') && getKv('session_naukri') !== 'expired';
   for (let k = 0; k < per; k++) {
     const i = Number(getKv('ncr_cursor', 0)) % queries.length, q = queries[i];
@@ -234,7 +236,8 @@ export async function ncrChat(text) {
 // Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
 const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
 export async function ncrReferrals() {
-  if (!ncrOn() || getKv('ncr_ref_off') === '1') return;
+  if (!ncrOn() || !switchOn('ncr_referrals')) return;
+  if (Date.now() - Number(getKv('ncr_ref_last', 0)) < setting('ncr_ref_every_h') * 3600e3 - 60e3) return;   // how often: Cupboard settings
   const h = istHour();
   if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
   if (one("SELECT count(*) n FROM referrals WHERE stage = 'drafted' AND source = 'job'").n >= 15) return;   // its own drafts only
@@ -242,6 +245,7 @@ export async function ncrReferrals() {
   const job = all(`SELECT * FROM jobs WHERE status IN ('manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
     Math.max(ncrMin(), 65), Date.now() - 7 * 864e5).find((j) => isNcr(j) && j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`));
   if (!job) return;
+  setKv('ncr_ref_last', Date.now());
   const { refForJob } = await import('./referrals.mjs');
   await refForJob(job.id, { chat: 'ncr' });
 }

@@ -72,6 +72,13 @@ createServer((req, res) => {
         await handleOwner(String(b.text || '').trim().slice(0, 2000), ref);
         return reply(200, '{"ok":true}', 'application/json');
       }
+      // Settings → 💼 Job agent in Cupboard (proxied for the signed-in person only): read, or change some values.
+      if (url.pathname === '/internal/settings' && !req.headers['x-visitor-ip']) {
+        const { getSettings, setSettings } = await import('./settings.mjs');
+        if (req.method === 'GET') return reply(200, JSON.stringify(getSettings()), 'application/json');
+        try { return reply(200, JSON.stringify(setSettings(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))), 'application/json'); }
+        catch (e) { return reply(400, JSON.stringify({ error: e.message }), 'application/json'); }
+      }
       // Free text in the "📍 Delhi NCR jobs" chat: a job link to fill and show, or an answer. Replies go back to that chat.
       if (url.pathname === '/internal/ncr' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
         const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -213,7 +220,7 @@ every(ncrEvery(), 'ncr watch', async () => {             // all night too: Naukr
   })();
 }, { delay: 90e3 });
 every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
-every(120, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // senior people / ex-colleagues / alumni at NCR companies
+every(30, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // how often it actually runs: the person's setting (2 h default)   // senior people / ex-colleagues / alumni at NCR companies
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
 every(5, 'naukri refresh', async () => {

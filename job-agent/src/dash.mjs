@@ -4,13 +4,14 @@ import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, writ
 import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
+import { setting } from './settings.mjs';
 
 const COLS = 'id, source, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
 const n = (sql, ...p) => one(sql, ...p)?.n || 0;
 
 export function summary() {
-  const today = dayStart(), min = config().min_score || 65;
+  const today = dayStart(), min = setting('min_score') || 65;
   const byStatus = Object.fromEntries(all('SELECT status, count(*) n FROM jobs GROUP BY status').map((r) => [r.status, r.n]));
   return {
     name: master()?.name || null,
