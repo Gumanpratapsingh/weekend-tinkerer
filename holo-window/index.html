@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Holographic Window</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #cfe8ff;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; cursor: crosshair; }
+    canvas#view { display: block; width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 10px; left: 10px; padding: 8px 10px; background: rgba(0, 8, 20, .72);
+      border: 1px solid rgba(120, 200, 255, .25); border-radius: 6px; white-space: pre; pointer-events: none; }
+    #hud.hidden { display: none; }
+    #hud canvas { display: block; margin-top: 6px; width: 160px; height: 90px; border-radius: 3px;
+      background: #000; }
+    #toast { position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%); padding: 10px 16px;
+      background: rgba(0, 8, 20, .8); border: 1px solid rgba(120, 200, 255, .3); border-radius: 8px;
+      font-size: 15px; text-align: center; transition: opacity .6s; opacity: 0; pointer-events: none; }
+    #toast.show { opacity: 1; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="hud"><span id="hud-text"></span><canvas id="hud-cam" width="160" height="90"></canvas></div>
+  <div id="toast"></div>
+  <video id="cam" playsinline muted hidden></video>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
