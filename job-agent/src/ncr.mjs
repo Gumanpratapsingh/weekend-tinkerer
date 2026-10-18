@@ -40,7 +40,10 @@ export async function fetchNcr() {
   const per = Math.min(backfill ? 6 : n.queries_per_run, queries.length);
   const { fetchLinkedin } = await import('./sources/linkedin.mjs');
   const { toJobs } = await import('./sources/naukri.mjs');
-  const naukriOk = hasSession('naukri') && getKv('session_naukri') !== 'expired';
+  // Night (23:00-05:00): only sources that don't use the person's account (Workday, LinkedIn public search). Naukri searches
+  // run as their logged-in session, so they rest at night; everything found overnight is scored and ready by the morning.
+  const h = istHour(), night = h >= 23 || h < 5;
+  const naukriOk = !night && hasSession('naukri') && getKv('session_naukri') !== 'expired';
   for (let k = 0; k < per; k++) {
     const i = Number(getKv('ncr_cursor', 0)) % queries.length, q = queries[i];
     out.push(...(await fetchLinkedin({ fresh: true, locations: n.linkedin.map((location) => ({ location })), queries: [q], pages: backfill ? 2 : 1,

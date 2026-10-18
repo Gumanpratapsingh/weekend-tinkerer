@@ -204,9 +204,8 @@ every(config().fresh_lane?.every_min || 40, 'fresh lane', async () => {
 
 // Gurgaon/Noida watch (src/ncr.mjs): NCR-only searches every half hour in the daytime, scored first; good matches go to the
 // person's chat as links and are never applied automatically. The link sender also catches NCR jobs from every other source.
-every(ncrEvery(), 'ncr watch', async () => {
-  const h = istHour();
-  if (!ncrOn() || h < 7 || h >= 23) return;
+every(ncrEvery(), 'ncr watch', async () => {             // all night too: Naukri (your account) only 05:00-23:00, see fetchNcr
+  if (!ncrOn()) return;
   await step('Gurgaon/Noida watch: MNC career sites, LinkedIn (Gurugram area) and Naukri (Delhi NCR)', async () => {
     const added = await discover('ncr');
     if (added) { activity(`📍 Gurgaon/Noida watch: ${added} new job(s) — scoring now`); await scoreNew(40); }
