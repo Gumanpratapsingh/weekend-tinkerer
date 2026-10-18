@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control</title>
+<style>
+  :root { --bg: #05070d; --fg: #eef2ff; --dim: #8b93b0; --line: rgba(255,255,255,.09); --glass: rgba(10,14,26,.62);
+          --a: #7cf0c5; --b: #8fb4ff; --warn: #ffb86b; --bad: #ff6b81; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.35 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; cursor: none; }
+  #bg, #bg2 { position: fixed; inset: -4%; background: center/cover no-repeat; filter: brightness(.42) saturate(1.1); transition: opacity 3s; animation: drift 60s ease-in-out infinite alternate; }
+  #bg2 { opacity: 0; }
+  @keyframes drift { from { transform: scale(1.02) translate(0,0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
+  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.65)); }
+  main { position: relative; height: 100vh; display: grid; grid-template-columns: 1.05fr 1.35fr 1fr; grid-template-rows: 1fr auto; gap: 22px; padding: 30px 34px 22px; }
+  .glass { background: var(--glass); border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); padding: 22px 24px; }
+  h2 { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--a); box-shadow: 0 0 12px var(--a); animation: pulse 1.6s infinite; }
+  .dot.idle { background: var(--dim); box-shadow: none; animation: none; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  /* left: time + machines */
+  #left { display: flex; flex-direction: column; gap: 22px; }
+  #clock { font-size: 128px; font-weight: 200; letter-spacing: -.04em; line-height: .95; font-variant-numeric: tabular-nums; }
+  #clock small { font-size: 46px; color: var(--dim); margin-left: 6px; }
+  #date { font-size: 24px; color: var(--dim); margin-top: 10px; }
+  #greet { font-size: 20px; margin-top: 18px; color: var(--fg); opacity: .9; }
+  .machine { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); }
+  .machine:first-of-type { border-top: 0; padding-top: 0; }
+  .machine b { font-size: 18px; font-weight: 600; }
+  .machine span { color: var(--dim); font-size: 14px; }
+  .gauge { grid-column: 1 / -1; height: 6px; border-radius: 6px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .gauge i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--a), var(--b)); transition: width 1s; }
+  .gauge i.hot { background: linear-gradient(90deg, var(--warn), var(--bad)); }
+
+  /* center: live browser */
+  #live { display: flex; flex-direction: column; min-height: 0; }
+  #frame { flex: 1; min-height: 0; border-radius: 14px; overflow: hidden; background: #000; border: 1px solid var(--line); position: relative; display: grid; place-items: center; }
+  #frame img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .4s; }
+  #frame .idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--dim); font-size: 22px; background: radial-gradient(circle, rgba(124,240,197,.08), transparent 60%); }
+  .radar { width: 140px; height: 140px; border-radius: 50%; border: 1px solid rgba(124,240,197,.35); margin: 0 auto 18px; position: relative; overflow: hidden; }
+  .radar::before { content: ""; position: absolute; inset: 0; background: conic-gradient(from 0deg, rgba(124,240,197,.55), transparent 25%); animation: spin 2.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #task { margin-top: 12px; font-size: 15px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #task b { color: var(--a); font-weight: 600; }
+
+  /* right: people */
+  #right { display: flex; flex-direction: column; gap: 22px; min-height: 0; }
+  .person { flex: 1; display: flex; flex-direction: column; }
+  .person .who { font-size: 24px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .person .now { color: var(--dim); font-size: 14px; margin: 4px 0 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat .n { font-size: 46px; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1; }
+  .stat .l { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+  .stat.hi .n { color: var(--a); }
+  .bars { display: flex; align-items: flex-end; gap: 5px; height: 54px; margin-top: auto; padding-top: 14px; }
+  .bars i { flex: 1; background: linear-gradient(to top, rgba(143,180,255,.25), var(--b)); border-radius: 4px 4px 1px 1px; min-height: 3px; transition: height 1s; }
+  .bars i:last-child { background: linear-gradient(to top, rgba(124,240,197,.3), var(--a)); }
+  .tot { font-size: 13px; color: var(--dim); margin-top: 8px; }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .pill.ask { color: var(--warn); border-color: rgba(255,184,107,.4); }
+
+  /* bottom: log ticker */
+  #ticker { grid-column: 1 / -1; padding: 14px 0; overflow: hidden; white-space: nowrap; mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
+  #ticker div { display: inline-block; padding-left: 100%; animation: tick 90s linear infinite; font: 15px ui-monospace, Menlo, monospace; color: var(--dim); }
+  #ticker em { color: var(--b); font-style: normal; margin-right: 10px; }
+  #ticker span { margin-right: 46px; }
+  @keyframes tick { to { transform: translateX(-100%); } }
+  #pop { position: fixed; right: 40px; top: 34px; background: rgba(124,240,197,.14); border: 1px solid rgba(124,240,197,.5); color: var(--a); padding: 14px 22px; border-radius: 16px; font-size: 20px; font-weight: 600; transform: translateY(-140%); transition: transform .6s cubic-bezier(.2,1.4,.4,1); backdrop-filter: blur(12px); }
+  #pop.show { transform: none; }
+</style>
+</head>
+<body>
+<div id="bg"></div><div id="bg2"></div><div id="vignette"></div>
+<main>
+  <section id="left">
+    <div class="glass">
+      <div id="clock">--:--</div>
+      <div id="date"></div>
+      <div id="greet"></div>
+    </div>
+    <div class="glass" style="flex:1">
+      <h2>Machines</h2>
+      <div id="machines"></div>
+    </div>
+  </section>
+  <section id="live" class="glass">
+    <h2><span class="dot idle" id="liveDot"></span><span id="liveTitle">Agent browser · live</span></h2>
+    <div id="frame"><img id="shot" alt=""><div class="idle" id="idle"><div><div class="radar"></div>Agent is between runs<br><small>the next search starts soon</small></div></div></div>
+    <div id="task"></div>
+  </section>
+  <section id="right"></section>
+  <div id="ticker" class="glass"><div id="tickerText">connecting…</div></div>
+</main>
+<div id="pop"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// Clock
+function tick() {
+  const d = new Date();
+  const h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+  $('clock').innerHTML = `${h % 12 || 12}:${m}<small>${h < 12 ? 'am' : 'pm'}</small>`;
+  $('date').textContent = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('greet').textContent = h < 5 ? 'Late night. The agents keep working.' : h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : h < 21 ? 'Good evening.' : 'Winding down.';
+}
+tick(); setInterval(tick, 1000);
+
+// Wallpapers: crossfade a new landscape every 90 s
+let front = true;
+function wall() {
+  const url = `https://picsum.photos/seed/${Date.now()}/1920/1080`;
+  const img = new Image();
+  img.onload = () => { const a = $(front ? 'bg2' : 'bg'), b = $(front ? 'bg' : 'bg2'); a.style.backgroundImage = `url(${url})`; a.style.opacity = 1; b.style.opacity = 0; front = !front; };
+  img.src = url;
+}
+$('bg').style.opacity = 1; wall(); setInterval(wall, 90e3);
+
+// Live browser frame, alternating between the agents that are busy
+let ports = [8083], pi = 0, lastUrl = '';
+async function frame() {
+  const port = ports[pi++ % ports.length];
+  try {
+    const r = await fetch(`/api/screen?port=${port}&t=${Date.now()}`);
+    if (r.status === 200) {
+      const blob = await r.blob(), u = URL.createObjectURL(blob);
+      $('shot').onload = () => { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = u; };
+      $('shot').src = u; $('shot').style.opacity = 1; $('idle').style.display = 'none'; $('liveDot').className = 'dot';
+      const task = decodeURIComponent(r.headers.get('x-task') || '').replace(/_/g, ' ');
+      const host = (() => { try { return new URL(decodeURIComponent(r.headers.get('x-url') || '')).hostname.replace('www.', ''); } catch { return ''; } })();
+      const who = people.find((p) => p.port === port)?.name?.split(' ')[0] || '';
+      $('task').innerHTML = `<b>${esc(task || 'browsing')}</b> · ${esc(host)} ${who ? '· for ' + esc(who) : ''}`;
+      return;
+    }
+  } catch {}
+  if (ports.length === 1 || pi % ports.length === 0) { $('shot').style.opacity = .15; $('idle').style.display = ''; $('liveDot').className = 'dot idle'; $('task').textContent = ''; }
+}
+setInterval(frame, 2500); frame();
+
+// State: people, machines, log
+let people = [], lastApplied = {};
+const pct = (v, max) => Math.max(2, Math.min(100, Math.round((v / max) * 100)));
+function pop(text) { $('pop').textContent = text; $('pop').classList.add('show'); setTimeout(() => $('pop').classList.remove('show'), 6000); }
+async function state() {
+  let s; try { s = await (await fetch('/api/state')).json(); } catch { return; }
+  people = s.people; ports = s.people.map((p) => p.port).length ? s.people.map((p) => p.port) : [8083];
+  $('right').innerHTML = s.people.map((p) => {
+    const max = Math.max(1, ...p.days.map((d) => d.n));
+    const first = esc(p.name.split(' ')[0]);
+    if (lastApplied[p.port] != null && p.today.applied > lastApplied[p.port]) pop(`✓ New application sent for ${p.name.split(' ')[0]}`);
+    lastApplied[p.port] = p.today.applied;
+    return `<div class="glass person">
+      <div class="who">${first}<span class="pill ${p.questions ? 'ask' : ''}">${p.paused ? 'paused' : p.questions ? p.questions + ' questions waiting' : 'running'}</span></div>
+      <div class="now">${esc(p.now?.text || '')}</div>
+      <div class="stats">
+        <div class="stat"><div class="n">${p.today.found}</div><div class="l">found today</div></div>
+        <div class="stat"><div class="n">${p.today.matched}</div><div class="l">matched</div></div>
+        <div class="stat hi"><div class="n">${p.today.applied}</div><div class="l">applied</div></div>
+      </div>
+      <div class="bars">${p.days.map((d) => `<i style="height:${pct(d.n, max)}%" title="${d.d}: ${d.n}"></i>`).join('')}</div>
+      <div class="tot">${p.total.applied} applied · ${p.total.interviews} interviews · last ${p.days.length} days</div>
+    </div>`;
+  }).join('');
+  const L = s.laptop, P = s.phone, hrs = (x) => `${Math.floor(x / 3600)}h`;
+  $('machines').innerHTML =
+    (L ? `<div class="machine"><b>Dell G3</b><span>${L.temp}°C · load ${L.load} · up ${hrs(L.uptime)}</span><div class="gauge"><i class="${L.temp >= 85 ? 'hot' : ''}" style="width:${pct(L.temp, 100)}%"></i></div></div>
+          <div class="machine"><b>Dell memory</b><span>${L.mem}% used · CPU ${L.cpu}%</span><div class="gauge"><i style="width:${pct(L.mem, 100)}%"></i></div></div>` : `<div class="machine"><b>Dell G3</b><span style="color:var(--bad)">unreachable</span></div>`) +
+    (P ? `<div class="machine"><b>Galaxy S20</b><span>${P.battery}% · ${P.plugged === 'UNPLUGGED' ? 'on battery' : 'charging'} · ${Math.round(P.temp)}°C</span><div class="gauge"><i class="${P.battery <= 20 ? 'hot' : ''}" style="width:${P.battery}%"></i></div></div>` : '');
+  const logHtml = s.log.map((l) => { const t = new Date(l.slice(0, 24)); return `<span><em>${isNaN(t) ? '' : t.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</em>${esc(l.slice(25))}</span>`; }).join('');
+  if (s.log.length && $('tickerText').dataset.h !== logHtml) { $('tickerText').innerHTML = logHtml; $('tickerText').dataset.h = logHtml; }
+}
+state(); setInterval(state, 15e3);
+</script>
+</body>
+</html>
