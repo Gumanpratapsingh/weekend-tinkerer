@@ -122,8 +122,8 @@ statusEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') go('/health
 const pages = {
   async '/'() {
     const month = today().slice(0, 7);
-    const [exp, iv, ta, room, li, st, jb, lp] = await Promise.allSettled([
-      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'), api('/laptop'),
+    const [exp, iv, ta, room, li, st, jb, lp, wf] = await Promise.allSettled([
+      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'), api('/laptop'), limited() ? null : api('/wifi'),
     ]).then((r) => r.map((x) => (x.status === 'fulfilled' ? x.value : null)));
     const hr = ist().getUTCHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -189,9 +189,15 @@ const pages = {
       h('div', { class: 'big' + (lpHot || !lp?.online ? ' accent' : '') }, lp?.online && lp.temps?.cpu != null ? `${Math.round(lp.temps.cpu)}°C` : '—'),
       h('div', { class: 'sub' }, lp?.online ? `CPU ${lp.cpu ?? '—'}% · RAM ${Math.round(100 - (100 * lp.memory.available) / lp.memory.total)}% · 🔋${lp.battery?.percent ?? '—'}%${lp.battery?.plugged ? ' ⚡' : ''}` : 'not reachable'));
 
+    // Wi-Fi devices (laptop scans the home network)
+    const wifiW = wf ? h('a', { class: 'w', href: '/wifi', 'data-link': true },
+      h('div', { class: 'label' }, h('span', {}, 'Wi-Fi'), wf.newToday ? h('span', { class: 'accent' }, `${wf.newToday} new`) : h('span', { class: 'live' }, 'ok')),
+      h('div', { class: 'big' }, String(wf.online)),
+      h('div', { class: 'sub' }, `devices online · ${wf.total} known`)) : null;
+
     return [
       h('div', { class: 'hello' }, h('h1', {}, `${greet}, ${me?.who ? ((await loadPeople()).find((x) => x.who === me.who)?.name || me.who).split(' ')[0] : 'Guman'}`), h('p', { class: 'lede' }, dateLine + up)),
-      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW),
+      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW, wifiW),
       quickAdd('250 swiggy dinner'),
     ];
   },
@@ -314,6 +320,42 @@ const pages = {
     const refresh = async () => paint(await api('/laptop'));
     await refresh();
     pageTimer = setInterval(() => refresh().catch(() => {}), 10e3);
+    return box;
+  },
+
+  // Wi-Fi: every device on the home network (the laptop scans every 2 minutes). Names come from the devices
+  // themselves (mDNS) or from you (Rename); a device never seen before also raises a Cupboard alert.
+  async '/wifi'() {
+    const box = h('div', {}, h('p', { class: 'loading' }, 'Scanning the Wi-Fi'));
+    const paint = (d) => {
+      const row = (x) => {
+        const rename = h('button', { class: 'btn small ghost', type: 'button' }, 'Rename');
+        rename.addEventListener('click', busy(rename, async () => {
+          const label = prompt(`Name for ${x.label} (${x.ip})`, x.named ? x.label : '');
+          if (label == null) return;
+          await api('/wifi/name', { method: 'POST', body: { mac: x.mac, label } });
+          toast('Saved'); paint(await api('/wifi'));
+        }));
+        return h('div', { class: 'item' },
+          h('div', { class: 'main' }, h('div', {}, x.label, x.isNew ? h('span', { class: 'accent' }, ' · new') : null),
+            h('div', { class: 'sub' }, [x.ip, x.vendor || (x.private ? 'private address' : null), x.name && x.named ? x.name : null,
+              x.online ? null : `last seen ${ago(x.lastSeen)}`, x.firstSeen ? `first seen ${ago(x.firstSeen)}` : null].filter(Boolean).join(' · '))),
+          h('span', { class: x.online ? 'live' : '' }, x.online ? 'online' : 'away'),
+          x.self ? null : rename);
+      };
+      const on = d.devices.filter((x) => x.online), off = d.devices.filter((x) => !x.online);
+      const scanBtn = h('button', { class: 'btn small', type: 'button' }, 'Scan now');
+      scanBtn.addEventListener('click', busy(scanBtn, async () => paint(await api('/wifi/scan', { method: 'POST' }))));
+      box.replaceChildren(
+        h('div', { class: 'hello' }, h('h1', {}, 'Wi-Fi'),
+          h('p', { class: 'lede' }, `${d.online} device${d.online === 1 ? '' : 's'} online now${d.newToday ? ` · ${d.newToday} new today` : ''} · scanned ${d.scannedAt ? ago(d.scannedAt) : 'not yet'}. `,
+            'Phones use a private address per network, so name yours once. Which websites devices visit needs the DNS step (not set up yet).')),
+        h('div', { class: 'btns' }, scanBtn),
+        h('div', { class: 'sec' }, `Online (${on.length})`), ...on.map(row),
+        off.length ? h('div', { class: 'sec' }, `Seen before (${off.length})`) : null, ...off.map(row));
+    };
+    paint(await api('/wifi'));
+    pageTimer = setInterval(() => api('/wifi').then(paint).catch(() => {}), 30e3);
     return box;
   },
 
@@ -979,7 +1021,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/wifi': 'Wi-Fi', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();

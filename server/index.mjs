@@ -21,10 +21,11 @@ import status from './modules/status.mjs';
 import jobs from './modules/jobs.mjs';
 import laptop from './modules/laptop.mjs';
 import reels from './modules/reels.mjs';
+import wifi from './modules/wifi.mjs';
 import { smsIngest } from './modules/banksms.mjs';
 
 const PORT = 8082;
-const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop, reels];
+const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop, reels, wifi];
 const routes = Object.assign({}, ...MODULES.map((m) => m.routes || {}));
 
 async function login(req, res, device) {
