@@ -24,34 +24,35 @@ export const isNcr = (job) => NCR.test(String(job?.location || ''));
 export const ncrMin = () => N().min_score;
 export const NCR_NOTE = 'NCR job: apply yourself (link sent to your chat)';
 
-// The NCR searches: a rotating slice of the person's role queries per run, so every query is covered every few runs.
+// The NCR searches, in short runs that survive restarts: MNC Workday sites (every 2 h), then LinkedIn and Naukri for a slice
+// of the person's role queries. The place in the query list is saved after every query, so a restart resumes instead of
+// starting over. The first full pass looks back a week; after that, the last day.
 export async function fetchNcr() {
   const c = config(), n = N();
   const queries = [...new Set(Object.values(c.tracks).flatMap((t) => t.queries))];
-  const backfill = getKv('ncr_backfill') !== 'done';            // first run: the last week, every query
-  const start = Number(getKv('ncr_cursor', 0)) % queries.length;
-  const slice = backfill ? queries : [...queries, ...queries].slice(start, start + Math.min(n.queries_per_run, queries.length));
-  setKv('ncr_cursor', (start + slice.length) % queries.length);
   const out = [];
-  if (hasSession('naukri') && getKv('session_naukri') !== 'expired') {
-    const { toJobs } = await import('./sources/naukri.mjs');
-    for (const location of n.naukri) for (const q of slice) {
+  if (Date.now() - Number(getKv('ncr_workday_at', 0)) > 2 * 3600e3) {
+    const { fetchWorkday } = await import('./sources/workday.mjs');
+    out.push(...(await fetchWorkday(n.workday_cities || ['Gurgaon', 'Gurugram', 'Noida', 'Delhi']).catch((e) => { log(`ncr workday: ${e.message}`); return []; })).filter(isNcr));
+    setKv('ncr_workday_at', Date.now());
+  }
+  const backfill = getKv('ncr_backfill') !== 'done';
+  const per = Math.min(backfill ? 6 : n.queries_per_run, queries.length);
+  const { fetchLinkedin } = await import('./sources/linkedin.mjs');
+  const { toJobs } = await import('./sources/naukri.mjs');
+  const naukriOk = hasSession('naukri') && getKv('session_naukri') !== 'expired';
+  for (let k = 0; k < per; k++) {
+    const i = Number(getKv('ncr_cursor', 0)) % queries.length, q = queries[i];
+    out.push(...(await fetchLinkedin({ fresh: true, locations: n.linkedin.map((location) => ({ location })), queries: [q], pages: backfill ? 2 : 1,
+      window: backfill ? 'r604800' : 'r86400', allJobs: true, levels: '2%2C3%2C4' }).catch(() => [])).filter(isNcr));   // + Mid-Senior: many 2-4 yr roles
+    if (naukriOk) for (const location of n.naukri) {
       const r = await browserTask('naukri_search', { plan: [{ location, queries: [q] }], experience: c.experience_years,
         pages: backfill ? 3 : 2, jobAge: backfill ? 7 : 1 }, 15 * 60e3).catch((e) => { log(`ncr naukri "${q}": ${e.message}`); return { jobs: [] }; });
-      if (r.status === 'session_expired') break;
-      out.push(...await toJobs((r.jobs || []).filter((j) => NCR.test(j.location || '')), true));
+      if (r.status !== 'session_expired') out.push(...await toJobs((r.jobs || []).filter((j) => NCR.test(j.location || '')), true));
     }
+    setKv('ncr_cursor', (i + 1) % queries.length);
+    if (backfill && i + 1 >= queries.length) { setKv('ncr_backfill', 'done'); log('ncr: first week-long pass done'); break; }
   }
-  const { fetchLinkedin } = await import('./sources/linkedin.mjs');
-  out.push(...(await fetchLinkedin({ fresh: true, locations: n.linkedin.map((location) => ({ location })), queries: slice,
-    pages: backfill ? 2 : 1, window: backfill ? 'r604800' : 'r86400', allJobs: true, levels: '2%2C3%2C4' })).filter(isNcr));   // + Mid-Senior: many 2-4 yr roles
-  // MNC career sites on Workday (learned from apply links): every 2 hours, since each run asks every board.
-  if (Date.now() - Number(getKv('ncr_workday_at', 0)) > 2 * 3600e3) {
-    setKv('ncr_workday_at', Date.now());
-    const { fetchWorkday } = await import('./sources/workday.mjs');
-    out.push(...(await fetchWorkday(n.workday_cities || ['Gurgaon', 'Gurugram', 'Noida', 'Delhi'])).filter(isNcr));
-  }
-  if (backfill) setKv('ncr_backfill', 'done');
   return out;
 }
 
@@ -186,6 +187,11 @@ export async function ncrAction(ref, value) {
   const done = (text) => cardDone(ref.ref_kind, id, text);
   if (ref.ref_kind === 'ncrjob') {
     if (v === 'fill') { done('Filling…'); ncrFill(id).catch((e) => log(`ncr fill ${id}: ${e.message}`)); return; }   // minutes: never make the tap wait
+    if (v === 'referral') {                                  // the card stays open: Fill / I applied still work afterwards
+      const { refForJob } = await import('./referrals.mjs');
+      refForJob(id, { chat: 'ncr' }).catch((e) => log(`ncr referral ${id}: ${e.message}`));
+      return;
+    }
     if (v === 'applied') { run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = 'applied by you' WHERE id = ?", Date.now(), id); return done('Applied ✓'); }
     if (v === 'skip') { run("UPDATE jobs SET status = 'skipped', status_note = 'not for me (NCR chat)' WHERE id = ?", id); return done('Skipped'); }
   }

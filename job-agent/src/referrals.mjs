@@ -60,11 +60,12 @@ export async function rolesInPost(text) {
       location: x.location || null, min_years: Number.isFinite(Number(x.min_years)) && x.min_years !== null ? Number(x.min_years) : null }));
 }
 
-function note(person, job, company, alumni) {
+function note(person, job, company, alumni, colleagueOrg = null) {
   const first = String(person).split(/\s+/)[0];
   const m = master();
   const P = persona();
-  const intro = alumni ? `fellow ${P.school_short || 'school'} alum here${P.alum_tag ? ` (${P.alum_tag})` : ''}` : (P.intro || `I'm a ${m.experience[0]?.title || 'professional'}`);
+  const org = colleagueOrg && m.experience.find((e) => e.org.toLowerCase().includes(colleagueOrg.toLowerCase().split(/\s+/)[0]))?.org.split(/\s+/)[0];
+  const intro = org ? `we've both worked at ${org}` : alumni ? `fellow ${P.school_short || 'school'} alum here${P.alum_tag ? ` (${P.alum_tag})` : ''}` : (P.intro || `I'm a ${m.experience[0]?.title || 'professional'}`);
   const role = job ? `the ${job.title} role${job.id ? ` (job ${String(job.id).split(':').pop()})` : ''}` : (P.fallback_role || 'a role there');
   // LinkedIn invite notes are capped at 300 characters.
   return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
@@ -104,6 +105,50 @@ export async function prospect({ only, jobId } = {}) {
       tell(`🤝 Referral request #${id}: ${p.name}${p.alumni ? ` (${persona().school_short || 'school'} alum)` : ''}\n${p.headline || ''}\n${p.url}\n\nNote:\n${text}\n\n— Send, Skip, or type your own note to send instead.`,
         { refKind: 'referral', refId: id });
     }
+  }
+}
+
+// The "🤝 Find referral" button on a job card: people who could refer the person for THIS job, best first: former
+// colleagues who work there now and school alumni (LinkedIn's own "People you can reach out to" panel on the job page),
+// then senior people at that company in the job's region (tech lead, engineering manager…). Each becomes a draft note
+// for approval in the same chat; nothing is sent until "Send", and sends keep the usual daily/weekly limits.
+const SENIOR = /\b(lead|manager|principal|staff|architect|head|director|senior|sr\.?|vp)\b/i;
+const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
+export async function refForJob(jobId, { chat = null } = {}) {
+  const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
+  if (!job) return;
+  const P = persona(), school = R().school || P.school_short || '';
+  const say = (t, more = {}) => tell(t, { chat, ...more });
+  say(`🔎 Looking for people who could refer you at ${job.company} (former colleagues, ${school || 'school'} alumni, senior people${NCR_RE.test(job.location || '') ? ' in Delhi NCR' : ''})…`);
+  const people = new Map();
+  if (/linkedin\.com\/jobs\/view\//.test(job.url || '')) {
+    const r = await browserTask('linkedin_job_network', { url: job.url }, 5 * 60e3).catch((e) => { log(`job network ${job.id}: ${e.message}`); return { people: [] }; });
+    for (const p of r.people || []) if (['colleague', 'alumni'].includes(p.tag)) people.set(p.url, p);
+  }
+  const seniors = R().senior_titles || P.referral_seniors || ['tech lead', 'engineering manager', 'senior software engineer'];
+  const r2 = await browserTask('linkedin_people', { company: job.company, school, queries: [[`${job.company} ${school}`, true], ...seniors.map((t) => [`${job.company} ${t}`, 'senior'])] }, 12 * 60e3)
+    .catch((e) => { log(`referral people ${job.company}: ${e.message}`); return { people: [] }; });
+  const region = NCR_RE.test(job.location || '') ? NCR_RE : null;
+  for (const p of r2.people || []) {
+    if (people.has(p.url)) continue;
+    if (p.tag === 'senior' && (!SENIOR.test(p.headline || '') || (region && !region.test(p.location || '')))) continue;   // senior AND in the job's region
+    if (p.tag === 'other' && !p.alumni) continue;
+    people.set(p.url, { ...p, tag: p.alumni ? 'alumni' : p.tag });
+  }
+  const rank = { colleague: 0, alumni: 1, senior: 2 };
+  const picks = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url))
+    .sort((a, b) => (rank[a.tag] ?? 3) - (rank[b.tag] ?? 3)).slice(0, R().people_per_job || 5);
+  activity(`🤝 Referrals for ${job.title} @ ${job.company}: ${people.size} found, ${picks.length} new drafted`);
+  if (!picks.length) return say(`🤝 Nobody new at ${job.company} who could refer you${people.size ? ' (everyone found was already contacted)' : ''}.`);
+  for (const p of picks) {
+    const text = note(p.name, job, job.company, p.tag === 'alumni', p.tag === 'colleague' ? (p.org || master().experience[0]?.org) : null);
+    run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, job.company, job.id, job.title, job.url, p.name, p.headline || '', p.url, p.tag === 'alumni' ? 1 : 0, 'drafted', text, 'job', now());
+    const id = one('SELECT id FROM referrals WHERE profile = ?', p.url).id;
+    if (p.degree === '1st') { set(id, { stage: 'accepted', reason: 'already a connection' }); draftFollowup(id); continue; }
+    const who = p.tag === 'colleague' ? `former ${p.org || 'colleague'} colleague` : p.tag === 'alumni' ? `${school} alum` : 'senior at the company';
+    tell(`🤝 Referral #${id} for ${job.title} @ ${job.company}\n${p.name} (${who}${p.degree ? `, ${p.degree}` : ''})\n${p.headline || ''}${p.location ? `\n${p.location}` : ''}\n\nInvite note:\n${text}\n\n— Send, Skip, or type your own note.`,
+      { refKind: 'referral', refId: id, chat, links: [{ label: 'Profile ↗', url: p.url }] });
   }
 }
 

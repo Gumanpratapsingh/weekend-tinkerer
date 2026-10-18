@@ -207,12 +207,12 @@ every(config().fresh_lane?.every_min || 40, 'fresh lane', async () => {
 every(ncrEvery(), 'ncr watch', async () => {
   const h = istHour();
   if (!ncrOn() || h < 7 || h >= 23) return;
-  await step('Gurgaon/Noida watch: searching Naukri (Delhi NCR) and LinkedIn (Gurugram area)', async () => {
+  await step('Gurgaon/Noida watch: MNC career sites, LinkedIn (Gurugram area) and Naukri (Delhi NCR)', async () => {
     const added = await discover('ncr');
     if (added) { activity(`📍 Gurgaon/Noida watch: ${added} new job(s) — scoring now`); await scoreNew(40); }
     await ncrNotify();
   })();
-}, { delay: 300e3 });
+}, { delay: 90e3 });
 every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).

@@ -201,20 +201,65 @@ export default {
   },
 
   // Find people at a company: SRM alumni first, then engineers in India. Keeps those whose card mentions the company.
-  async linkedin_people({ company, school = 'SRM' }) {
+  // LinkedIn's own "People you can reach out to" panel on a job page (read-only): former colleagues ("Company alumni who work
+  // at X"), school alumni, the hiring team. Each person is tagged by the panel section they are listed under.
+  async linkedin_job_network({ url }) {
+    const ctx = await siteContext('linkedin');
+    const page = await ctx.newPage();
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', people: [] };
+      await page.waitForTimeout(5000 + Math.random() * 2000);
+      // "People you can reach out to" card → its "Show all" opens a native <dialog> "In your network".
+      const more = page.locator('h2:has-text("People you can reach out to")').locator('xpath=ancestor::*[.//a[normalize-space()="Show all"] or .//button[normalize-space()="Show all"]][1]')
+        .locator('a, button', { hasText: /^\s*Show all\s*$/ }).first();
+      if (await more.count()) { await more.click().catch(() => {}); await page.waitForTimeout(4000); }
+      const people = await page.evaluate(() => {
+        const dlg = [...document.querySelectorAll('dialog, [role="dialog"]')].find((d) => /in your network|alumni/i.test(d.innerText || ''));
+        const root = dlg || document.querySelector('main') || document.body;
+        // Read it top to bottom: a section line ("Company alumni who work at X", "School alumni…", "Meet the hiring team"),
+        // then each person as name / • 2nd / headline. Names come from the profile links, so section titles are never people.
+        const prof = (h) => (/\/in\/[^/?#]+/.exec(h) || [''])[0];
+        const names = new Map();
+        for (const a of root.querySelectorAll('a[href*="/in/"]')) {
+          const key = prof(a.href), first = String(a.innerText || '').split('\n').map((x) => x.trim()).filter(Boolean)[0] || '';
+          if (key && !/\/in\/(me|ACo)/.test(key) && first && !/^(message|connect|follow|view)/i.test(first) && !names.has(first)) names.set(first, key);
+        }
+        const lines = String(root.innerText || '').split('\n').map((x) => x.trim()).filter(Boolean);
+        const out = new Map();
+        let sec = '', org = '';
+        for (let i = 0; i < lines.length; i++) {
+          if (/alumni who work at|hiring team|recent .* hires|people you can reach out to/i.test(lines[i])) { sec = lines[i]; org = ''; continue; }
+          if (/^used to work at /i.test(lines[i])) { org = lines[i].replace(/^used to work at /i, ''); continue; }   // "Used to work at finzly"
+          const key = names.get(lines[i]);
+          if (!key || out.has(key)) continue;
+          let j = i + 1;
+          while (j < lines.length && /^(•\s*)?(1st|2nd|3rd\+?)$|^•$|^verified/i.test(lines[j])) j++;
+          const tag = /company alumni/i.test(sec) ? 'colleague' : /school alumni/i.test(sec) ? 'alumni' : /hiring team/i.test(sec) ? 'hiring' : /hires/i.test(sec) ? 'hire' : 'other';
+          out.set(key, { name: lines[i], headline: (lines[j] || '').slice(0, 200), url: `https://www.linkedin.com${key}/`,
+            degree: (/(1st|2nd|3rd)/.exec(lines.slice(i, j + 1).join(' ')) || [])[1] || '', tag, section: sec.slice(0, 80), org });
+        }
+        return { inDialog: !!dlg, people: [...out.values()] };
+      });
+      return { status: 'ok', ...people };
+    } finally { await ctx.close(); }
+  },
+
+  async linkedin_people({ company, school = 'SRM', queries = null }) {
     const ctx = await siteContext('linkedin');
     const page = await ctx.newPage();
     const out = new Map();
     try {
-      for (const [q, alumni] of [[`${company} ${school}`, true], [`${company} software engineer`, false], [`${company} java`, false]]) {
+      // queries: [[search text, tag]] from the caller (referral finder: ex-colleagues, seniors in a region); default: alumni + engineers.
+      for (const [q, alumni] of queries || [[`${company} ${school}`, true], [`${company} software engineer`, false], [`${company} java`, false]]) {
         await page.goto(`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}&origin=GLOBAL_SEARCH_HEADER`, { waitUntil: 'domcontentloaded', timeout: 60000 });
         if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', people: [] };
         await page.waitForTimeout(4000 + Math.random() * 2000);
         const first = company.toLowerCase().split(/\s+/)[0];
         for (const p of await peopleOn(page)) {
           if (!p.text.toLowerCase().includes(first)) continue;                     // must work there (headline/current)
-          const isAlum = alumni && new RegExp(school, 'i').test(p.text);
-          if (!out.has(p.url)) out.set(p.url, { ...p, alumni: isAlum });
+          const isAlum = alumni === true && new RegExp(school, 'i').test(p.text);
+          if (!out.has(p.url)) out.set(p.url, { ...p, alumni: isAlum, tag: typeof alumni === 'string' ? alumni : isAlum ? 'alumni' : 'other' });
           else if (isAlum) out.get(p.url).alumni = true;
         }
         progress(`LinkedIn people: "${q}" → ${out.size} so far`);
