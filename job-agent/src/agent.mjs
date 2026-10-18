@@ -8,7 +8,7 @@ import { browserTask } from './browser.mjs';
 import { getKv, setKv, all } from './db.mjs';
 import { discover, scoreNew } from './discover.mjs';
 import { applyNext, todayStats } from './apply.mjs';
-import { ncrOn, ncrEvery, ncrSweep, ncrNotify } from './ncr.mjs';
+import { ncrOn, ncrEvery, ncrSweep, ncrNotify, ncrReferrals } from './ncr.mjs';
 import { checkMail, mailConfigured } from './mail.mjs';
 import { resolve, seedQuestions, seedKnown } from './answers.mjs';
 import { askOwner, openQuestions } from './asks.mjs';
@@ -88,7 +88,7 @@ createServer((req, res) => {
         if (loginCommand(text)) return json({});
         const step = pendingStep();
         if (step) { onboardReply(step, text, b.msgId); return json({}); }
-        if (/^ncr( on| off)?$/i.test(text)) { await handleOwner(text.toLowerCase()); return json({}); }   // Gurgaon/Noida watch commands
+        if (/^ncr( referrals)?( on| off)?$/i.test(text)) { await handleOwner(text.toLowerCase()); return json({}); }   // Gurgaon/Noida watch commands
         const { ask } = await import('./assistant.mjs');
         try { return json({ answer: await ask(text) }); }
         catch (e) { return json({ answer: /rate limited/i.test(e.message) ? 'The free AI is busy right now. Ask again in a few minutes.' : `Couldn't answer: ${e.message}` }); }
@@ -214,6 +214,7 @@ every(ncrEvery(), 'ncr watch', async () => {
   })();
 }, { delay: 90e3 });
 every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
+every(120, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // senior people / ex-colleagues / alumni at NCR companies
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
 every(5, 'naukri refresh', async () => {

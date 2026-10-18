@@ -218,7 +218,27 @@ export async function ncrChat(text) {
   if (urls.length > 1) say(`🖊 ${urls.length} links — filling them one by one, screenshots for each. Nothing is submitted until you tap ✓ Submit.`);
   for (const u of urls) { const job = await jobFromUrl(u); await ncrFill(job.id); }
   if (urls.length) return;
+  if (/^ncr( referrals)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
   const qm = /^q(\d+)[:\s]+([\s\S]+)$/i.exec(text.trim());
   if (qm) { const { onAnswered } = await import('./commands.mjs'); return onAnswered(+qm[1], qm[2]); }
   return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
+}
+
+// Automatic NCR referrals: the best recent NCR matches whose company nobody was asked at yet get the same search as the
+// "🤝 Find referral" button (former colleagues, school alumni, senior people at that company in NCR), one company per run.
+// Drafts wait in the NCR chat for Send / Skip; it pauses while 15+ drafts are waiting. LinkedIn caps people searches
+// on free accounts, so this stays slow (one company every 2 hours in the daytime).
+// Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
+const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
+export async function ncrReferrals() {
+  if (!ncrOn() || getKv('ncr_ref_off') === '1') return;
+  const h = istHour();
+  if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
+  if (one("SELECT count(*) n FROM referrals WHERE stage = 'drafted' AND source = 'job'").n >= 15) return;   // its own drafts only
+  const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
+  const job = all(`SELECT * FROM jobs WHERE status IN ('manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
+    Math.max(ncrMin(), 65), Date.now() - 7 * 864e5).find((j) => isNcr(j) && j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`));
+  if (!job) return;
+  const { refForJob } = await import('./referrals.mjs');
+  await refForJob(job.id, { chat: 'ncr' });
 }

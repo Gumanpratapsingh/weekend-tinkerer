@@ -125,7 +125,10 @@ export async function refForJob(jobId, { chat = null } = {}) {
     const r = await browserTask('linkedin_job_network', { url: job.url }, 5 * 60e3).catch((e) => { log(`job network ${job.id}: ${e.message}`); return { people: [] }; });
     for (const p of r.people || []) if (['colleague', 'alumni'].includes(p.tag)) people.set(p.url, p);
   }
-  const seniors = R().senior_titles || P.referral_seniors || ['tech lead', 'engineering manager', 'senior software engineer'];
+  // Senior people who'd know the team: product leads for a product/analyst role, engineering leads otherwise.
+  const product = job.track === 'product' || /product|business analyst|project manager|analyst/i.test(job.title || '');
+  const seniors = R().senior_titles || P.referral_seniors
+    || (product ? ['senior product manager', 'product lead', 'engineering manager'] : ['tech lead', 'engineering manager', 'principal engineer', 'senior software engineer']);
   const r2 = await browserTask('linkedin_people', { company: job.company, school, queries: [[`${job.company} ${school}`, true], ...seniors.map((t) => [`${job.company} ${t}`, 'senior'])] }, 12 * 60e3)
     .catch((e) => { log(`referral people ${job.company}: ${e.message}`); return { people: [] }; });
   const region = NCR_RE.test(job.location || '') ? NCR_RE : null;
