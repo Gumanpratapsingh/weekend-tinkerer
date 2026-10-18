@@ -202,10 +202,10 @@
   ],
   "min_score": 65,
   "daily_caps": {
-    "naukri": 50,
-    "linkedin": 20,
+    "naukri": 20,
+    "linkedin": 15,
     "ats": 40,
-    "total": 110,
+    "total": 75,
     "per_company": 3
   },
   "whatsapp_quiet_hours": [
@@ -383,8 +383,8 @@
       "TransUnion"
     ],
     "auto_min_score": 80,
-    "per_day": 10,
-    "per_week": 70,
+    "per_day": 5,
+    "per_week": 25,
     "hours": [
       9,
       21

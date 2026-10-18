@@ -230,7 +230,7 @@ export async function ncrChat(text) {
 // Automatic NCR referrals: the best recent NCR matches whose company nobody was asked at yet get the same search as the
 // "🤝 Find referral" button (former colleagues, school alumni, senior people at that company in NCR), one company per run.
 // Drafts wait in the NCR chat for Send / Skip; it pauses while 15+ drafts are waiting. LinkedIn caps people searches
-// on free accounts, so this stays slow (one company every 2 hours in the daytime).
+// on free accounts, so this stays slow (one company every 4 hours in the daytime).
 // Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
 const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
 export async function ncrReferrals() {
