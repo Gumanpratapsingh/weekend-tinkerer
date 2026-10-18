@@ -50,6 +50,7 @@ createServer(async (req, res) => {
       return res.end(Buffer.from(await r.arrayBuffer()));
     }
     if (url.pathname === '/') {
+      console.log(new Date().toISOString(), 'page opened by', (req.headers['user-agent'] || '').slice(0, 160));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(readFileSync(join(DIR, 'index.html')));
     }
