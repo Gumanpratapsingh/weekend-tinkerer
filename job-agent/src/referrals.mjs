@@ -138,9 +138,10 @@ export async function refForJob(jobId, { chat = null } = {}) {
     if (p.tag === 'other' && !p.alumni) continue;
     people.set(p.url, { ...p, tag: p.alumni ? 'alumni' : p.tag });
   }
-  const rank = { colleague: 0, alumni: 1, senior: 2 };
-  const picks = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url))
-    .sort((a, b) => (rank[a.tag] ?? 3) - (rank[b.tag] ?? 3)).slice(0, R().people_per_job || 5);
+  // A share for each kind, so alumni never crowd out the senior people in the region: 2 colleagues, 2 alumni, 3 seniors.
+  const fresh = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url));
+  const quota = { colleague: 2, alumni: 2, senior: 3, ...(R().per_kind || {}) };
+  const picks = ['colleague', 'senior', 'alumni'].flatMap((k) => fresh.filter((p) => p.tag === k).slice(0, quota[k]));
   activity(`🤝 Referrals for ${job.title} @ ${job.company}: ${people.size} found, ${picks.length} new drafted`);
   if (!picks.length) return say(`🤝 Nobody new at ${job.company} who could refer you${people.size ? ' (everyone found was already contacted)' : ''}.`);
   for (const p of picks) {
