@@ -40,6 +40,12 @@ export async function fetchNcr() {
   const { fetchLinkedin } = await import('./sources/linkedin.mjs');
   out.push(...(await fetchLinkedin({ fresh: true, locations: n.linkedin.map((location) => ({ location })), queries: slice,
     pages: backfill ? 2 : 1, window: backfill ? 'r604800' : 'r86400', allJobs: true, levels: '2%2C3%2C4' })).filter(isNcr));   // + Mid-Senior: many 2-4 yr roles
+  // MNC career sites on Workday (learned from apply links): every 2 hours, since each run asks every board.
+  if (Date.now() - Number(getKv('ncr_workday_at', 0)) > 2 * 3600e3) {
+    setKv('ncr_workday_at', Date.now());
+    const { fetchWorkday } = await import('./sources/workday.mjs');
+    out.push(...(await fetchWorkday(n.workday_cities || ['Gurgaon', 'Gurugram', 'Noida', 'Delhi'])).filter(isNcr));
+  }
   if (backfill) setKv('ncr_backfill', 'done');
   return out;
 }
