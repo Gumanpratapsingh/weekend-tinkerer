@@ -8,7 +8,10 @@
   :root { --bg: #05070d; --fg: #eef2ff; --dim: #8b93b0; --line: rgba(255,255,255,.09); --glass: rgba(10,14,26,.62);
           --a: #7cf0c5; --b: #8fb4ff; --warn: #ffb86b; --bad: #ff6b81; }
   * { box-sizing: border-box; margin: 0; }
-  html, body { height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.35 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; cursor: none; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.35 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body.still { cursor: none; }
+  #fs { position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%); background: rgba(10,14,26,.8); border: 1px solid var(--line); color: var(--fg); padding: 10px 20px; border-radius: 99px; font-size: 15px; backdrop-filter: blur(10px); transition: opacity .5s; }
+  #fs.gone { opacity: 0; pointer-events: none; }
   #bg, #bg2 { position: fixed; inset: -4%; background: center/cover no-repeat; filter: brightness(.42) saturate(1.1); transition: opacity 3s; animation: drift 60s ease-in-out infinite alternate; }
   #bg2 { opacity: 0; }
   @keyframes drift { from { transform: scale(1.02) translate(0,0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
@@ -94,6 +97,7 @@
   <div id="ticker" class="glass"><div id="tickerText">connecting…</div></div>
 </main>
 <div id="pop"></div>
+<div id="fs">Click anywhere for full screen</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -145,6 +149,8 @@ const pct = (v, max) => Math.max(2, Math.min(100, Math.round((v / max) * 100)));
 function pop(text) { $('pop').textContent = text; $('pop').classList.add('show'); setTimeout(() => $('pop').classList.remove('show'), 6000); }
 async function state() {
   let s; try { s = await (await fetch('/api/state')).json(); } catch { return; }
+  if (window.boot && s.boot !== window.boot) return location.reload();   // a new version was deployed
+  window.boot = s.boot;
   people = s.people; ports = s.people.map((p) => p.port).length ? s.people.map((p) => p.port) : [8083];
   $('right').innerHTML = s.people.map((p) => {
     const max = Math.max(1, ...p.days.map((d) => d.n));
@@ -172,6 +178,23 @@ async function state() {
   if (s.log.length && $('tickerText').dataset.h !== logHtml) { $('tickerText').innerHTML = logHtml; $('tickerText').dataset.h = logHtml; }
 }
 state(); setInterval(state, 15e3);
+
+// Keep the screen awake while the wall is showing, or the phone's 30 s timeout locks it and DeX goes dark.
+let wake = null;
+async function keepAwake() {
+  if (wake || document.visibilityState !== 'visible') return;
+  try { wake = await navigator.wakeLock.request('screen'); fetch('/api/log?wake=on');
+        wake.addEventListener('release', () => { wake = null; fetch('/api/log?wake=released'); }); }
+  catch (e) { fetch('/api/log?wake=' + encodeURIComponent('failed: ' + e.message)); }
+}
+keepAwake(); document.addEventListener('visibilitychange', keepAwake); addEventListener('click', keepAwake);
+setInterval(keepAwake, 60e3);
+
+// Full screen needs one click or tap (browser rule); the cursor hides after 3 s without movement.
+const goFull = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); };
+addEventListener('click', goFull); addEventListener('keydown', goFull);
+document.addEventListener('fullscreenchange', () => $('fs').classList.toggle('gone', !!document.fullscreenElement));
+let still; addEventListener('mousemove', () => { document.body.classList.remove('still'); clearTimeout(still); still = setTimeout(() => document.body.classList.add('still'), 3000); });
 </script>
 </body>
 </html>

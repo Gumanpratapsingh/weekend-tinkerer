@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const DIR = dirname(fileURLToPath(import.meta.url));
 const PORT = 8099;
 const AGENTS = [8083, 8093];
+const BOOT = Date.now();                              // the page reloads itself when this changes (new deploy)
 
 const get = (url, ms = 4000) => fetch(url, { signal: AbortSignal.timeout(ms) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
@@ -28,6 +29,7 @@ async function state() {
   const b = phoneBattery();
   return {
     at: Date.now(),
+    boot: BOOT,
     people: people.map((s, i) => s && { port: AGENTS[i], name: s.name, now: s.now, paused: s.paused, today: s.today, total: s.total, days: s.days, questions: (s.questions || []).length }).filter(Boolean),
     log: (log?.lines || []).slice(-14),
     laptop: laptop && { cpu: laptop.cpu, temp: laptop.temps?.cpu, load: laptop.load?.[0], mem: laptop.memory && Math.round((1 - laptop.memory.available / laptop.memory.total) * 100), uptime: laptop.uptime, services: laptop.services },
@@ -41,6 +43,10 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/state') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(await state()));
+    }
+    if (url.pathname === '/api/log') {                    // small status notes from the page (e.g. wake lock)
+      console.log(new Date().toISOString(), 'page:', url.searchParams.toString().slice(0, 200));
+      res.writeHead(204); return res.end();
     }
     if (url.pathname === '/api/screen') {                 // live frame of the agent's browser
       const port = AGENTS.includes(Number(url.searchParams.get('port'))) ? url.searchParams.get('port') : AGENTS[0];
