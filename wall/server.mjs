@@ -55,6 +55,16 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Task': r.headers.get('x-task') || '', 'X-Url': r.headers.get('x-url') || '' });
       return res.end(Buffer.from(await r.arrayBuffer()));
     }
+    // Extra scenes (one folder each, built in parallel sessions): /scenes/<name>/<file>
+    const m = url.pathname.match(/^\/scenes\/([a-z0-9-]+)\/([A-Za-z0-9._-]*)$/);
+    if (m && !m[2].startsWith('.')) {
+      const types = { html: 'text/html; charset=utf-8', js: 'text/javascript', css: 'text/css', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', svg: 'image/svg+xml', glb: 'model/gltf-binary' };
+      try {
+        const body = readFileSync(join(DIR, 'scenes', m[1], m[2] || 'index.html'));
+        res.writeHead(200, { 'Content-Type': types[(m[2] || 'index.html').split('.').pop()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+        return res.end(body);
+      } catch { res.writeHead(404); return res.end(); }
+    }
     if (url.pathname === '/') {
       console.log(new Date().toISOString(), 'page opened by', (req.headers['user-agent'] || '').slice(0, 160));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });

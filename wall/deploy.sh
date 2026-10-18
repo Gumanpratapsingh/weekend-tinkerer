@@ -6,7 +6,7 @@ set -e
 HOST=${1:-s20phone}
 DIR=$(cd "$(dirname "$0")" && pwd)
 ssh "$HOST" 'mkdir -p ~/wall' </dev/null
-COPYFILE_DISABLE=1 tar --no-xattrs -C "$DIR" -czf - server.mjs index.html hdmi-watch.sh | ssh "$HOST" 'tar -xzf - -C ~/wall'
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$DIR" -czf - server.mjs index.html hdmi-watch.sh $(cd "$DIR" && ls -d scenes 2>/dev/null) | ssh "$HOST" 'tar -xzf - -C ~/wall'
 # Stop by pid file only: a pkill pattern would also match this ssh command line.
 ssh "$HOST" 'kill $(cat ~/wall/watch.pid 2>/dev/null) $(cat ~/wall/wall.pid 2>/dev/null) 2>/dev/null; sleep 1
   nohup sh ~/wall/hdmi-watch.sh > /dev/null 2>&1 < /dev/null & echo $! > ~/wall/watch.pid; sleep 3; tail -1 ~/wall/wall.log' </dev/null
