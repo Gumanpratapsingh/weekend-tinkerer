@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Sky</title>
+<!-- Wall scene: the sky above home right now, as if lying on your back looking up (north at the top, east on the left).
+     Stars: stars.json (Yale BSC5 to mag 5, constellation lines). Sun, Moon, planets: astronomy-engine. ISS: satellite.js
+     with the TLE from the wall server's /api/tle (CelesTrak, cached 12 h). Home position: home.json (private, not in git).
+     URL: ?t=2026-12-12T21:00:00+05:30 (start at a time), ?demo=iss (jump to the next ISS pass), ?labels=0.
+     Plain JS/CSS for the phone's Chrome 111. -->
+<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+<style>
+  :root { --fg: #eef2ff; --dim: #8b93b0; --line: rgba(255,255,255,.09); --glass: rgba(8,12,24,.6); --a: #7cf0c5; --warn: #ffb86b; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #02040a; color: var(--fg); font: 16px/1.35 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 28px; right: 30px; bottom: 28px; width: min(380px, 30vw); display: flex; flex-direction: column; gap: 16px; }
+  .glass { background: var(--glass); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  h2 { font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin-bottom: 10px; }
+  #clock { font-size: 64px; font-weight: 200; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  #where { color: var(--dim); margin-top: 6px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 16px; }
+  .row span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+  .pass.vis span:first-child { color: var(--a); font-weight: 600; }
+  #alert { position: fixed; left: 30px; bottom: 28px; max-width: 46vw; padding: 16px 22px; border-radius: 18px; background: rgba(124,240,197,.14); border: 1px solid rgba(124,240,197,.5); color: var(--a); font-size: 22px; font-weight: 600; }
+  #title { position: fixed; left: 30px; top: 26px; font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+  #err { position: fixed; left: 30px; bottom: 28px; color: var(--warn); }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="title">Live sky · looking up</div>
+<div id="panel">
+  <div class="glass"><div id="clock">--:--</div><div id="where"></div></div>
+  <div class="glass"><h2>Up there now</h2><div id="up"></div></div>
+  <div class="glass"><h2>Sun &amp; Moon</h2><div id="sunmoon"></div></div>
+  <div class="glass" style="flex:1;overflow:hidden"><h2>ISS passes (next 2 days)</h2><div id="passes"></div></div>
+</div>
+<div id="alert" hidden></div>
+<div id="err" hidden></div>
+<script>
+const Q = new URLSearchParams(location.search);
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const cv = document.getElementById('sky'), ctx = cv.getContext('2d');
+let W, H, DPR, cx, cy, R;
+function size() {
+  DPR = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const panel = Math.min(380, W * 0.3) + 60;
+  R = Math.min(H / 2 - 40, (W - panel) / 2 - 40); cx = (W - panel) / 2 + 10; cy = H / 2;
+}
+addEventListener('resize', size); size();
+
+// ---- clock: real time, or ?t= start, or shifted to the next ISS pass by ?demo=iss ----
+let offset = Q.get('t') ? Date.parse(Q.get('t')) - Date.now() : 0;
+const now = () => new Date(Date.now() + offset);
+
+let home, stars, observer, satrec = null, passes = [], tleAt = 0, tleTry = Date.now();
+const fmt = (d, o) => d.toLocaleString('en-IN', Object.assign({ timeZone: home?.tz || 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }, o || {}));
+const compass = (az) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((az % 360) + 360) % 360 / 45) % 8];
+
+// Alt/az (degrees) for J2000 RA (hours) / Dec (degrees) at local sidereal time lst (hours). Precession is ignored
+// (well under a degree, invisible at this scale).
+function altaz(ra, dec, lst) {
+  const lat = home.lat * D2R, h = (lst - ra) * 15 * D2R, d = dec * D2R;
+  const alt = Math.asin(Math.sin(d) * Math.sin(lat) + Math.cos(d) * Math.cos(lat) * Math.cos(h));
+  const az = Math.atan2(-Math.cos(d) * Math.sin(h), Math.sin(d) * Math.cos(lat) - Math.cos(d) * Math.sin(lat) * Math.cos(h));
+  return [alt * R2D, ((az * R2D) + 360) % 360];
+}
+// Stereographic dome: zenith in the centre, horizon on the rim, north up, east left (as seen lying on your back).
+function proj(alt, az) {
+  const r = R * Math.tan((90 - alt) * D2R / 2);
+  return [cx - r * Math.sin(az * D2R), cy - r * Math.cos(az * D2R)];
+}
+function starColor(t) {
+  return t < 3700 ? '255,184,128' : t < 5200 ? '255,214,165' : t < 6000 ? '255,240,225' : t < 7500 ? '246,246,255' : t < 10000 ? '214,226,255' : '186,204,255';
+}
+
+// ---- ISS ----
+async function loadTle() {
+  try {
+    const t = (await (await fetch('/api/tle', { cache: 'no-store' })).text()).trim().split('\n').map((s) => s.trim());
+    const l1 = t.find((s) => s.startsWith('1 ')), l2 = t.find((s) => s.startsWith('2 '));
+    if (l1 && l2) { satrec = satellite.twoline2satrec(l1, l2); tleAt = Date.now(); computePasses(); }
+  } catch {}
+}
+function issAt(date) {
+  if (!satrec) return null;
+  const pv = satellite.propagate(satrec, date);
+  if (!pv.position) return null;
+  const gd = { longitude: home.lon * D2R, latitude: home.lat * D2R, height: 0.01 };
+  const look = satellite.ecfToLookAngles(gd, satellite.eciToEcf(pv.position, satellite.gstime(date)));
+  // In sunlight? Earth's shadow as a cylinder along the Sun direction (good enough to say "you can see it").
+  const s = Astronomy.GeoVector('Sun', date, true), n = Math.hypot(s.x, s.y, s.z), u = [s.x / n, s.y / n, s.z / n];
+  const p = pv.position, dot = p.x * u[0] + p.y * u[1] + p.z * u[2];
+  const perp = Math.hypot(p.x - dot * u[0], p.y - dot * u[1], p.z - dot * u[2]);
+  return { alt: look.elevation * R2D, az: look.azimuth * R2D, sunlit: dot > 0 || perp > 6371 };
+}
+const sunAlt = (date) => { const e = Astronomy.Equator('Sun', date, observer, true, true); return Astronomy.Horizon(date, observer, e.ra, e.dec, 'normal').altitude; };
+function computePasses() {
+  const out = []; let cur = null;
+  const start = now().getTime();
+  for (let t = start - 15 * 60e3; t < start + 48 * 3600e3; t += 20e3) {
+    const d = new Date(t), p = issAt(d);
+    if (!p) continue;
+    if (p.alt > 10) {
+      if (!cur) cur = { start: d, startAz: p.az, max: p.alt, maxAt: d, visible: false };
+      if (p.alt > cur.max) { cur.max = p.alt; cur.maxAt = d; }
+      cur.end = d; cur.endAz = p.az;
+      if (p.sunlit && sunAlt(d) < -6) cur.visible = true;
+    } else if (cur) { out.push(cur); cur = null; }
+  }
+  passes = out.filter((x) => x.end.getTime() > start);
+  renderPasses();
+}
+function renderPasses() {
+  const box = document.getElementById('passes');
+  box.replaceChildren(...passes.slice(0, 9).map((p) => {
+    const row = document.createElement('div'); row.className = 'row pass' + (p.visible ? ' vis' : '');
+    const a = document.createElement('span'), b = document.createElement('span');
+    a.textContent = `${fmt(p.start, { weekday: 'short' })}${p.visible ? ' · visible' : ''}`;
+    b.textContent = `${Math.round(p.max)}° · ${compass(p.startAz)}→${compass(p.endAz)} · ${Math.max(1, Math.round((p.end - p.start) / 60e3))} min`;
+    row.append(a, b); return row;
+  }));
+  if (!passes.length) box.textContent = satrec ? 'No passes above 10° in the next 2 days.' : 'Loading the ISS orbit…';
+}
+
+// ---- drawing ----
+const PLANETS = [['Mercury', '#c9c3b8'], ['Venus', '#fff6d8'], ['Mars', '#ff8a5c'], ['Jupiter', '#ffe2b0'], ['Saturn', '#f1d79a'], ['Uranus', '#a8e6f0'], ['Neptune', '#8fa8ff']];
+let twinkleSeed = Math.random() * 1000;
+
+function draw() {
+  const date = now();
+  const lst = Astronomy.SiderealTime(date) + home.lon / 15;
+  const sa = sunAlt(date);
+  // Sky colour from the Sun's altitude: night, twilight, day.
+  const day = Math.max(0, Math.min(1, (sa + 6) / 12));
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+  g.addColorStop(0, `rgb(${Math.round(4 + 40 * day)},${Math.round(8 + 90 * day)},${Math.round(22 + 150 * day)})`);
+  g.addColorStop(1, `rgb(${Math.round(10 + 90 * day + (sa > -12 && sa < 2 ? 60 : 0))},${Math.round(14 + 120 * day)},${Math.round(34 + 160 * day)})`);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#02040a'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill(); ctx.clip();
+
+  const starFade = Math.max(0.08, 1 - day * 0.95);
+  // Altitude rings and compass lines
+  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+  for (const a of [30, 60]) { const r = R * Math.tan((90 - a) * D2R / 2); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); }
+
+  // Constellation lines and names
+  ctx.strokeStyle = `rgba(143,180,255,${0.22 * starFade})`; ctx.lineWidth = 1;
+  ctx.font = '12px ui-sans-serif, system-ui'; ctx.textAlign = 'center';
+  for (const c of stars.constellations) {
+    for (const line of c.l) {
+      ctx.beginPath(); let pen = false;
+      for (const [ra, dec] of line) {
+        const [alt, az] = altaz(ra, dec, lst);
+        if (alt < -2) { pen = false; continue; }
+        const [x, y] = proj(alt, az);
+        if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+      }
+      ctx.stroke();
+    }
+    if (Q.get('labels') !== '0') {
+      const [alt, az] = altaz(c.c[0], c.c[1], lst);
+      if (alt > 8) { const [x, y] = proj(alt, az); ctx.fillStyle = `rgba(143,180,255,${0.45 * starFade})`; ctx.fillText(c.name.toUpperCase(), x, y); }
+    }
+  }
+
+  // Stars (gentle twinkle, stronger near the horizon)
+  const t = Date.now() / 1000;
+  for (let i = 0; i < stars.stars.length; i++) {
+    const [ra, dec, mag, temp, name] = stars.stars[i];
+    const [alt, az] = altaz(ra, dec, lst);
+    if (alt < 0) continue;
+    const [x, y] = proj(alt, az);
+    const tw = 1 - (0.12 + 0.25 * (1 - alt / 90)) * (0.5 + 0.5 * Math.sin(t * (2 + (i % 7)) + i * 1.7 + twinkleSeed));
+    const r = Math.max(0.55, (5.4 - mag) * 0.75);
+    const op = Math.min(1, (0.35 + (5.2 - mag) * 0.18)) * tw * starFade;
+    ctx.fillStyle = `rgba(${starColor(temp)},${op})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    if (mag < 1.6 && r > 2.5) { ctx.fillStyle = `rgba(${starColor(temp)},${op * 0.15})`; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill(); }
+    if (name && mag < 1.8 && Q.get('labels') !== '0') { ctx.fillStyle = `rgba(238,242,255,${0.6 * starFade})`; ctx.textAlign = 'left'; ctx.fillText(name, x + r + 5, y + 4); ctx.textAlign = 'center'; }
+  }
+
+  // Planets, Moon, Sun
+  const up = [];
+  const body = (name, color, rad, label) => {
+    const e = Astronomy.Equator(name, date, observer, true, true);
+    const h = Astronomy.Horizon(date, observer, e.ra, e.dec, 'normal');
+    if (h.altitude < 0) return null;
+    const [x, y] = proj(h.altitude, h.azimuth);
+    ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = rad * 3;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(238,242,255,.85)'; ctx.font = '600 14px ui-sans-serif, system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(label || name, x + rad + 6, y + 5); ctx.font = '12px ui-sans-serif, system-ui'; ctx.textAlign = 'center';
+    up.push([label || name, h.altitude, h.azimuth]);
+    return [x, y];
+  };
+  for (const [n, c] of PLANETS) body(n, c, n === 'Venus' || n === 'Jupiter' ? 5 : n === 'Uranus' || n === 'Neptune' ? 2.5 : 4);
+  const moonPos = body('Moon', '#f4f1e6', 11);
+  if (moonPos) {                                   // shade the dark part of the Moon
+    const ill = Astronomy.Illumination('Moon', date).phase_fraction;
+    ctx.fillStyle = `rgba(8,12,24,${0.85 * (1 - ill)})`; ctx.beginPath(); ctx.arc(moonPos[0], moonPos[1], 11, 0, Math.PI * 2); ctx.fill();
+  }
+  body('Sun', '#ffd27a', 14);
+
+  // ISS: now, plus the path of the current/next pass
+  const iss = issAt(date);
+  const cur = passes.find((p) => p.end > date && p.start - 10 * 60e3 < date);
+  if (cur) {
+    ctx.strokeStyle = 'rgba(124,240,197,.45)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 1.5; ctx.beginPath(); let pen = false;
+    for (let tt = cur.start.getTime() - 60e3; tt <= cur.end.getTime() + 60e3; tt += 10e3) {
+      const p = issAt(new Date(tt)); if (!p || p.alt < 0) { pen = false; continue; }
+      const [x, y] = proj(p.alt, p.az); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (iss && iss.alt > 0) {
+    const [x, y] = proj(iss.alt, iss.az);
+    ctx.fillStyle = iss.sunlit ? '#7cf0c5' : '#5b6b8a'; ctx.shadowColor = '#7cf0c5'; ctx.shadowBlur = iss.sunlit ? 14 : 0;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#7cf0c5'; ctx.font = '700 15px ui-sans-serif, system-ui'; ctx.textAlign = 'left'; ctx.fillText('ISS', x + 9, y + 5);
+    up.push(['ISS', iss.alt, iss.az]);
+  }
+  ctx.restore();
+
+  // Horizon rim + compass
+  ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(238,242,255,.75)'; ctx.font = '600 15px ui-sans-serif, system-ui'; ctx.textAlign = 'center';
+  for (const [l, az] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) ctx.fillText(l, cx - (R + 20) * Math.sin(az * D2R), cy - (R + 20) * Math.cos(az * D2R) + 5);
+
+  // Panel
+  document.getElementById('clock').textContent = fmt(date, { second: '2-digit' });
+  document.getElementById('where').textContent = `${home.label || 'Home'} · ${fmt(date, { weekday: 'long', day: 'numeric', month: 'long', hour: undefined, minute: undefined })}${offset ? ' · simulated time' : ''}`;
+  const upBox = document.getElementById('up');
+  const rows = up.filter(([n]) => n !== 'Sun').sort((a, b) => b[1] - a[1]);
+  upBox.replaceChildren(...(rows.length ? rows : [['Only stars right now', null, null]]).map(([n, alt, az]) => {
+    const r = document.createElement('div'); r.className = 'row';
+    const a = document.createElement('span'), b = document.createElement('span');
+    a.textContent = n; b.textContent = alt == null ? '' : `${Math.round(alt)}° up · ${compass(az)}`; r.append(a, b); return r;
+  }));
+  return { date, sa, iss };
+}
+
+function sunMoon(date) {
+  const find = (b, dir) => { try { return Astronomy.SearchRiseSet(b, observer, dir, date, 2)?.date; } catch { return null; } };
+  const ill = Astronomy.Illumination('Moon', date).phase_fraction;
+  const ph = Astronomy.MoonPhase(date);
+  const phase = ph < 22.5 || ph >= 337.5 ? 'New moon' : ph < 67.5 ? 'Waxing crescent' : ph < 112.5 ? 'First quarter' : ph < 157.5 ? 'Waxing gibbous' : ph < 202.5 ? 'Full moon' : ph < 247.5 ? 'Waning gibbous' : ph < 292.5 ? 'Last quarter' : 'Waning crescent';
+  const rows = [['Sunrise', find('Sun', +1)], ['Sunset', find('Sun', -1)], ['Moonrise', find('Moon', +1)], ['Moonset', find('Moon', -1)]]
+    .filter(([, d]) => d).sort((a, b) => a[1] - b[1]).map(([k, d]) => [k, fmt(d, { weekday: 'short' })]);
+  rows.unshift([phase, `${Math.round(ill * 100)}% lit`]);
+  document.getElementById('sunmoon').replaceChildren(...rows.map(([k, v]) => {
+    const r = document.createElement('div'); r.className = 'row';
+    const a = document.createElement('span'), b = document.createElement('span'); a.textContent = k; b.textContent = v; r.append(a, b); return r;
+  }));
+}
+
+function alertLine(date, iss) {
+  const el = document.getElementById('alert');
+  const next = passes.find((p) => p.visible && p.end > date);
+  if (iss && iss.alt > 10 && iss.sunlit && sunAlt(date) < -6) { el.hidden = false; el.textContent = `🛰 ISS overhead now — look ${compass(iss.az)}, ${Math.round(iss.alt)}° up`; return; }
+  if (next && next.start - date < 15 * 60e3 && next.start > date) {
+    const m = Math.max(1, Math.round((next.start - date) / 60e3));
+    el.hidden = false; el.textContent = `🛰 ISS visible in ${m} min — rises in the ${compass(next.startAz)}, up to ${Math.round(next.max)}°`; return;
+  }
+  el.hidden = true;
+}
+
+(async function main() {
+  try {
+    [home, stars] = await Promise.all([fetch('home.json').then((r) => r.json()), fetch('stars.json').then((r) => r.json())]);
+  } catch {
+    const e = document.getElementById('err'); e.hidden = false; e.textContent = 'Sky data missing (home.json / stars.json).'; return;
+  }
+  observer = new Astronomy.Observer(home.lat, home.lon, 10);
+  await loadTle();
+  if (Q.get('demo') === 'iss') {
+    const p = passes.find((x) => x.visible) || passes[0];
+    if (p) { offset += p.start.getTime() - 30e3 - now().getTime(); computePasses(); }
+  }
+  let lastMin = -1;
+  const loop = () => {
+    const { date, iss } = draw();
+    const m = Math.floor(date.getTime() / 60e3);
+    if (m !== lastMin) { lastMin = m; sunMoon(date); alertLine(date, iss); if (m % 10 === 0) computePasses(); }
+    else alertLine(date, iss);
+    if (Date.now() - tleAt > 6 * 3600e3 && Date.now() - tleTry > 5 * 60e3) { tleTry = Date.now(); loadTle(); }
+  };
+  loop(); setInterval(loop, 1000);
+})();
+</script>
+</body>
+</html>

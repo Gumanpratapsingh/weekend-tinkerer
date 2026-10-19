@@ -14,6 +14,8 @@ const BOOT = Date.now();                              // the page reloads itself
 
 const get = (url, ms = 4000) => fetch(url, { signal: AbortSignal.timeout(ms) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
+let tle = { at: 0, text: '' };                        // ISS two-line elements (see /api/tle)
+
 // termux-battery-status takes ~1 s, so it is cached.
 let battery = { at: 0, v: null };
 const phoneBattery = () => {
@@ -48,6 +50,16 @@ createServer(async (req, res) => {
       const w = await get('http://127.0.0.1:8096/wifi.json');
       res.writeHead(w ? 200 : 502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(w || { error: 'wifi feed not reachable' }));
+    }
+    if (url.pathname === '/api/tle') {                    // ISS orbit for the sky scene: CelesTrak has no CORS, so fetched here, kept 12 h
+      if (Date.now() - tle.at > 12 * 3600e3) {
+        const r = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE', { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        const text = r?.ok ? (await r.text()).trim() : '';
+        if (/^1 25544/m.test(text)) tle = { at: Date.now(), text };
+        else if (!tle.text) try { tle.text = readFileSync(join(DIR, 'scenes', 'sky', 'tle.txt'), 'utf8').trim(); } catch {}
+      }
+      res.writeHead(tle.text ? 200 : 502, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+      return res.end(tle.text);
     }
     if (url.pathname === '/api/log') {                    // small status notes from the page (e.g. wake lock)
       console.log(new Date().toISOString(), 'page:', url.searchParams.toString().slice(0, 200));
