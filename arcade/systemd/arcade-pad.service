@@ -1,0 +1,15 @@
+[Unit]
+Description=Arcade: phone gamepads over Wi-Fi (:8097) -> keys on display :1
+After=arcade-display.service
+Requires=arcade-display.service
+
+[Service]
+User=gpsingh
+Environment=GAME_DISPLAY=:1
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 /home/gpsingh/arcade/app/pad.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

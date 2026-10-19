@@ -274,7 +274,7 @@ function route() {
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
   if ((m = /^\/together(\/calendar)?$/.exec(p))) return { name: 'together', tab: m[1] ? 'cal' : 'lists' };
   if ((m = /^\/together\/list\/(\d+)$/.exec(p))) return { name: 'tlist', id: Number(m[1]) };
-  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
+  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/arcade': 'arcade', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
 }
 function go(path, replace) { if (location.pathname + location.search !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
 window.addEventListener('popstate', render);
@@ -563,6 +563,31 @@ const screens = {
     app.replaceChildren(h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/new', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'New group'))), h('div', { class: 'page' }, f));
   },
 
+  // Arcade (phone gamepad for the game on the laptop) + which scene the monitor shows.
+  async arcade() {
+    app.replaceChildren(h('div', { class: 'bar' }, back('/me'), h('div', { class: 't' }, h('b', {}, 'Arcade & monitor'))), h('p', { class: 'loading' }, 'Loading…'));
+    const [pad, wall] = await Promise.all([api('/arcade').catch((e) => ({ error: e.message })), api('/wall').catch(() => null)]);
+    const padBox = pad.error ? h('p', { class: 'lede' }, pad.error) : h('div', {},
+      h('p', { class: 'lede' }, `You are Player ${pad.player}. Turn your phone sideways: stick on the left, punches (LP MP HP) and kicks (LK MK HK) on the right. Both phones must be on the home Wi-Fi.`),
+      h('a', { class: 'btn full', href: pad.link }, `🎮 Open gamepad (Player ${pad.player})`),
+      h('p', { class: 'lede', style: 'margin-top:.75rem' }, `The link works for ${pad.hours} hours. The game streams to the monitor through the Moonlight app on the S20 (app: "Fighting (Ikemen GO)").`));
+    let wallBox = null;
+    if (wall?.canSet) {
+      const chips = wall.scenes.map((sc) => {
+        const b = h('button', { class: 'btn' + (sc.id === wall.scene ? '' : ' ghost') }, `${sc.emoji} ${sc.label}`);
+        b.addEventListener('click', async () => {
+          try { await api('/wall', { method: 'POST', body: { scene: sc.id } }); toast(`Monitor: ${sc.label}`); screens.arcade(); } catch (e) { toast(e.message, true); }
+        });
+        return b;
+      });
+      wallBox = h('div', {}, h('div', { class: 'sec' }, 'Monitor'), h('p', { class: 'lede' }, 'What the S20 shows on the monitor. It switches within about 10 seconds.'),
+        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, ...chips));
+    }
+    app.replaceChildren(
+      h('div', { class: 'bar' }, back('/me'), h('div', { class: 't' }, h('b', {}, 'Arcade & monitor'), h('small', {}, 'game controller · wall scenes'))),
+      h('div', { class: 'page' }, h('div', { class: 'sec' }, 'Gamepad'), padBox, wallBox),
+      tabbar('settings'));
+  },
   async me() {
     const owner = state.me.role === 'owner';
     const notif = h('button', { class: 'btn', type: 'button' }, state.push ? 'Turn off on this device' : 'Turn on notifications');
@@ -648,6 +673,8 @@ const screens = {
         notif,
         !isStandalone() ? h('div', {}, h('div', { class: 'sec' }, 'Install'), h('p', { class: 'lede' }, isIOS() ? 'Safari → Share (□↑) → Add to Home Screen.' : 'Browser menu → Install app / Add to Home screen.')) : null,
         owner ? h('div', {}, h('div', { class: 'sec' }, 'People'), ...(people.length ? people : [h('p', { class: 'lede' }, 'Nobody yet. Invite friends from ✎ → Invite a friend.')])) : null,
+        h('div', { class: 'sec' }, 'Arcade & monitor'),
+        h('a', { class: 'btn ghost', href: '/arcade', 'data-link': true }, '🎮 Gamepad and monitor scenes'),
         h('div', { class: 'sec' }, 'Password'),
         h('p', { class: 'lede' }, 'Forgot it? Change it here on a device that is already signed in.' + (owner ? ' For someone else: People → Reset link.' : '')),
         h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, np, np2, pwBtn),

@@ -15,6 +15,7 @@ import { install as installWedding } from './wedding.mjs';
 import { install as installAssistant } from './assistant.mjs';
 import { install as installLove } from './lovenotes.mjs';
 import { install as installCalls } from './calls.mjs';
+import { install as installArcade } from './arcade.mjs';
 
 const PORT = 8085, INTERNAL = 8086;
 const SESSION_DAYS = 90;
@@ -222,6 +223,7 @@ const wedding = installWedding({ emit, memberIds, canSee, readJson, send, err, p
 const assistant = installAssistant({ postMessage, emit, memberIds, together, log });
 const love = installLove({ postMessage, updateMessage, log, botConv });
 const calls = installCalls({ emit, canSee, readJson, send, err, postMessage, notify: (uid, p) => push.notify(uid, p), isActive, log });
+const arcade = installArcade({ readJson, send, err, getKv, setKv, log });
 
 function openDm(a, b) {
   const row = one(`SELECT c.id FROM convs c WHERE c.kind = 'dm'
@@ -724,6 +726,7 @@ async function api(req, res, path, query) {
     throw err(404, 'Not found.');
   }
 
+  if (await arcade.route(req, res, path, query, me)) return;
   if (await together.route(req, res, path, query, me)) return;
   if (await wedding.route(req, res, path, query, me)) return;
   if (await calls.route(req, res, path, query, me)) return;
@@ -758,6 +761,8 @@ createServer(async (req, res) => {
 //   Reply: {id, pushable}; pushable=false means the owner has no device with notifications yet (keep a fallback).
 createServer(async (req, res) => {
   try {
+    // The S20's monitor wall asks which scene to show (read-only, local services only).
+    if (req.method === 'GET' && req.url === '/wall' && !req.headers['x-visitor-ip']) return send(res, 200, { scene: arcade.scene() });
     if (req.method !== 'POST' || req.headers['x-visitor-ip']) return send(res, 404, { error: 'Not found' });
     const b = await readJson(req, 20_000);
     const o = owner();

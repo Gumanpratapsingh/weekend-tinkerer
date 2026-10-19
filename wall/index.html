@@ -96,6 +96,7 @@
   <section id="right"></section>
   <div id="ticker" class="glass"><div id="tickerText">connecting…</div></div>
 </main>
+<iframe id="scene" title="scene" allow="fullscreen" style="position:fixed;inset:0;width:100%;height:100%;border:0;display:none;z-index:50;background:#000"></iframe>
 <div id="pop"></div>
 <div id="fs">Click anywhere for full screen</div>
 <script>
@@ -151,6 +152,9 @@ async function state() {
   let s; try { s = await (await fetch('/api/state')).json(); } catch { return; }
   if (window.boot && s.boot !== window.boot) return location.reload();   // a new version was deployed
   window.boot = s.boot;
+  // Another scene picked in Cupboard: show it full screen on top; Mission Control keeps running underneath.
+  const sc = /^[a-z0-9-]+$/.test(s.scene || '') && s.scene !== 'mission' ? s.scene : null, fr = $('scene');
+  if (sc !== (fr.dataset.scene || null)) { fr.dataset.scene = sc || ''; if (sc) { fr.src = `/scenes/${sc}/`; fr.style.display = 'block'; } else { fr.removeAttribute('src'); fr.style.display = 'none'; } }
   people = s.people; ports = s.people.map((p) => p.port).length ? s.people.map((p) => p.port) : [8083];
   $('right').innerHTML = s.people.map((p) => {
     const max = Math.max(1, ...p.days.map((d) => d.n));
@@ -177,7 +181,7 @@ async function state() {
   const logHtml = s.log.map((l) => { const t = new Date(l.slice(0, 24)); return `<span><em>${isNaN(t) ? '' : t.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</em>${esc(l.slice(25))}</span>`; }).join('');
   if (s.log.length && $('tickerText').dataset.h !== logHtml) { $('tickerText').innerHTML = logHtml; $('tickerText').dataset.h = logHtml; }
 }
-state(); setInterval(state, 15e3);
+state(); setInterval(state, 8e3);
 
 // Keep the screen awake while the wall is showing, or the phone's 30 s timeout locks it and DeX goes dark.
 let wake = null;

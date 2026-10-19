@@ -1,0 +1,14 @@
+{
+  "env": {},
+  "apps": [
+    {
+      "name": "Fighting (Ikemen GO)",
+      "cmd": "/home/gpsingh/arcade/app/run-ikemen.sh",
+      "working-dir": "/home/gpsingh/arcade/ikemen",
+      "auto-detach": "false"
+    },
+    {
+      "name": "Desktop"
+    }
+  ]
+}

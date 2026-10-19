@@ -28,10 +28,12 @@ const phoneBattery = () => {
 async function state() {
   const [laptop, ...people] = await Promise.all([get('http://127.0.0.1:8095/health'), ...AGENTS.map((p) => get(`http://127.0.0.1:${p}/internal/dash/summary`))]);
   const log = await get('http://127.0.0.1:8083/internal/dash/log');
+  const wall = await get('http://127.0.0.1:8086/wall', 2000);             // scene chosen in Cupboard → Arcade & monitor
   const b = phoneBattery();
   return {
     at: Date.now(),
     boot: BOOT,
+    scene: wall?.scene || 'mission',
     people: people.map((s, i) => s && { port: AGENTS[i], name: s.name, now: s.now, paused: s.paused, today: s.today, total: s.total, days: s.days, questions: (s.questions || []).length }).filter(Boolean),
     log: (log?.lines || []).slice(-14),
     laptop: laptop && { cpu: laptop.cpu, temp: laptop.temps?.cpu, load: laptop.load?.[0], mem: laptop.memory && Math.round((1 - laptop.memory.available / laptop.memory.total) * 100), uptime: laptop.uptime, services: laptop.services },
