@@ -148,6 +148,18 @@ setInterval(async () => {                             // frames for the sign-in 
 
 const TASK_LIMIT = 12 * 60e3;                        // a hung task must not block the queue forever
 const LIMITS = { naukri_search: 60 * 60e3, naukri_recommended: 10 * 60e3 };   // full searches legitimately take ~20 min
+// Tasks that only read pages: safe to run again after a network drop.
+const READ_ONLY = new Set(['naukri_search', 'naukri_recommended', 'naukri_job', 'linkedin_posts', 'linkedin_people', 'linkedin_job_network', 'linkedin_state']);
+const NET_DOWN = /ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_NETWORK_CHANGED|ERR_ADDRESS_UNREACHABLE|ERR_NETWORK_ACCESS_DENIED|EAI_AGAIN/;
+// True once DNS answers again (checked every 5 s, up to a minute).
+async function online() {
+  const { lookup } = await import('node:dns/promises');
+  for (let i = 0; i < 12; i++) {
+    if (await lookup('www.google.com').then(() => true, () => false)) return true;
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return false;
+}
 // Each person has one lane: their own tasks run one at a time (their logins and pages stay consistent), and different
 // people's lanes run in parallel when the machine is big enough. The laptop (16 GB) runs 2 lanes; the phone keeps 1,
 // taking turns between people, so it stays cool. JA_LANES overrides.
@@ -227,7 +239,14 @@ createServer((req, res) => {
       try {
         const ms = LIMITS[name] || TASK_LIMIT;
         const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`task ${name} took over ${ms / 60e3} minutes`)), ms); });
-        reply(200, await Promise.race([tasks[name](body), limit]));
+        // A Wi-Fi blip fails every queued task within seconds (59 errors from a 3 s drop): read-only tasks wait until
+        // the network is back (up to a minute) and run once more. Applies and messages never repeat on their own.
+        const once = () => Promise.race([tasks[name](body), limit]);
+        reply(200, await once().catch(async (e) => {
+          if (!READ_ONLY.has(name) || !NET_DOWN.test(e?.message || '') || !await online()) throw e;
+          console.error(`[${w.person}] ${name}: network was down, running it once more`);
+          return once();
+        }));
       } catch (e) {
         console.error(`[${w.person}] ${name}`, e?.stack || e?.message || e);
         session.workerError(`task ${name}`, e, { job: body.job?.id || null, url: session.livePageOf(w.person)?.url?.() || null });
