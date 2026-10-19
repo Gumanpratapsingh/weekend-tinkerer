@@ -10,6 +10,6 @@ ssh "$HOST" 'set -e; cd ~/arcade/app
   [ -s ~/arcade/secret ] || (umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n" > ~/arcade/secret)
   cp sunshine.conf apps.json ~/.config/sunshine/
   sudo -n cp systemd/*.service /etc/systemd/system/ && sudo -n systemctl daemon-reload
-  sudo -n systemctl enable --now arcade-display arcade-pad arcade-sunshine >/dev/null 2>&1
+  sudo -n systemctl enable --now arcade-display arcade-audio arcade-pad arcade-sunshine >/dev/null 2>&1
   sudo -n systemctl restart arcade-pad arcade-sunshine; sleep 4
-  for u in arcade-display arcade-pad arcade-sunshine; do echo "$u: $(systemctl is-active $u)"; done' </dev/null
+  for u in arcade-display arcade-audio arcade-pad arcade-sunshine; do echo "$u: $(systemctl is-active $u)"; done' </dev/null
