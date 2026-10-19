@@ -153,7 +153,7 @@ export function space() {
   const sun = new THREE.Sprite(new THREE.SpriteMaterial({
     map: radialTexture('rgba(255,240,210,1)', 'rgba(255,170,80,0)'), blending: THREE.AdditiveBlending, depthWrite: false }));
   sun.position.set(5200, 1400, -7000); sun.scale.set(1600, 1600, 1); scene.add(sun);
-  const sunLight = new THREE.DirectionalLight(0xfff1dc, 3.0); sunLight.position.set(5200, 1400, -2000); scene.add(sunLight);
+  const sunLight = new THREE.DirectionalLight(0xfff1dc, 3.0); sunLight.position.set(3000, 900, 1200); scene.add(sunLight);
   scene.add(new THREE.AmbientLight(0x223355, 0.35));
 
   // Ringed planet with a banded canvas texture.
@@ -239,7 +239,7 @@ export function valley() {
   // Sky dome with a vertical gradient (drawn first, never depth-tested).
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-    uniforms: { top: { value: new THREE.Color(0x4f86c9) }, bottom: { value: new THREE.Color(fogColor) } },
+    uniforms: { top: { value: new THREE.Color(0x6f9fd8) }, bottom: { value: new THREE.Color(fogColor) } },
     vertexShader: 'varying float h; void main(){ h = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying float h; void main(){ gl_FragColor = vec4(mix(bottom, top, smoothstep(0.0, 0.45, h)), 1.0); }',
   }));
@@ -263,8 +263,8 @@ export function valley() {
   // The valley and the ranges around it.
   const valleyH = (x, z) => {
     const n = fbm(x / 1900 + 7, z / 1900 + 2, 5);
-    const sides = (Math.abs(x) / 3200) ** 2 * 2000;
-    const range = smooth(-2500, -11000, z) * 3200;
+    const sides = (Math.abs(x) / 4200) ** 2 * 1500;
+    const range = smooth(-4000, -13000, z) * 2600;
     return -420 + sides * (0.5 + n) + range * (0.3 + n * 1.1) + (n - 0.5) * 260;
   };
   const vg = new THREE.PlaneGeometry(26000, 17000, 170, 120).toNonIndexed();
@@ -301,19 +301,18 @@ export function valley() {
     g.position.set(x, y - 0.5, z); scene.add(g);
   };
   // [x, z, height] — the first two stand in front of the glass, at the corners.
-  [[-22, 7, 26], [24, 12, 32], [-34, -14, 30], [33, -30, 24], [-10, -70, 22], [16, -95, 30],
-   [-40, -110, 38], [52, -140, 40], [-62, -60, 34], [70, -70, 30], [2, -185, 34], [-85, -170, 44],
-   [95, -200, 42], [-25, -215, 30], [38, -230, 36]].forEach(([x, z, h]) => tree(x, z, h));
+  [[-23, 7, 20], [25, 12, 24], [-36, -16, 22], [38, -34, 18], [-22, -80, 16], [30, -110, 20],
+   [-50, -120, 26], [60, -150, 26], [-70, -60, 24], [78, -70, 22], [-95, -180, 30], [105, -200, 28]].forEach(([x, z, h]) => tree(x, z, h));
 
   // Many small trees down in the valley, as one instanced mesh.
   const coneGeo = new THREE.ConeGeometry(1, 2.6, 6); coneGeo.translate(0, 1.3, 0);
   const forest = new THREE.InstancedMesh(coneGeo, new THREE.MeshStandardMaterial({ color: 0x24532e, flatShading: true, roughness: 1 }), 700);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
   let placed = 0;
-  for (let tries = 0; tries < 6000 && placed < 700; tries++) {
-    const x = rr(-6000, 6000), z = rr(-9000, -1600), y = valleyH(x, z);
+  for (let tries = 0; tries < 6000 && placed < 450; tries++) {
+    const x = rr(-6000, 6000), z = rr(-9000, -2600), y = valleyH(x, z);
     if (y > 500 || Math.hypot((x - 300) / 1.6, z + 3800) < 950) continue;
-    const s = rr(60, 140);
+    const s = rr(22, 50);
     m.compose(ps.set(x, y - 10, z), q, sc.set(s, s * rr(0.9, 1.3), s));
     forest.setMatrixAt(placed++, m);
   }
