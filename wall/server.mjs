@@ -34,6 +34,7 @@ async function state() {
     at: Date.now(),
     boot: BOOT,
     scene: wall?.scene || 'mission',
+    sceneOpts: wall?.opts || {},                                    // that scene's options from Cupboard, passed as ?key=value
     people: people.map((s, i) => s && { port: AGENTS[i], name: s.name, now: s.now, paused: s.paused, today: s.today, total: s.total, days: s.days, questions: (s.questions || []).length }).filter(Boolean),
     log: (log?.lines || []).slice(-14),
     laptop: laptop && { cpu: laptop.cpu, temp: laptop.temps?.cpu, load: laptop.load?.[0], mem: laptop.memory && Math.round((1 - laptop.memory.available / laptop.memory.total) * 100), uptime: laptop.uptime, services: laptop.services },

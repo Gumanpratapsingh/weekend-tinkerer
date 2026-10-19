@@ -154,7 +154,9 @@ async function state() {
   window.boot = s.boot;
   // Another scene picked in Cupboard: show it full screen on top; Mission Control keeps running underneath.
   const sc = /^[a-z0-9-]+$/.test(s.scene || '') && s.scene !== 'mission' ? s.scene : null, fr = $('scene');
-  if (sc !== (fr.dataset.scene || null)) { fr.dataset.scene = sc || ''; if (sc) { fr.src = `/scenes/${sc}/`; fr.style.display = 'block'; } else { fr.removeAttribute('src'); fr.style.display = 'none'; } }
+  const q = sc ? new URLSearchParams(Object.entries(s.sceneOpts || {}).filter(([k, v]) => /^[a-z]{1,12}$/.test(k) && v !== '')).toString() : '';
+  const src = sc ? `/scenes/${sc}/${q ? '?' + q : ''}` : '';             // a new option reloads the scene with it
+  if (src !== (fr.dataset.src || '')) { fr.dataset.src = src; if (sc) { fr.src = src; fr.style.display = 'block'; } else { fr.removeAttribute('src'); fr.style.display = 'none'; } }
   people = s.people; ports = s.people.map((p) => p.port).length ? s.people.map((p) => p.port) : [8083];
   $('right').innerHTML = s.people.map((p) => {
     const max = Math.max(1, ...p.days.map((d) => d.n));

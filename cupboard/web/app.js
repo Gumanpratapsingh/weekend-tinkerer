@@ -580,8 +580,21 @@ const screens = {
         });
         return b;
       });
+      // Options of the scene on screen now (style, range, …): one row of buttons per option.
+      const cur = wall.scenes.find((sc) => sc.id === wall.scene), set = (wall.opts || {})[wall.scene] || {};
+      const optRows = (wall.options?.[wall.scene] || []).map((o) => h('div', { style: 'margin-top:.6rem' },
+        h('div', { style: 'font-size:.78rem;font-weight:700;margin-bottom:.3rem' }, o.label),
+        h('div', { style: 'display:flex;flex-wrap:wrap;gap:.35rem' }, ...o.values.map(([v, label]) => {
+          const on = (set[o.key] ?? o.values[0][0]) === v;
+          const b = h('button', { class: 'btn sm' + (on ? '' : ' ghost') }, label);
+          b.addEventListener('click', async () => {
+            try { await api('/wall', { method: 'POST', body: { option: { scene: wall.scene, key: o.key, value: v } } }); toast(`${cur.label}: ${o.label} → ${label}`); screens.arcade(); } catch (e) { toast(e.message, true); }
+          });
+          return b;
+        }))));
       wallBox = h('div', {}, h('div', { class: 'sec' }, 'Monitor'), h('p', { class: 'lede' }, 'What the S20 shows on the monitor. It switches within about 10 seconds.'),
-        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, ...chips));
+        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, ...chips),
+        optRows.length ? h('div', {}, h('div', { class: 'sec' }, `${cur.emoji} ${cur.label} settings`), ...optRows) : null);
     }
     app.replaceChildren(
       h('div', { class: 'bar' }, back('/me'), h('div', { class: 't' }, h('b', {}, 'Arcade & monitor'), h('small', {}, 'game controller · wall scenes'))),

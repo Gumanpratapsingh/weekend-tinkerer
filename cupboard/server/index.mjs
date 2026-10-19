@@ -762,7 +762,7 @@ createServer(async (req, res) => {
 createServer(async (req, res) => {
   try {
     // The S20's monitor wall asks which scene to show (read-only, local services only).
-    if (req.method === 'GET' && req.url === '/wall' && !req.headers['x-visitor-ip']) return send(res, 200, { scene: arcade.scene() });
+    if (req.method === 'GET' && req.url === '/wall' && !req.headers['x-visitor-ip']) return send(res, 200, arcade.wall());
     if (req.method !== 'POST' || req.headers['x-visitor-ip']) return send(res, 404, { error: 'Not found' });
     const b = await readJson(req, 20_000);
     const o = owner();

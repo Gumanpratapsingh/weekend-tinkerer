@@ -3,7 +3,8 @@
 //   GET /flights?lat=..&lon=..&r=<km>  → { at, src, planes: [...] }   cached 10 s
 //   GET /route?cs=IGO2134               → { airline, from, to }         cached 24 h (also on disk)
 // Sources, in order: adsb.fi open data (no key, 1 req/s), OpenSky anonymous (400 credits/day),
-// adsb.lol (500/day). A source that answers 429 is skipped until its back-off ends.
+// adsb.lol (500/day). A source that answers 429 is skipped until its back-off ends. Planes from your own
+// receiver (receiver.json) are merged on top when there is one.
 // Start (Termux): nohup node ~/wall/scenes/flights/proxy.mjs > ~/wall/scenes/flights/proxy.log 2>&1 &
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -54,6 +55,20 @@ const SOURCES = {
     return (j.ac || []).map((a) => fromReadsb(a, now)).filter(Boolean);
   },
 };
+// Your own receiver (optional): receiver.json {"url": "http://<laptop>/tar1090/data/aircraft.json"}, see RECEIVER.md.
+// Its planes are merged over the internet feed's, so nearby planes the public feeders miss still show.
+const receiverUrl = () => { try { return JSON.parse(readFileSync(join(DIR, 'receiver.json'), 'utf8')).url || null; } catch { return process.env.FLIGHTS_RECEIVER || null; } };
+async function fromReceiver(lat, lon, km) {
+  const url = receiverUrl();
+  if (!url) return null;
+  try {
+    const j = await get(url, 3000);
+    const now = j.now ? (j.now > 1e12 ? j.now : j.now * 1000) : Date.now();
+    const near = (a) => Math.abs(a.lat - lat) * 111 < km && Math.abs(a.lon - lon) * 111 * Math.cos(lat * Math.PI / 180) < km;
+    return (j.aircraft || []).filter((a) => a.lat != null && (a.seen_pos ?? 0) < 60 && near(a)).map((a) => fromReadsb(a, now)).filter(Boolean);
+  } catch { return null; }
+}
+
 const backoff = {};                                   // source → epoch ms it may be tried again
 const flightCache = new Map();                        // key → { at, body }
 
@@ -62,11 +77,17 @@ async function flights(lat, lon, km) {
   const hit = flightCache.get(key);
   if (hit && Date.now() - hit.at < 10e3) return hit.body;
   const errors = [];
+  const own = await fromReceiver(lat, lon, km);
   for (const [name, fn] of Object.entries(SOURCES)) {
     if ((backoff[name] || 0) > Date.now()) { errors.push(`${name}: backing off`); continue; }
     try {
-      const planes = await fn(lat, lon, km);
-      const body = JSON.stringify({ at: Date.now(), src: name, planes });
+      let planes = await fn(lat, lon, km), src = name;
+      if (own && own.length) {
+        const mine = new Set(own.map((p) => p.hex));
+        planes = own.concat(planes.filter((p) => !mine.has(p.hex)));
+        src = `own receiver + ${name}`;
+      }
+      const body = JSON.stringify({ at: Date.now(), src, planes });
       flightCache.set(key, { at: Date.now(), body });
       return body;
     } catch (e) {
@@ -75,6 +96,7 @@ async function flights(lat, lon, km) {
       errors.push(`${name}: ${e.message}`);
     }
   }
+  if (own && own.length) return JSON.stringify({ at: Date.now(), src: 'own receiver', planes: own });
   if (hit) return hit.body;                           // stale beats nothing
   throw new Error(errors.join('; '));
 }
