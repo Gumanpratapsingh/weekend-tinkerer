@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live cams</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  #cap { position: fixed; left: 34px; bottom: 34px; display: flex; align-items: center; gap: 14px; padding: 13px 22px; border-radius: 99px; background: rgba(8,10,20,.62); color: #fff; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: opacity .8s; }
+  #cap.hide { opacity: 0; }
+  #cap b { font-size: 24px; font-weight: 700; } #cap small { font-size: 16px; opacity: .72; } #cap .e { font-size: 30px; }
+  #dots { position: fixed; right: 34px; bottom: 40px; display: flex; gap: 8px; transition: opacity .8s; }
+  #dots.hide { opacity: 0; }
+  #dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.3); } #dots i.on { background: #fff; }
+  #msg { position: fixed; inset: 0; display: none; place-items: center; color: #9aa3c4; font-size: 26px; background: #05070d; }
+</style>
+</head>
+<body>
+<iframe id="f" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="origin"></iframe>
+<div id="cap" class="hide"><span class="e"></span><div><b></b><br><small></small></div></div>
+<div id="dots" class="hide"></div>
+<div id="msg">Looking for a camera that is live…</div>
+<script>
+// Live cams: YouTube's public live streams, one at a time, muted. Options: ?cam=auto|<id>  ?every=<minutes>
+// v = a long-running stream; ch = the channel, used when that stream's id changes (the channel's current live stream plays).
+const CAMS = [
+  { id: 'bears',  e: '🐻', name: 'Brooks Falls bears', where: 'Katmai, Alaska · Explore.org', v: 'J7ZrIDvqlic', ch: 'UC-2KSeUU5SMCX6XLRD-AEvw' },
+  { id: 'iss',    e: '🛰️', name: 'Earth from the ISS', where: 'NASA', v: 'M3HKLzjvKPc', ch: 'UCLA_DiR1FfKNvjuUpBHmylQ' },
+  { id: 'aurora', e: '🌌', name: 'Northern lights', where: 'Oulu, Finland', v: 'uriZ2VIVCVY', ch: 'UCuwI7in4lmCth1zb0sewo_A' },
+  { id: 'safari', e: '🦒', name: 'Safari waterhole', where: 'South Africa · WildEarth', v: 'z3MqSLyKB40', ch: 'UCV6HJBZD_hZcIX9JVJ3dCXQ' },
+  { id: 'tokyo',  e: '🗼', name: 'Tokyo Bay and Mt Fuji', where: 'Japan', v: '4ZiucC7cvw8' },
+  { id: 'aviary', e: '🦜', name: 'Aviary', where: 'Monterey Bay Aquarium', v: 'AWJi0LgyA28', ch: 'UCnM5iMGiKsZg-iOlIO2ZkdQ' },
+  { id: 'miami',  e: '🌴', name: 'Miami skyline', where: 'Florida', v: 'GkBMgHwSIV0', ch: 'UC5lNakfSdpqXCW214H5sBgQ' },
+  { id: 'gwb',    e: '🌉', name: 'George Washington Bridge', where: 'New York', v: '5BlEY0fpCRs' },
+  { id: 'fuji',   e: '🗻', name: 'Mount Fuji', where: 'Yamanashi, Japan', v: 'UFuSQq-9maE' },
+];
+const P = new URLSearchParams(location.search), $ = (s) => document.querySelector(s), f = $('#f');
+const pick = P.get('cam') && P.get('cam') !== 'auto' ? CAMS.findIndex((c) => c.id === P.get('cam')) : -1;
+const EVERY = Math.max(1, Number(P.get('every')) || 10) * 60e3;
+let cur = pick >= 0 ? pick : Math.floor(Math.random() * CAMS.length), tried = 0, playing = false, usedChannel = false, watch = 0, rot = 0;
+const opts = 'autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=' + encodeURIComponent(location.origin);
+
+function dots() { $('#dots').innerHTML = CAMS.map((c, i) => `<i class="${i === cur ? 'on' : ''}"></i>`).join(''); }
+function caption(c) { $('#cap .e').textContent = c.e; $('#cap b').textContent = c.name; $('#cap small').textContent = c.where; $('#cap').classList.remove('hide'); $('#dots').classList.remove('hide'); dots(); clearTimeout(caption.t); caption.t = setTimeout(() => { $('#cap').classList.add('hide'); $('#dots').classList.add('hide'); }, 9000); }
+function load(i, viaChannel) {
+  cur = (i + CAMS.length) % CAMS.length; const c = CAMS[cur]; playing = false; usedChannel = !!viaChannel;
+  f.src = viaChannel ? `https://www.youtube.com/embed/live_stream?channel=${c.ch}&${opts}` : `https://www.youtube.com/embed/${c.v}?${opts}`;
+  caption(c); clearTimeout(watch);
+  watch = setTimeout(() => { if (!playing) fail('no playback in 30 s'); }, 30e3);       // never sit on a dead picture
+}
+function fail(why) {
+  const c = CAMS[cur]; console.log('cam failed:', c.id, why);
+  if (!usedChannel && c.ch) return load(cur, true);                                       // the stream id may have changed: try the channel's live stream
+  if (pick >= 0 && ++tried > 1) { $('#msg').style.display = 'grid'; return; }            // a fixed camera that's down: say so instead of skipping
+  if (++tried > CAMS.length) { $('#msg').style.display = 'grid'; return; }
+  load(cur + 1);
+}
+addEventListener('message', (e) => {
+  if (e.source !== f.contentWindow) return; let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+  if (!d) return;
+  if (d.event === 'onError') return fail('player error ' + d.info);
+  const st = d.event === 'onStateChange' ? d.info : d.info && d.info.playerState;
+  if (st === 1) { playing = true; tried = 0; $('#msg').style.display = 'none'; clearTimeout(watch); }
+});
+f.addEventListener('load', () => { try { f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch {} });
+load(cur);
+if (pick < 0) rot = setInterval(() => load(cur + 1), EVERY);
+</script>
+</body>
+</html>

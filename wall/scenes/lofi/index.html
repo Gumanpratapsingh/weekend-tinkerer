@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lofi room</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b12; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #cap { position: fixed; left: 34px; bottom: 26px; padding: 9px 16px; border-radius: 99px; background: rgba(12,10,26,.55); color: #f1e9ff; font: 600 15px/1 ui-monospace, Menlo, monospace; letter-spacing: .04em; backdrop-filter: blur(6px); }
+</style>
+</head>
+<body>
+<canvas id="c" width="480" height="270"></canvas>
+<div id="cap"></div>
+<script>
+// Lofi room: a pixel-art room whose window shows your real weather and time of day, whose monitor shows the job agent's
+// real browser (pixelated beyond reading), whose lights follow the real room light, and whose cat sleeps through it all.
+// URL options: ?screen=agent|code  ?t=day|dusk|night  ?w=rain|snow|clear (demo weather)  ?lights=on|off
+const P = new URLSearchParams(location.search);
+const c = document.getElementById('c'), ctx = c.getContext('2d'), W = 480, H = 270;
+ctx.imageSmoothingEnabled = false;
+const R = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+const hex = (h) => (h[0] === 'r' ? h.match(/\d+/g).map(Number) : [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+// ---------- live data ----------
+const S = { hour: null, wx: { code: 1, temp: null, day: true }, lights: null, applied: 0, interviews: 0, doing: '', frame: null, frameAt: 0 };
+const fixed = { day: 13, dusk: 18.2, night: 23.5 }[P.get('t')];
+function hourNow() { if (fixed != null) return fixed; const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; }
+const jget = (u) => fetch(u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+async function loadWeather() {
+  const home = (await jget('/scenes/sky/home.json')) || { lat: 28.61, lon: 77.21 };
+  const w = await jget(`https://api.open-meteo.com/v1/forecast?latitude=${home.lat}&longitude=${home.lon}&current=temperature_2m,weather_code,is_day&timezone=auto`);
+  if (w?.current) S.wx = { code: w.current.weather_code, temp: Math.round(w.current.temperature_2m), day: !!w.current.is_day };
+}
+async function loadState() {
+  const s = await jget('/api/state'); if (s) { S.applied = (s.people || []).reduce((n, p) => n + (p.today?.applied || 0), 0); S.interviews = (s.people || []).reduce((n, p) => n + (p.total?.interviews || 0), 0); S.doing = s.people?.[0]?.now?.text || ''; }
+  const r = await jget('/scenes/pet/room.json'); S.lights = r?.lights === 'on' || r?.lights === 'off' ? r.lights : null;
+}
+async function loadFrame() {
+  if (P.get('screen') === 'code') return;
+  try { const r = await fetch('/api/screen?port=8083&t=' + Date.now(), { cache: 'no-store' }); if (r.status === 200) { S.frame = await createImageBitmap(await r.blob()); S.frameAt = Date.now(); } } catch {}
+}
+loadWeather(); loadState(); loadFrame();
+setInterval(loadWeather, 15 * 60e3); setInterval(loadState, 10e3); setInterval(loadFrame, 3e3);
+
+// ---------- weather ----------
+const wxKind = () => { const o = P.get('w'); if (o) return o === 'rain' ? 'rain' : o === 'snow' ? 'snow' : 'clear'; const k = S.wx.code;
+  return k >= 95 ? 'storm' : (k >= 71 && k <= 77) || k === 85 || k === 86 ? 'snow' : (k >= 51 && k <= 67) || (k >= 80 && k <= 82) ? 'rain' : k === 45 || k === 48 ? 'fog' : k >= 2 ? 'cloud' : 'clear'; };
+const wxLabel = { rain: 'rain', storm: 'thunderstorm', snow: 'snow', fog: 'fog', cloud: 'cloudy', clear: 'clear' };
+
+// ---------- sky ----------
+const KEYS = [[0, '#0a1030', '#18204a'], [5, '#0d1438', '#1f2a5c'], [6.2, '#4a4a8c', '#f0a070'], [8, '#68b8ee', '#bfe6ff'], [16.5, '#68b8ee', '#cfeaff'], [18.2, '#6a4f94', '#f08a5a'], [19.5, '#1c1c4a', '#4a3a6a'], [21, '#0a1030', '#18204a'], [24, '#0a1030', '#18204a']];
+function skyAt(h) { for (let i = 0; i < KEYS.length - 1; i++) { const a = KEYS[i], b = KEYS[i + 1]; if (h >= a[0] && h <= b[0]) { const t = (h - a[0]) / (b[0] - a[0]); return [mix(a[1], b[1], t), mix(a[2], b[2], t)]; } } return [KEYS[0][1], KEYS[0][2]]; }
+const WX = 30, WY = 34, WW = 150, WH = 112;
+const stars = Array.from({ length: 40 }, () => [WX + 4 + Math.floor(rnd() * (WW - 8)), WY + 3 + Math.floor(rnd() * 60), rnd() * 6.28]);
+const city = []; for (let x = 0; x < WW;) { const w = 8 + Math.floor(rnd() * 9), h = 14 + Math.floor(rnd() * 32); city.push([x, w, h, Array.from({ length: 12 }, () => rnd())]); x += w + 1; }
+const drops = Array.from({ length: 46 }, () => [rnd() * WW, rnd() * WH, 1 + rnd() * 1.5]);
+const clouds = Array.from({ length: 4 }, (_, i) => [i * 52 + rnd() * 20, 8 + rnd() * 40, 14 + rnd() * 14]);
+let flash = 0;
+
+function drawWindow(t, h) {
+  const [top, bot] = skyAt(h), kind = wxKind(), night = h < 6 || h > 19.3;
+  for (let y = 0; y < WH; y += 2) R(WX, WY + y, WW, 2, mix(top, bot, y / WH));
+  if (night && kind !== 'cloud' && kind !== 'storm' && kind !== 'fog') for (const [x, y, ph] of stars) if (Math.sin(t / 700 + ph) > -0.3) R(x, y, 1, 1, '#fff6d8');
+  // sun / moon on an arc
+  const sunUp = h >= 6 && h <= 18.5, p = sunUp ? (h - 6) / 12.5 : (((h < 6 ? h + 24 : h) - 18.5) / 11.5);
+  const sx = WX + 14 + Math.max(0, Math.min(1, p)) * (WW - 28), sy = WY + 78 - Math.sin(Math.max(0, Math.min(1, p)) * Math.PI) * 58;
+  if (kind !== 'storm') {
+    if (sunUp) { ctx.fillStyle = 'rgba(255,230,150,.25)'; ctx.fillRect(sx - 8, sy - 8, 16, 16); R(sx - 5, sy - 5, 10, 10, '#fff2b0'); R(sx - 6, sy - 3, 12, 6, '#fff2b0'); R(sx - 3, sy - 6, 6, 12, '#fff2b0'); }
+    else { R(sx - 5, sy - 5, 10, 10, '#f4f1e0'); R(sx - 6, sy - 3, 12, 6, '#f4f1e0'); R(sx - 2, sy - 6, 9, 11, mix('#0a1030', '#18204a', .5)); }
+  }
+  // clouds
+  const cn = kind === 'clear' ? 1 : kind === 'cloud' || kind === 'fog' ? 4 : 3, cloudCol = night ? '#3a4272' : kind === 'storm' ? '#5a5e78' : '#ffffff';
+  for (let i = 0; i < cn; i++) { const cl = clouds[i], x = WX + ((cl[0] + t / 900 * (1 + i * .3)) % (WW + 40)) - 20, y = WY + cl[1], w = cl[2];
+    ctx.save(); ctx.beginPath(); ctx.rect(WX, WY, WW, WH); ctx.clip(); ctx.globalAlpha = night ? .8 : .9; R(x, y + 4, w, 5, cloudCol); R(x + 3, y + 1, w - 7, 5, cloudCol); R(x + w * .3, y - 2, w * .4, 5, cloudCol); ctx.restore(); }
+  // skyline
+  const haze = night ? '#171233' : h > 17 && h < 19.5 ? '#4a3a6a' : '#5f6aa0';
+  for (const [x, w, hh, lit] of city) { R(WX + x, WY + WH - hh, w, hh, haze);
+    if (night || h > 18) for (let k = 0; k < 12; k++) { const wx = WX + x + 1 + (k % 3) * 3, wy = WY + WH - hh + 3 + Math.floor(k / 3) * 6; if (wx < WX + x + w - 1 && wy < WY + WH - 2 && lit[k] > .45 && Math.sin(t / 3000 + k + x) > -0.8) R(wx, wy, 2, 3, lit[k] > .8 ? '#ffd27a' : '#ffb862'); } }
+  // weather
+  ctx.save(); ctx.beginPath(); ctx.rect(WX, WY, WW, WH); ctx.clip();
+  if (kind === 'rain' || kind === 'storm') for (const d of drops) { d[1] = (d[1] + d[2] * 2.4) % WH; d[0] = (d[0] + .6) % WW; ctx.fillStyle = 'rgba(190,210,255,.75)'; ctx.fillRect(WX + Math.round(d[0]), WY + Math.round(d[1]), 1, 4); }
+  if (kind === 'snow') for (const d of drops) { d[1] = (d[1] + d[2] * .5) % WH; d[0] = (d[0] + Math.sin(t / 900 + d[2] * 7) * .25 + WW) % WW; R(WX + d[0], WY + d[1], 2, 2, '#ffffff'); }
+  if (kind === 'fog') { ctx.fillStyle = 'rgba(210,215,230,.42)'; ctx.fillRect(WX, WY, WW, WH); }
+  if (kind === 'storm' && flash <= 0 && Math.random() < .004) flash = 6;
+  if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash / 9})`; ctx.fillRect(WX, WY, WW, WH); flash--; }
+  ctx.fillStyle = 'rgba(255,255,255,.07)'; for (let i = 0; i < 4; i++) ctx.fillRect(WX + 20 + i * 36, WY, 8, WH);   // glass sheen
+  ctx.restore();
+  // frame, sill, curtains
+  R(WX - 4, WY - 4, WW + 8, 4, '#2a2238'); R(WX - 4, WY + WH, WW + 8, 4, '#2a2238'); R(WX - 4, WY - 4, 4, WH + 8, '#2a2238'); R(WX + WW, WY - 4, 4, WH + 8, '#2a2238');
+  R(WX + WW / 2 - 1, WY, 3, WH, '#2a2238'); R(WX, WY + WH / 2 - 1, WW, 3, '#2a2238'); R(WX - 8, WY + WH + 4, WW + 16, 4, '#3d3050');
+  for (const x0 of [WX - 14, WX + WW + 4]) { R(x0, WY - 8, 14, WH + 16, '#8a4f6b'); for (let k = 0; k < 14; k += 4) R(x0 + k, WY - 8, 1, WH + 16, '#703e57'); }
+}
+
+// ---------- room ----------
+function drawRoom(t, h, lightsOn) {
+  R(0, 0, W, 205, '#51456f'); for (let x = 0; x < W; x += 24) R(x, 0, 1, 205, '#4b4068');   // wall stripes
+  R(0, 198, W, 7, '#3a2f55');                                                                // baseboard
+  R(0, 205, W, 65, '#6b4540'); for (let y = 205; y < H; y += 9) R(0, y, W, 1, '#5a3835'); for (let y = 205, r = 0; y < H; y += 9, r++) for (let x = (r % 2) * 40; x < W; x += 80) R(x, y, 1, 9, '#5a3835');
+  R(196, 232, 232, 34, '#6a3f6e'); R(196, 232, 232, 2, '#8a5a8e'); R(196, 264, 232, 2, '#4f2e53');  // rug
+  // string lights
+  for (let x = 0; x < W; x += 12) { const y = 9 + Math.round(Math.sin(x / 38) * 4); R(x, y - 1, 12, 1, '#2a2238'); const col = ['#ffd27a', '#ff9bb8', '#9ad0ff', '#ffe9a8'][(x / 12) % 4]; if (Math.sin(t / 500 + x) > -0.5) R(x + 5, y, 2, 3, col); }
+  // wall clock
+  const cx = 212, cy = 54; R(cx - 11, cy - 11, 22, 22, '#2a2238'); R(cx - 9, cy - 9, 18, 18, '#f3ecff'); const d = new Date(); const hh = (fixed != null ? fixed : d.getHours() + d.getMinutes() / 60), mm = fixed != null ? 0 : d.getMinutes();
+  const hand = (a, l, col) => { for (let i = 0; i <= l; i++) R(cx + Math.round(Math.sin(a) * i), cy - Math.round(Math.cos(a) * i), 1, 1, col); };
+  hand(((hh % 12) / 12) * 6.283, 4, '#2a2238'); hand((mm / 60) * 6.283, 7, '#2a2238'); for (let k = 0; k < 12; k++) R(cx + Math.round(Math.sin(k * .5236) * 8), cy - Math.round(Math.cos(k * .5236) * 8), 1, 1, '#9a8fb5');
+  // pin board with the day's numbers
+  R(256, 28, 96, 56, '#5a3a2c'); R(258, 30, 92, 52, '#c9955f'); R(264, 36, 40, 26, '#fff6c7'); R(310, 40, 34, 22, '#ffc2d6'); R(270, 66, 30, 12, '#bfe7ff');
+  ctx.fillStyle = '#4a3a2c'; ctx.font = 'bold 7px ui-monospace, Menlo, monospace'; ctx.fillText('applied', 267, 46); ctx.font = 'bold 14px ui-monospace, Menlo, monospace'; ctx.fillText(String(S.applied), 268, 59);
+  ctx.font = 'bold 6px ui-monospace, Menlo, monospace'; ctx.fillText('interviews', 312, 50); ctx.font = 'bold 11px ui-monospace, Menlo, monospace'; ctx.fillText(String(S.interviews), 314, 60);
+  for (const [x, y] of [[282, 34], [326, 38], [284, 64]]) R(x, y, 2, 2, '#e8504a');
+  // shelf, books, cat
+  R(384, 76, 90, 4, '#3d2a24'); const bk = ['#e8504a', '#4a8fe8', '#f0c84a', '#6ac48a', '#b06ae8', '#e88a4a']; for (let i = 0; i < 9; i++) R(388 + i * 5 + (i > 4 ? 22 : 0), 62 + (i % 3), 4, 14 - (i % 3), bk[i % 6]);
+  const br = Math.round(Math.sin(t / 900) * 0.7); R(436, 66 - br, 26, 10 + br, '#8c8c9e'); R(436, 62 - br, 8, 6, '#8c8c9e'); R(437, 60 - br, 2, 3, '#8c8c9e'); R(442, 60 - br, 2, 3, '#8c8c9e'); R(462, 70, 6, 3, '#8c8c9e'); R(438, 69, 4, 1, '#3a3a4e');
+  if (Math.sin(t / 1600) > 0) { ctx.fillStyle = '#d8d2ff'; ctx.font = 'bold 6px ui-monospace, Menlo, monospace'; ctx.fillText('z', 448 + Math.round(Math.sin(t / 700) * 1), 56 - Math.floor((t / 400) % 5)); }
+  R(396, 20, 22, 26, '#2a2238'); R(398, 22, 18, 22, '#e8d8c0'); R(401, 27, 12, 8, '#e8847a'); R(401, 36, 8, 5, '#6a9ee8');       // small framed picture
+  // desk, monitor, keyboard, mug, plant, lamp
+  R(170, 176, 282, 5, '#8a5648'); R(170, 181, 282, 14, '#5e382d'); R(176, 195, 6, 44, '#4a2c24'); R(440, 195, 6, 44, '#4a2c24');
+  R(298, 168, 16, 8, '#22222e'); R(290, 174, 32, 3, '#22222e');
+  R(234, 86, 144, 84, '#22222e'); R(236, 88, 140, 80, '#14141c');
+  drawScreen(t);
+  R(262, 172, 88, 4, '#2c2c3c'); for (let x = 264; x < 348; x += 4) R(x, 172, 2, 1, Math.sin(t / 400 + x) > .6 ? '#8a9aff' : '#4a4a62');
+  R(386, 166, 9, 9, '#f3ecff'); R(395, 168, 3, 5, '#f3ecff'); R(387, 167, 7, 2, '#7a4a3a');
+  for (let i = 0; i < 3; i++) { const ph = (t / 700 + i * 2.1) % 6, a = 1 - ph / 6; ctx.fillStyle = `rgba(255,255,255,${a * .5})`; ctx.fillRect(Math.round(389 + Math.sin(ph + i) * 2), Math.round(163 - ph * 3), 1, 2); }
+  R(180, 164, 14, 12, '#c4684a'); R(178, 162, 18, 3, '#a8553c'); R(182, 148, 3, 14, '#3f9e5a'); R(188, 144, 3, 18, '#4fb86a'); R(176, 150, 7, 3, '#4fb86a'); R(190, 150, 8, 3, '#3f9e5a'); R(184, 140, 5, 4, '#6ad48a');
+  for (let i = 0; i < 16; i++) R(420 + Math.round(i * .9), 168 - i * 1.6, 3, 3, '#3a3a52');                                       // lamp arm
+  R(414, 172, 24, 4, '#3a3a52'); R(404, 138, 20, 8, '#5a5a78'); R(406, 146, 16, 3, lightsOn ? '#ffe8a8' : '#fff0c0');
+  // chair + person (seen from behind)
+  R(286, 150, 46, 58, '#2a2a40'); R(288, 152, 42, 54, '#363654'); R(296, 208, 26, 6, '#22222e'); R(306, 214, 6, 20, '#22222e'); R(296, 234, 26, 3, '#22222e');
+  R(292, 146, 34, 36, '#d9654c'); R(290, 152, 6, 22, '#c9553c'); R(322, 152, 6, 22, '#c9553c'); R(298, 142, 22, 8, '#c1503a');
+  const ty = Math.round(Math.sin(t / 130) * 1), tx = Math.round(Math.sin(t / 170) * 1);
+  for (let i = 0; i < 22; i++) { const yy = 152 + Math.round(i * 0.95); R(293 - i * 0.9, yy, 5, 5, '#d9654c'); R(321 + i * 0.9, yy, 5, 5, '#d9654c'); }   // arms reach down to the keys
+  R(268 + tx, 171 + ty, 7, 4, '#e8b894'); R(343 - tx, 171 - ty, 7, 4, '#e8b894');
+  R(302, 122, 18, 22, '#2b1f2e'); R(304, 118, 14, 6, '#2b1f2e'); R(304, 144, 14, 4, '#e8b894');
+  R(300, 118, 22, 3, '#f1f1f6'); R(298, 128, 5, 9, '#f1f1f6'); R(319, 128, 5, 9, '#f1f1f6'); R(299, 130, 2, 5, '#ff6b9a'); R(321, 130, 2, 5, '#ff6b9a');
+  // music notes drifting up from the headphones
+  for (let i = 0; i < 3; i++) { const ph = ((t / 1400) + i / 3) % 1; ctx.fillStyle = `rgba(255,214,240,${1 - ph})`; ctx.font = 'bold 8px ui-monospace, Menlo, monospace'; ctx.fillText(i % 2 ? '♪' : '♫', Math.round(326 + Math.sin(ph * 6 + i) * 6 + i * 4), Math.round(116 - ph * 36)); }
+}
+
+// the monitor: the agent's real browser, shrunk to 132x66 so nothing can be read; or scrolling code
+const tiny = document.createElement('canvas'); tiny.width = 132; tiny.height = 66; const tctx = tiny.getContext('2d');
+function drawScreen(t) {
+  const X = 240, Y = 92, w = 132, h = 66, fresh = S.frame && Date.now() - S.frameAt < 20e3 && P.get('screen') !== 'code';
+  if (fresh) { tctx.drawImage(S.frame, 0, 0, w, h); ctx.drawImage(tiny, X, Y); ctx.fillStyle = 'rgba(60,80,255,.07)'; ctx.fillRect(X, Y, w, h); }
+  else { R(X, Y, w, h, '#0c1220'); const off = Math.floor(t / 160) % 9; seed = 99; for (let i = -1; i < 8; i++) { const y = Y + 4 + i * 9 - (off % 9) + 9, ind = Math.floor(rnd() * 3) * 6; let x = X + 5 + ind; const n = 2 + Math.floor(rnd() * 4); for (let k = 0; k < n; k++) { const ww = 6 + Math.floor(rnd() * 22); if (y >= Y && y < Y + h - 3) R(x, y, Math.min(ww, X + w - 4 - x), 3, ['#7ad0ff', '#ffb86b', '#9aff9a', '#ff8fb8', '#c9b8ff'][Math.floor(rnd() * 5)]); x += ww + 3; } } }
+  for (let y = Y; y < Y + h; y += 2) R(X, y, w, 1, 'rgba(0,0,0,.14)');
+}
+
+// ---------- compose ----------
+const dark = document.createElement('canvas'); dark.width = W; dark.height = H; const dctx = dark.getContext('2d');
+function frame(t) {
+  const h = hourNow(), want = P.get('lights'), auto = h >= 5.5 ? 'on' : 'off', lights = (want || S.lights || auto) === 'on';
+  drawRoom(t, h, lights); drawWindow(t, h);
+  // dim the room when the real light is off; the window, monitor and lamp keep their glow
+  dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, W, H); dctx.fillStyle = lights ? 'rgba(20,10,40,.12)' : 'rgba(8,6,22,.66)'; dctx.fillRect(0, 0, W, H);
+  dctx.globalCompositeOperation = 'destination-out';
+  const glow = (x, y, r, a) => { const g = dctx.createRadialGradient(x, y, 2, x, y, r); g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dctx.fillStyle = g; dctx.fillRect(x - r, y - r, r * 2, r * 2); };
+  if (!lights) { glow(414, 148, 110, .9); glow(306, 128, 90, .7); dctx.fillStyle = 'rgba(0,0,0,.55)'; dctx.fillRect(WX - 14, WY - 8, WW + 28, WH + 16); }
+  ctx.drawImage(dark, 0, 0);
+  const d = new Date(), hh = fixed != null ? Math.floor(fixed) : d.getHours(), mm = fixed != null ? Math.round((fixed % 1) * 60) : d.getMinutes();
+  document.getElementById('cap').textContent = `🎧 lofi · ${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'am' : 'pm'} · ${S.wx.temp != null ? S.wx.temp + '° ' : ''}${wxLabel[wxKind()]}` + (S.applied ? ` · ${S.applied} applied today` : '');
+}
+setInterval(() => frame(performance.now()), 66);
+frame(0);
+</script>
+</body>
+</html>

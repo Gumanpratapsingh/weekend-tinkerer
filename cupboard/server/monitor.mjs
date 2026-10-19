@@ -5,6 +5,8 @@ export const SCENES = [
   { id: 'flights', label: 'Flight radar', emoji: '✈️' },
   { id: 'wifi', label: 'Wi-Fi devices', emoji: '📶' },
   { id: 'pet', label: 'Life-pet', emoji: '🐾' },
+  { id: 'lofi', label: 'Lofi room', emoji: '🎧' },
+  { id: 'cams', label: 'Live cams', emoji: '📹' },
 ];
 // Per-scene options, picked in Cupboard and handed to the scene as URL parameters (?key=value).
 // The first value of each option is the scene's own default, so it is left out of the URL.
@@ -19,6 +21,15 @@ export const OPTIONS = {
   pet: [
     { key: 'style', label: 'Creature', values: [['fox', 'Fox'], ['jelly', 'Jelly'], ['pixel', 'Pixel']] },
     { key: 'demo', label: 'Data', values: [['', 'Live'], ['1', 'Demo (every state)']] },
+  ],
+  lofi: [
+    { key: 't', label: 'Time of day', values: [['', 'Live'], ['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] },
+    { key: 'w', label: 'Weather', values: [['', 'Live'], ['clear', 'Clear'], ['rain', 'Rain'], ['snow', 'Snow']] },
+    { key: 'screen', label: 'Monitor shows', values: [['', 'Agent browser'], ['code', 'Scrolling code']] },
+  ],
+  cams: [
+    { key: 'cam', label: 'Camera', values: [['', 'Auto-rotate'], ['bears', 'Bears'], ['iss', 'Earth from the ISS'], ['aurora', 'Northern lights'], ['safari', 'Safari'], ['tokyo', 'Tokyo Bay'], ['aviary', 'Aviary'], ['miami', 'Miami'], ['gwb', 'NYC bridge'], ['fuji', 'Mount Fuji']] },
+    { key: 'every', label: 'Switch every', values: [['10', '10 min'], ['5', '5 min'], ['20', '20 min'], ['60', '1 hour']] },
   ],
   sky: [
     { key: 'labels', label: 'Labels', values: [['', 'On'], ['0', 'Off']] },
