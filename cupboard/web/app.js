@@ -268,6 +268,7 @@ function route() {
   if ((m = /^\/c\/(\d+)$/.exec(p))) return { name: 'chat', id: Number(m[1]) };
   if ((m = /^\/c\/(\d+)\/media$/.exec(p))) return { name: 'media', id: Number(m[1]) };
   if ((m = /^\/invite\/([a-f0-9]{32})$/.exec(p))) return { name: 'invite', token: m[1] };
+  if ((m = /^\/reset\/([a-f0-9]{32})$/.exec(p))) return { name: 'reset', token: m[1] };
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
   if ((m = /^\/device\/([a-f0-9]{32})$/.exec(p))) return { name: 'device', token: m[1] };
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
@@ -286,6 +287,7 @@ async function render() {
   const r = route();
   state.cur = r.name === 'chat' ? state.cur : null;
   if (r.name === 'invite') return screens.invite(r.token);
+  if (r.name === 'reset') return screens.reset(r.token);
   if (r.name === 'device') return screens.device(r.token);
   if (!state.me) {
     const me = await api('/me').catch(() => ({}));
@@ -337,6 +339,32 @@ const screens = {
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
       h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
         h('p', { class: 'lede' }, inv.owner ? 'Set up the owner account for your phone server.' : 'Cupboard is a private chat that runs on Guman\'s phone server. Messages are stored on that phone (not end-to-end encrypted).')), f));
+  },
+
+  // A reset link from Guman: choose a new password (this browser is trusted and signed in afterwards).
+  async reset(token) {
+    const r = await api(`/reset/${token}`).catch(() => ({ valid: false }));
+    if (!r.valid) {
+      app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')), h('div', { class: 'page' }, h('h2', {}, 'Link expired'),
+        h('p', { class: 'lede' }, 'This reset link was already used or is older than an hour. Ask Guman for a new one.')));
+      return;
+    }
+    const pass = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: '8' });
+    const again = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: '8' });
+    const err = h('p', { class: 'err' });
+    const b = h('button', { class: 'btn full', type: 'submit' }, 'Set new password');
+    const f = h('form', {}, h('label', { class: 'field' }, h('span', {}, 'New password (at least 8 characters)'), pass),
+      h('label', { class: 'field' }, h('span', {}, 'Repeat it'), again), b, err);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault(); err.textContent = '';
+      if (pass.value !== again.value) { err.textContent = 'The two passwords don\'t match.'; return; }
+      b.disabled = true;
+      try { await api(`/reset/${token}`, { method: 'POST', body: { password: pass.value } }); state.me = null; toast('Password changed'); go('/', true); }
+      catch (x) { err.textContent = x.message; } finally { b.disabled = false; }
+    });
+    app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
+      h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, `New password for ${r.name}`),
+        h('p', { class: 'lede' }, `Sign-in name: @${r.username}. After this you're signed in on this device.`)), f));
   },
 
   // Only trusted devices reach Cupboard. An unknown browser sees this and nothing else.
@@ -551,7 +579,18 @@ const screens = {
       people = state.users.map((u) => {
         const x = h('button', { class: 'x', type: 'button' }, 'Remove');
         x.addEventListener('click', async () => { if (!confirm(`Remove ${u.name} from Cupboard? They'll be signed out and can't come back without a new invite.`)) return; await api(`/users/${u.id}`, { method: 'DELETE' }); toast('Removed'); render(); });
-        return h('div', { class: 'kv' }, h('span', {}, `${u.name} · @${u.username}`), x);
+        const rl = h('button', { class: 'x', type: 'button' }, 'Reset link');
+        rl.addEventListener('click', async () => {
+          try {
+            const { path } = await api(`/users/${u.id}/reset`, { method: 'POST' });
+            const url = location.origin + path;
+            try { await navigator.clipboard.writeText(url); } catch { /* not allowed here */ }
+            if (navigator.share) navigator.share({ text: `Cupboard password reset for ${u.name} (1 hour, once): ${url}` }).catch(() => {});
+            else prompt(`Reset link for ${u.name} (works once, for 1 hour). Copied:`, url);
+            toast('Reset link copied');
+          } catch (e) { toast(e.message, true); }
+        });
+        return h('div', { class: 'kv' }, h('span', {}, `${u.name} · @${u.username}`), h('span', {}, rl, ' ', x));
       });
     }
     const ringOn = () => { try { return localStorage.getItem('cb_ring') !== '0'; } catch { return true; } };
@@ -589,6 +628,17 @@ const screens = {
       } catch (e) { toast(e.message, true); }
     });
     paintDevices();
+    // Change my password: signed in on this trusted device, so the old one isn't needed.
+    const np = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'New password (8+ characters)' });
+    const np2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'Repeat it' });
+    const pwBtn = h('button', { class: 'btn ghost', type: 'button' }, 'Change password');
+    pwBtn.addEventListener('click', async () => {
+      if (np.value.length < 8) return toast('At least 8 characters.', true);
+      if (np.value !== np2.value) return toast('The two passwords don\'t match.', true);
+      pwBtn.disabled = true;
+      try { await api('/password', { method: 'POST', body: { password: np.value } }); np.value = np2.value = ''; toast('Password changed'); }
+      catch (e) { toast(e.message, true); } finally { pwBtn.disabled = false; }
+    });
     app.replaceChildren(
       h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Settings'))),
       h('div', { class: 'page' },
@@ -598,6 +648,9 @@ const screens = {
         notif,
         !isStandalone() ? h('div', {}, h('div', { class: 'sec' }, 'Install'), h('p', { class: 'lede' }, isIOS() ? 'Safari → Share (□↑) → Add to Home Screen.' : 'Browser menu → Install app / Add to Home screen.')) : null,
         owner ? h('div', {}, h('div', { class: 'sec' }, 'People'), ...(people.length ? people : [h('p', { class: 'lede' }, 'Nobody yet. Invite friends from ✎ → Invite a friend.')])) : null,
+        h('div', { class: 'sec' }, 'Password'),
+        h('p', { class: 'lede' }, 'Forgot it? Change it here on a device that is already signed in.' + (owner ? ' For someone else: People → Reset link.' : '')),
+        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, np, np2, pwBtn),
         h('div', { class: 'sec' }, 'Devices'),
         h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
         devBox, addDev, devOut,

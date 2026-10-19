@@ -291,7 +291,7 @@ async function api(req, res, path, query) {
       }
       return send(res, 200, { user: null, device: false });
     }
-    if (!/^\/api\/invite\/[a-f0-9]{32}$/.test(path)) throw err(404, 'Not found.');
+    if (!/^\/api\/(invite|reset)\/[a-f0-9]{32}$/.test(path)) throw err(404, 'Not found.');
   }
 
   // ----- sign in (trusted devices only), invites -----
@@ -305,6 +305,23 @@ async function api(req, res, path, query) {
     return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': cookie(newSession(u.id), SESSION_DAYS * 86400) });
   }
   let m;
+  // Password reset link (made by the owner for one person, 1 hour, single use): set a new password; like an invite, it also
+  // trusts the browser it is opened in, so one link gets a forgotten password AND a new computer working.
+  if ((m = /^\/api\/reset\/([a-f0-9]{32})$/.exec(path))) {
+    const r = JSON.parse(getKv(`reset:${m[1]}`) || 'null');
+    const u = r && r.exp > Date.now() ? one("SELECT * FROM users WHERE id = ? AND active = 1 AND role != 'bot'", r.uid) : null;
+    if (M === 'GET') return send(res, 200, u ? { valid: true, name: u.name, username: u.username } : { valid: false });
+    if (!u) throw err(410, 'This reset link has expired or was already used. Ask for a new one.');
+    const ip = visitorIp(req);
+    if (locked(ip)) throw err(429, 'Too many attempts. Try again in 15 minutes.');
+    const pw = String((await readJson(req, 2000)).password || '');
+    if (pw.length < 8) throw err(400, 'Password: at least 8 characters.');
+    const salt = randomBytes(16).toString('hex');
+    run('UPDATE users SET salt = ?, hash = ? WHERE id = ?', salt, hashPw(pw, salt), u.id);
+    run('DELETE FROM kv WHERE k = ?', `reset:${m[1]}`);
+    log(`password reset for ${u.username}`);
+    return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': [cookie(newSession(u.id), SESSION_DAYS * 86400), ...(device ? [] : [trustDevice(req, u.id, r.by)])] });
+  }
   if ((m = /^\/api\/invite\/([a-f0-9]{32})$/.exec(path))) {
     const inv = one('SELECT i.*, u.name AS by FROM invites i LEFT JOIN users u ON u.id = i.created_by WHERE i.token = ? AND i.used_by IS NULL AND i.expires > ?', m[1], Date.now());
     if (M === 'GET') return send(res, 200, inv ? { valid: true, by: inv.by || 'Guman', owner: inv.role === 'owner' } : { valid: false });
@@ -363,6 +380,24 @@ async function api(req, res, path, query) {
 
   if (M === 'GET' && path === '/api/users') {
     return send(res, 200, { users: all("SELECT id, username, name, role FROM users WHERE active = 1 AND role != 'bot' AND id != ? ORDER BY name", me.id) });
+  }
+  // Change my own password (signed in on a trusted device: no old password needed, e.g. when it's forgotten).
+  if (M === 'POST' && path === '/api/password') {
+    const pw = String((await readJson(req, 2000)).password || '');
+    if (pw.length < 8) throw err(400, 'Password: at least 8 characters.');
+    const salt = randomBytes(16).toString('hex');
+    run('UPDATE users SET salt = ?, hash = ? WHERE id = ?', salt, hashPw(pw, salt), me.id);
+    log(`password changed by ${me.username}`);
+    return send(res, 200, { ok: true });
+  }
+  // Owner: a one-time reset link for someone who forgot their password (1 hour).
+  if ((m = /^\/api\/users\/(\d+)\/reset$/.exec(path)) && M === 'POST') {
+    if (me.role !== 'owner') throw err(403, 'Only the owner can make reset links.');
+    const u = one("SELECT id FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
+    if (!u) throw err(404, 'No such person.');
+    const token = randomBytes(16).toString('hex');
+    setKv(`reset:${token}`, JSON.stringify({ uid: u.id, by: me.id, exp: Date.now() + 3600e3 }));
+    return send(res, 200, { path: `/reset/${token}`, expires: Date.now() + 3600e3 });
   }
   if ((m = /^\/api\/users\/(\d+)$/.exec(path)) && M === 'DELETE') {
     if (me.role !== 'owner') throw err(403, 'Only the owner can remove people.');
