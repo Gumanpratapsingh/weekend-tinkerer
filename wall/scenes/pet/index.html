@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Life-pet</title>
+<style>
+  :root { --fg: #f4f6ff; --dim: #a9b1cf; --line: rgba(255,255,255,.12); --glass: rgba(9,12,24,.58);
+          --a: #7cf0c5; --gold: #ffd166; --warn: #ffb86b; --bad: #ff6b81; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #05070d; color: var(--fg); overflow: hidden;
+               font: 16px/1.3 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+  body.still { cursor: none; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  /* all text UI lives on a 1920x1080 stage scaled to fit the screen */
+  #ui { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; pointer-events: none; }
+  .glass { background: var(--glass); border: 1px solid var(--line); border-radius: 28px;
+           backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+
+  #clock { position: absolute; left: 48px; top: 36px; font-size: 92px; font-weight: 200; letter-spacing: -.03em;
+           font-variant-numeric: tabular-nums; text-shadow: 0 2px 18px rgba(0,0,0,.45); line-height: 1; }
+  #clock small { display: block; font-size: 26px; color: var(--fg); opacity: .8; letter-spacing: 0; margin-top: 10px; font-weight: 400; }
+
+  #card { position: absolute; right: 44px; top: 40px; width: 480px; padding: 28px 32px 26px; }
+  #card .top { display: flex; align-items: baseline; justify-content: space-between; }
+  #petname { font-size: 46px; font-weight: 700; letter-spacing: -.01em; }
+  #lvl { font-size: 30px; font-weight: 700; color: var(--gold); }
+  .bar { height: 14px; border-radius: 10px; background: rgba(255,255,255,.1); overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 10px; transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
+  #xpbar { background: linear-gradient(90deg, #ffd166, #ff9f43); }
+  #bellybar { background: linear-gradient(90deg, #7cf0c5, #8fb4ff); }
+  .sub { display: flex; justify-content: space-between; font-size: 19px; color: var(--dim); margin-top: 7px; font-variant-numeric: tabular-nums; }
+  #mood { font-size: 30px; margin: 20px 0 6px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .grid b { display: block; font-size: 58px; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+  .grid span { display: block; font-size: 16px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+  .grid b.warn { color: var(--warn); } .grid b.bad { color: var(--bad); } .grid b.good { color: var(--a); }
+  #people { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 21px; color: var(--dim); }
+  #people div { display: flex; justify-content: space-between; padding: 3px 0; }
+  #people b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #caption { position: absolute; left: 50%; bottom: 54px; transform: translate(-50%, 30px) scale(.96); opacity: 0;
+             padding: 20px 44px; font-size: 44px; font-weight: 650; white-space: nowrap; border-radius: 999px;
+             transition: opacity .45s, transform .45s cubic-bezier(.2,1.4,.4,1); }
+  #caption.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+  #recap { position: absolute; left: 50%; top: 50%; width: 860px; padding: 44px 52px 40px; transform: translate(-50%, -46%) scale(.97);
+           opacity: 0; transition: opacity .8s, transform .8s cubic-bezier(.2,1,.3,1); background: rgba(12,14,30,.82); pointer-events: auto; }
+  #recap.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #recap h1 { font-size: 56px; font-weight: 700; }
+  #recap .when { font-size: 22px; color: var(--dim); margin-top: 6px; }
+  #recap .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 34px; margin-top: 32px; }
+  #recap .rows b { display: block; font-size: 64px; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+  #recap .rows span { display: block; font-size: 20px; color: var(--dim); margin-top: 8px; }
+  #recap .who { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 22px; color: var(--dim); }
+  #recap .who b { color: var(--fg); }
+  #recap .bye { height: 6px; border-radius: 6px; background: rgba(255,255,255,.12); margin-top: 26px; overflow: hidden; }
+  #recap .bye i { display: block; height: 100%; width: 100%; background: var(--gold); }
+
+  #badge { position: absolute; left: 50px; bottom: 40px; font-size: 18px; letter-spacing: .18em; color: var(--dim); text-transform: uppercase; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="clock">--:--<small></small></div>
+  <aside id="card" class="glass">
+    <div class="top"><span id="petname">Pet</span><span id="lvl">Lv 1</span></div>
+    <div class="bar"><i id="xpbar"></i></div>
+    <div class="sub"><span id="xpt">0 XP</span><span>next level</span></div>
+    <div id="mood">😊 Content</div>
+    <div class="bar"><i id="bellybar"></i></div>
+    <div class="sub"><span>belly</span><span id="bellyt">0 / 10 today</span></div>
+    <div class="grid">
+      <div><b id="fed">–</b><span>fed today 🍜</span></div>
+      <div><b id="intv">–</b><span>interviews 🎉</span></div>
+      <div><b id="ltemp">–</b><span>laptop</span></div>
+      <div><b id="batt">–</b><span>phone</span></div>
+    </div>
+    <div id="people"></div>
+  </aside>
+  <div id="caption" class="glass"></div>
+  <div id="recap" class="glass"></div>
+  <div id="badge"></div>
+</div>
+<script src="common.js"></script>
+<script src="style-fox.js"></script>
+<script src="style-jelly.js"></script>
+<script src="style-pixel.js"></script>
+<script src="pet.js"></script>
+</body>
+</html>
