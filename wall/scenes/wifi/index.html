@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Wi-Fi</title>
+<!-- Wall scene: every device on the home Wi-Fi and what it is doing right now (website names from the laptop's DNS).
+     Data: same-origin /api/wifi (wall server -> phone 127.0.0.1:8096 -> laptop hub). Names and MACs are runtime data only.
+     Plain CSS (no nesting): the phone's Chrome is v111. -->
+<style>
+  :root { --bg: #05070d; --fg: #eef2ff; --dim: #8b93b0; --line: rgba(255,255,255,.09); --glass: rgba(10,14,26,.62);
+          --a: #7cf0c5; --b: #8fb4ff; --warn: #ffb86b; --bad: #ff6b81; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.35 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body { background: radial-gradient(1200px 700px at 15% -10%, rgba(124,240,197,.10), transparent 60%), radial-gradient(1000px 700px at 110% 110%, rgba(143,180,255,.12), transparent 60%), var(--bg); }
+  main { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 22px; padding: 30px 36px 22px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; }
+  h1 { font-size: 15px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--a); box-shadow: 0 0 12px var(--a); animation: pulse 1.6s infinite; }
+  .dot.idle { background: #4a5170; box-shadow: none; animation: none; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  #big { font-size: 110px; font-weight: 200; line-height: .9; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  #big small { font-size: 30px; color: var(--dim); letter-spacing: 0; margin-left: 10px; }
+  #side { text-align: right; color: var(--dim); font-size: 18px; }
+  #side b { color: var(--fg); font-weight: 600; }
+  #apps { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+  .chip { padding: 6px 14px; border-radius: 99px; background: rgba(124,240,197,.12); border: 1px solid rgba(124,240,197,.35); color: var(--a); font-size: 16px; font-weight: 600; }
+  .chip.small { font-size: 13px; padding: 3px 10px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; align-content: start; overflow: hidden; }
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: opacity .6s; }
+  .card.off { opacity: .38; }
+  .card.busy { border-color: rgba(124,240,197,.45); box-shadow: 0 0 0 1px rgba(124,240,197,.15), 0 10px 40px rgba(124,240,197,.08); }
+  .top { display: flex; align-items: center; gap: 12px; }
+  .name { font-size: 21px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .new { color: var(--warn); font-size: 13px; font-weight: 700; letter-spacing: .1em; }
+  .meta { color: var(--dim); font-size: 14px; margin-top: 4px; }
+  .now { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .sites { margin-top: 10px; display: grid; gap: 3px; }
+  .site { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; color: #c9d0ea; }
+  .site span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+  footer { color: var(--dim); font-size: 13px; display: flex; justify-content: space-between; gap: 20px; }
+  #err { position: fixed; inset: auto 0 40% 0; text-align: center; color: var(--warn); font-size: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1><span class="dot" id="live"></span>Home Wi-Fi · live</h1>
+      <div id="big">–<small>devices online</small></div>
+    </div>
+    <div id="side"><div id="summary"></div><div id="apps"></div></div>
+  </header>
+  <section id="grid"></section>
+  <footer><span id="note"></span><span id="when"></span></footer>
+</main>
+<div id="err" hidden></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 60 ? 'now' : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`; };
+
+function card(d) {
+  const a = d.activity, busy = !!(a && a.now && a.now.length);
+  const c = el('div', 'card' + (d.online ? '' : ' off') + (busy ? ' busy' : ''));
+  const top = el('div', 'top');
+  const dot = el('span', 'dot' + (busy ? '' : ' idle'));
+  top.append(dot, el('div', 'name', d.label));
+  if (d.isNew) top.append(el('span', 'new', 'NEW'));
+  c.append(top, el('div', 'meta', [d.ip, d.vendor || (d.private ? 'private address' : ''), d.online ? (a && a.last ? `last lookup ${ago(a.last)}` : 'online') : `away · seen ${ago(d.lastSeen)}`].filter(Boolean).join(' · ')));
+  if (busy) { const n = el('div', 'now'); for (const x of a.now) n.append(el('span', 'chip small', x)); c.append(n); }
+  if (a && a.recent && a.recent.length) {
+    const s = el('div', 'sites');
+    for (const r of a.recent.slice(0, busy ? 3 : 4)) { const row = el('div', 'site'); row.append(el('span', '', r.site), el('span', '', ago(r.t))); s.append(row); }
+    c.append(s);
+  }
+  return c;
+}
+
+async function tick() {
+  let d;
+  try { const r = await fetch('/api/wifi', { cache: 'no-store' }); d = await r.json(); if (d.error) throw new Error(d.error); }
+  catch (e) { $('err').hidden = false; $('err').textContent = 'Wi-Fi feed not reachable (laptop or phone link down) — retrying'; $('live').className = 'dot idle'; return; }
+  $('err').hidden = true; $('live').className = 'dot';
+  // Busy devices first, then online, then the rest; the laptop itself last (it is always busy with the job agents).
+  const rank = (x) => (x.self ? 3 : x.activity && x.activity.now && x.activity.now.length ? 0 : x.online ? 1 : 2);
+  const devs = d.devices.slice().sort((x, y) => rank(x) - rank(y) || (y.activity?.last || y.lastSeen || 0) - (x.activity?.last || x.lastSeen || 0));
+  $('big').firstChild.textContent = String(d.online);
+  const using = {};
+  for (const x of devs) if (!x.self) for (const n of (x.activity?.now || [])) using[n] = (using[n] || 0) + 1;
+  $('summary').innerHTML = '';
+  $('summary').append(el('b', '', `${d.total} known`), ` · ${d.newToday ? `${d.newToday} new today` : 'nothing new today'}`);
+  $('apps').replaceChildren(...Object.entries(using).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([k, n]) => el('span', 'chip', n > 1 ? `${k} ×${n}` : k)));
+  const grid = $('grid');
+  grid.replaceChildren(...devs.map(card));
+  // Fit the screen: hide cards that would overflow instead of scrolling.
+  for (const c of grid.children) c.style.display = '';
+  for (const c of [...grid.children].reverse()) { if (grid.scrollHeight <= grid.clientHeight + 2) break; c.style.display = 'none'; }
+  $('note').textContent = d.dns ? 'Website names only (DNS) · devices with Private Relay, Private DNS or a VPN show none' : 'Activity appears once the router uses the laptop as DNS';
+  const sc = ago(d.scannedAt);
+  $('when').textContent = `${sc === 'now' ? 'scanned just now' : `scanned ${sc} ago`} · updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+}
+tick();
+setInterval(tick, 8000);
+</script>
+</body>
+</html>

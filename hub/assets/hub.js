@@ -336,10 +336,16 @@ const pages = {
           await api('/wifi/name', { method: 'POST', body: { mac: x.mac, label } });
           toast('Saved'); paint(await api('/wifi'));
         }));
+        const a = x.activity;
+        const recent = a?.recent?.length ? h('details', {}, h('summary', { class: 'sub' }, `Recent sites (${a.recent.length})`),
+          ...a.recent.map((r) => h('div', { class: 'sub' }, `${r.app ? '▸ ' : ''}${r.site} · ${ago(r.t)}${r.n > 1 ? ` · ${r.n}×` : ''}`))) : null;
         return h('div', { class: 'item' },
           h('div', { class: 'main' }, h('div', {}, x.label, x.isNew ? h('span', { class: 'accent' }, ' · new') : null),
+            a?.now?.length ? h('div', {}, h('span', { class: 'live' }, `Now: ${a.now.join(', ')}`)) : null,
             h('div', { class: 'sub' }, [x.ip, x.vendor || (x.private ? 'private address' : null), x.name && x.named ? x.name : null,
-              x.online ? null : `last seen ${ago(x.lastSeen)}`, x.firstSeen ? `first seen ${ago(x.firstSeen)}` : null].filter(Boolean).join(' · '))),
+              x.online ? null : `last seen ${ago(x.lastSeen)}`, a?.last ? `last lookup ${ago(a.last)}` : null,
+              a?.blocked ? `${a.blocked} ads/trackers blocked` : null].filter(Boolean).join(' · ')),
+            recent),
           h('span', { class: x.online ? 'live' : '' }, x.online ? 'online' : 'away'),
           x.self ? null : rename);
       };
@@ -349,13 +355,16 @@ const pages = {
       box.replaceChildren(
         h('div', { class: 'hello' }, h('h1', {}, 'Wi-Fi'),
           h('p', { class: 'lede' }, `${d.online} device${d.online === 1 ? '' : 's'} online now${d.newToday ? ` · ${d.newToday} new today` : ''} · scanned ${d.scannedAt ? ago(d.scannedAt) : 'not yet'}. `,
-            'Phones use a private address per network, so name yours once. Which websites devices visit needs the DNS step (not set up yet).')),
+            'Phones use a private address per network, so name yours once. ',
+            d.dns ? 'Activity = website names each device looks up (no pages or content); devices with Private Relay, Private DNS or a VPN show none.'
+              : 'Activity appears once the router hands out the laptop as DNS.')),
         h('div', { class: 'btns' }, scanBtn),
         h('div', { class: 'sec' }, `Online (${on.length})`), ...on.map(row),
         off.length ? h('div', { class: 'sec' }, `Seen before (${off.length})`) : null, ...off.map(row));
     };
     paint(await api('/wifi'));
-    pageTimer = setInterval(() => api('/wifi').then(paint).catch(() => {}), 30e3);
+    // Live: refresh every 8 s, except while a "Recent sites" list is open (it would snap shut).
+    pageTimer = setInterval(() => { if (!box.querySelector('details[open]')) api('/wifi').then(paint).catch(() => {}); }, 8e3);
     return box;
   },
 
