@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PM study wall</title>
+<style>
+  :root { --bg: #070a14; --fg: #eef2ff; --dim: #8b93b0; --line: rgba(255,255,255,.1); --glass: rgba(14,19,36,.7); --a: #7cf0c5; --b: #8fb4ff; --c: #ffb86b; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: radial-gradient(circle at 20% 10%, #12183a 0, var(--bg) 55%); color: var(--fg); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  main { height: 100vh; padding: 28px 34px; display: grid; grid-template-rows: auto 1fr; gap: 20px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; }
+  header h1 { font-size: 15px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  #clock { font-size: 34px; font-weight: 200; font-variant-numeric: tabular-nums; }
+  #grid { display: grid; grid-template-columns: 1fr 1.25fr; grid-template-rows: 1.35fr 1fr; gap: 20px; min-height: 0; }
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: 22px; padding: 24px 28px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  #hn { grid-row: 1 / 3; }
+  .full #grid { grid-template-columns: 1fr; grid-template-rows: 1fr; } .full .card { display: none; } .full .card.pick { display: flex; padding: 40px 56px; }
+  h2 { font-size: 15px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin-bottom: 16px; display: flex; gap: 10px; align-items: center; }
+  h2 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 12px var(--c); }
+  /* Hacker News */
+  #list { display: flex; flex-direction: column; gap: 4px; }
+  .story { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .story:first-child { border-top: 0; }
+  .story .n { font-size: 28px; color: var(--c); font-weight: 300; text-align: right; font-variant-numeric: tabular-nums; }
+  .story .t { font-size: 25px; font-weight: 560; line-height: 1.25; }
+  .story .m { font-size: 17px; color: var(--dim); margin-top: 3px; }
+  .full #list .story .t { font-size: 30px; } .full #list .story { padding: 14px 0; } .full #list .story .m { font-size: 18px; }
+  /* question */
+  #cat { align-self: flex-start; padding: 6px 16px; border-radius: 99px; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; background: rgba(143,180,255,.14); color: var(--b); margin-bottom: 14px; }
+  #q { font-size: 50px; line-height: 1.18; font-weight: 600; letter-spacing: -.01em; }
+  .full #q { font-size: 64px; }
+  #bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); margin: 20px 0 14px; overflow: hidden; } #bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--a), var(--b)); }
+  #hint { list-style: none; padding: 0; display: grid; gap: 7px; }
+  #hint li { font-size: 23px; color: #d6dcf5; opacity: 0; transform: translateY(6px); transition: opacity .6s, transform .6s; padding-left: 26px; position: relative; }
+  #hint li::before { content: attr(data-n); position: absolute; left: 0; color: var(--a); font-weight: 700; }
+  #hint li.on { opacity: 1; transform: none; }
+  .full #hint li { font-size: 28px; }
+  #hintLabel { font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); min-height: 18px; }
+  /* framework */
+  #fwName { font-size: 44px; font-weight: 650; color: var(--a); } #fwWhat { font-size: 25px; margin: 8px 0 12px; color: #d6dcf5; } #fwWhen { font-size: 19px; color: var(--dim); margin-top: auto; }
+  #fwParts { display: flex; flex-wrap: wrap; gap: 8px; } #fwParts span { padding: 8px 16px; border-radius: 12px; background: rgba(124,240,197,.1); border: 1px solid rgba(124,240,197,.25); font-size: 21px; }
+  .full #fwName { font-size: 64px; } .full #fwWhat { font-size: 32px; } .full #fwParts span { font-size: 26px; padding: 10px 20px; } .full #fwWhen { font-size: 24px; }
+  .fade { animation: fade .7s; } @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>PM study wall</h1><div id="clock"></div></header>
+  <div id="grid">
+    <section class="card" id="hn"><h2><span class="dot"></span>Hacker News · top stories</h2><div id="list"></div></section>
+    <section class="card" id="qc"><div id="cat"></div><div id="q"></div><div id="bar"><i></i></div><div id="hintLabel"></div><ul id="hint"></ul></section>
+    <section class="card" id="fw"><h2><span class="dot"></span>Framework</h2><div id="fwName"></div><div id="fwWhat"></div><div id="fwParts"></div><div id="fwWhen"></div></section>
+  </div>
+</main>
+<script>
+// PM study wall. Options: ?show=hn|q|fw (one panel full screen; default all three)
+const $ = (id) => document.getElementById(id), P = new URLSearchParams(location.search), show = P.get('show');
+if (['hn', 'q', 'fw'].includes(show)) { document.body.classList.add('full'); $({ hn: 'hn', q: 'qc', fw: 'fw' }[show]).classList.add('pick'); }
+
+// ---------- clock ----------
+setInterval(() => { const d = new Date(), h = d.getHours(); $('clock').textContent = `${((h + 11) % 12) + 1}:${String(d.getMinutes()).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`; }, 1000);
+
+// ---------- Hacker News (public API, no key) ----------
+const ago = (t) => { const m = Math.max(1, Math.round((Date.now() / 1000 - t) / 60)); return m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+async function loadHN() {
+  const n = document.body.classList.contains('full') ? 8 : 9;
+  try {
+    const ids = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json();
+    const items = await Promise.all(ids.slice(0, n).map((id) => fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then((r) => r.json())));
+    const list = $('list'); list.replaceChildren();
+    items.forEach((s, i) => {
+      if (!s) return; let host = ''; try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch {}
+      const row = document.createElement('div'); row.className = 'story fade';
+      const num = document.createElement('div'); num.className = 'n'; num.textContent = i + 1;
+      const body = document.createElement('div'), t = document.createElement('div'), m = document.createElement('div');
+      t.className = 't'; t.textContent = s.title; m.className = 'm'; m.textContent = `▲ ${s.score} · 💬 ${s.descendants || 0}${host ? ' · ' + host : ''} · ${ago(s.time)}`;
+      body.append(t, m); row.append(num, body); list.append(row);
+    });
+  } catch { $('list').textContent = 'Hacker News is not reachable right now.'; }
+}
+loadHN(); setInterval(loadHN, 5 * 60e3);
+
+// ---------- interview questions ----------
+const QS = [
+  ['Product sense', 'How would you improve Google Maps for people who commute by bus in Indian cities?', ['Clarify the goal (more trips? fewer missed buses?)', 'Pick one user: the daily bus commuter', 'List their pain points: crowding, arrival time, last mile, paying', 'Pick 2–3 ideas and compare impact vs effort', 'Say how you would measure it, and the main risk (data from operators)']],
+  ['Product sense', 'Design an alarm clock for blind users.', ['Clarify: blind from birth, or low vision? Phone or a device?', 'Walk through the day: setting, waking, snoozing, stopping', 'Use sound, touch and voice instead of the screen', 'Pick the one feature that matters most and say why', 'Define success: alarms set without help, missed alarms']],
+  ['Product sense', 'How would you design a WhatsApp feature for small shop owners?', ['Pick the segment: kirana shops, tailors, home bakers', 'Their jobs: take orders, share prices, collect payment, repeat customers', 'Choose one job to solve first, like a catalogue plus an order list', 'Sketch the flow in three screens', 'Metrics: orders per shop per week, repeat customers']],
+  ['Product sense', 'Design a product that helps people save money on groceries.', ['Who: families, students, or bachelors? Choose one', 'Where money leaks: impulse buys, waste, no price comparison', 'Ideas: price tracking, shared lists, waste reminders', 'Pick one and define the smallest version you can test', 'Success: monthly savings per user, weekly use']],
+  ['Execution', 'Repeat orders fell in Tier-2 cities for a food delivery app. Where do you start?', ['Confirm it is real: check the data and the time window', 'Split by city, new vs old users, and order stage', 'Look for internal causes (delivery time, offers, releases) and external ones (competitors, festivals)', 'Form 2–3 hypotheses and the cheapest way to test each', 'Propose the fix and how you will know it worked']],
+  ['Metrics', 'Daily active users on a payments app dropped 8% week over week. How do you investigate?', ['Check for a tracking or data bug first', 'Segment: platform, app version, region, user age, entry point', 'Internal vs external: a release, an outage, a bank issue, a holiday', 'Follow the funnel to find where users disappear', 'Pick the likeliest cause, fix it, and set an alert']],
+  ['Metrics', 'What is the north-star metric for a food delivery app, and what guardrails would you set?', ['State the user value: meals delivered on time', 'Candidate: weekly orders per active user', 'Check it is hard to game and tied to retention', 'Guardrails: delivery time, cancellation rate, rider earnings, margin', 'Say what you would do if the north star rises but a guardrail breaks']],
+  ['Metrics', 'A new onboarding flow lifted sign-ups 12%, but day-7 retention fell 5%. Do you ship it?', ['Ask how sign-ups and retention are counted, and for how many users', 'Check whether the test was random and long enough', 'Look at who the extra sign-ups are: lower intent?', 'Compare the value of sign-ups against retained users, not raw sign-ups', 'Decide: iterate the flow, run a longer test, or ship to a segment']],
+  ['Strategy', 'Should a food delivery company build its own payments wallet? Argue both sides.', ['Define the goal: lower payment costs, more control, more repeat orders', 'For: fees saved, offers, data', 'Against: regulation, trust, competition with UPI apps', 'Look at the numbers you would need', 'Give your view and what would change it']],
+  ['Strategy', 'How would you price a B2B SaaS tool for small clinics?', ['Understand the buyer: a doctor-owner, price-sensitive', 'Value metric: patients, doctors or appointments', 'Compare options: per seat, per clinic, tiered', 'Check willingness to pay with 10 interviews', 'Start simple, then test a higher tier']],
+  ['Strategy', 'How would a streaming service grow subscriptions beyond metro cities?', ['Name the barriers: price, language content, data cost, payment methods', 'Segment non-metro users', 'Ideas: cheaper mobile plans, regional content, UPI autopay, telco bundles', 'Pick the one with the best reach per rupee', 'Measure: paid conversions, churn after month 2']],
+  ['Prioritisation', 'You have 3 engineers and 6 weeks. Sales wants A, support wants B, leadership wants C. How do you decide?', ['Turn each ask into a user problem and an outcome', 'Score with a simple model such as RICE', 'Check the cost, dependencies and risk of each', 'Talk to each stakeholder and share the scoring', 'Commit to a plan, say what is not being done, and revisit in two weeks']],
+  ['Behavioural', 'How do you say no to a senior stakeholder?', ['Start by showing you understand their goal', 'Share the data or trade-off, not an opinion', 'Offer an alternative that meets the goal', 'Agree on what would change your mind', 'Keep the relationship and follow up']],
+  ['Behavioural', 'Tell me about a product you shipped that failed. What did you learn?', ['Pick a real failure, not a disguised success', 'Situation and your role in two sentences', 'What went wrong and what you missed', 'What you changed afterwards', 'A specific lesson you have used since']],
+  ['Behavioural', 'Describe a time you used data to change a decision.', ['Context: the decision and who wanted what', 'The data you looked at and why', 'What it showed, including anything surprising', 'How you convinced others', 'The result with a number']],
+  ['Behavioural', 'How do you work with engineers who push back on your roadmap?', ['Treat pushback as information about cost and risk', 'Ask what would make it simpler', 'Share the user problem, not just the solution', 'Find a smaller version to ship first', 'Agree on trade-offs in writing']],
+  ['Estimation', 'Estimate how many chai stalls there are in Bengaluru.', ['State your assumptions: population, share who drink tea out', 'Estimate cups per day per stall', 'Work: people × cups per person ÷ cups per stall', 'Sanity-check with density: stalls per area', 'Give a range, not a single number']],
+  ['Estimation', 'Estimate the market size for electric scooters in India.', ['Define the market: units per year or revenue', 'Start from two-wheeler sales and the share that is electric', 'Multiply by an average price', 'Cross-check with another approach, such as households', 'Say which assumption matters most']],
+  ['AI product', 'How would you add AI summaries to an email app without hurting trust?', ['Name the risk: wrong or missing details', 'Show the source next to the summary', 'Let users turn it off and give feedback', 'Start with low-risk emails such as newsletters', 'Measure accuracy complaints and time saved']],
+  ['AI product', 'When should a PM decide a feature should NOT use an LLM?', ['When rules or search would do the job better and cheaper', 'When a wrong answer is costly and cannot be checked', 'When latency or cost per use breaks the product', 'When privacy rules block sending the data', 'Say how you would test the simple version first']],
+  ['Experiments', 'What is the difference between an A/B test and a feature-flag rollout, and when would you use each?', ['A/B test: random split to measure a causal effect', 'Flag rollout: gradual release to limit risk', 'Use a test when you must prove impact', 'Use a rollout when you are confident and want safety', 'Often use both: roll out behind a flag, measure with a test']],
+  ['Product sense', 'Pick a product you love and tell me what you would cut.', ['Pick a product and say who it is for', 'List its core value and the features around it', 'Choose a feature that few people use but costs complexity', 'Say what data would confirm that', 'Describe how you would remove it without upsetting users']],
+  ['Strategy', 'How would you decide whether to build, buy or partner?', ['Is it core to your advantage? If yes, build', 'Compare time to market and total cost', 'Check control, data and lock-in', 'Look at the partner or vendor risk', 'Make a recommendation with a trigger to revisit']],
+];
+
+// ---------- frameworks ----------
+const FW = [
+  ['RICE', 'Score ideas to decide what to build first.', ['Reach', 'Impact', 'Confidence', '÷ Effort'], 'Use when many requests compete for the same people and time.'],
+  ['Kano model', 'Sort features by how they affect delight.', ['Basic', 'Performance', 'Delighters'], 'Use to avoid over-building basics and under-investing in delight.'],
+  ['Jobs to be done', 'Describe the progress someone wants to make.', ['When I…', 'I want to…', 'so I can…'], 'Use in discovery to look past features and find the real need.'],
+  ['North-star metric', 'One number that tracks the value users get.', ['Value delivered', 'Leads revenue', 'Teams can move it'], 'Use to align teams, and add guardrails so it is not gamed.'],
+  ['AARRR', 'The funnel from first touch to growth.', ['Acquisition', 'Activation', 'Retention', 'Referral', 'Revenue'], 'Use to find the weakest stage before adding features.'],
+  ['HEART', 'Measure user experience.', ['Happiness', 'Engagement', 'Adoption', 'Retention', 'Task success'], 'Use to choose metrics for a UX change.'],
+  ['MoSCoW', 'Sort scope for a release.', ['Must', 'Should', 'Could', "Won't (now)"], 'Use to agree the minimum release with stakeholders.'],
+  ['Opportunity solution tree', 'Connect an outcome to experiments.', ['Outcome', 'Opportunities', 'Solutions', 'Experiments'], 'Use to keep discovery focused and compare options fairly.'],
+  ['Five whys', 'Dig from a symptom to a root cause.', ['Why?', 'Why?', 'Why?', 'Why?', 'Why?'], 'Use when a metric drops or a launch goes wrong.'],
+  ['CIRCLES', 'A structure for product design questions.', ['Comprehend', 'Identify users', 'Report needs', 'Cut by priority', 'List solutions', 'Evaluate', 'Summarise'], 'Use in interviews to stay organised under time pressure.'],
+];
+
+// ---------- rotation ----------
+const day = Math.floor(Date.now() / 86400e3);
+let qi = (day * 7) % QS.length, fi = day % FW.length, qTimer = 0;
+function showQ() {
+  const [cat, q, steps] = QS[qi % QS.length]; qi++;
+  $('cat').textContent = cat; $('q').textContent = q; $('hintLabel').textContent = 'Think it through… the structure appears in a moment'; $('hint').replaceChildren();
+  const bar = $('bar').firstElementChild; bar.style.transition = 'none'; bar.style.width = '0'; void bar.offsetWidth; bar.style.transition = 'width 30s linear'; bar.style.width = '100%';
+  $('qc').classList.remove('fade'); void $('qc').offsetWidth; $('qc').classList.add('fade');
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { $('hintLabel').textContent = 'How to structure your answer'; steps.forEach((s, i) => { const li = document.createElement('li'); li.dataset.n = i + 1; li.textContent = s; $('hint').append(li); setTimeout(() => li.classList.add('on'), 300 + i * 700); }); }, 30e3);
+}
+function showFW() {
+  const [name, what, parts, when] = FW[fi % FW.length]; fi++;
+  $('fwName').textContent = name; $('fwWhat').textContent = what; $('fwWhen').textContent = when; $('fwParts').replaceChildren(...parts.map((p) => { const s = document.createElement('span'); s.textContent = p; return s; }));
+  $('fw').classList.remove('fade'); void $('fw').offsetWidth; $('fw').classList.add('fade');
+}
+showQ(); showFW(); setInterval(showQ, 4 * 60e3); setInterval(showFW, 25e3);
+</script>
+</body>
+</html>
