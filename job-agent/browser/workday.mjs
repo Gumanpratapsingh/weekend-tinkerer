@@ -83,85 +83,87 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
       return { status: 'closed' };
     }
 
-    // 1. Click the main Apply button
-    const applyBtn = page.locator('a[data-automation-id="applyButton"], button[data-automation-id="applyButton"], a:has-text("Apply"), button:has-text("Apply")').first();
+    // 1. Wait for and click the main Apply button
+    const applySel = '[data-automation-id="adventureButton"], [data-automation-id="applyButton"], a:has-text("Apply"), button:has-text("Apply")';
+    await page.waitForSelector(applySel, { timeout: 15000 }).catch(() => {});
+    const applyBtn = page.locator(applySel).first();
     if (await applyBtn.isVisible().catch(() => false)) {
-      progress(`Workday [${tenant}]: clicking Apply`);
+      progress(`Workday [${tenant}]: clicking Apply button`);
       await applyBtn.click({ timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(2500);
     }
 
-    // 2. Choose Apply Manually or Autofill with Resume if modal opens
-    const manualBtn = page.locator('a[data-automation-id="applyManually"], button[data-automation-id="applyManually"], a:has-text("Apply Manually"), button:has-text("Apply Manually")').first();
-    const autofillBtn = page.locator('a[data-automation-id="autofillWithResume"], button[data-automation-id="autofillWithResume"], a:has-text("Autofill with Resume")').first();
-    if (await autofillBtn.isVisible().catch(() => false) && resume) {
-      await autofillBtn.click({ timeout: 5000 }).catch(() => {});
-    } else if (await manualBtn.isVisible().catch(() => false)) {
+    // 2. Wait for modal options (Apply Manually or Autofill with Resume)
+    const manualSel = '[data-automation-id="applyManually"], a:has-text("Apply Manually"), button:has-text("Apply Manually"), [data-automation-id="autofillWithResume"], a:has-text("Autofill with Resume")';
+    await page.waitForSelector(manualSel, { timeout: 8000 }).catch(() => {});
+    const manualBtn = page.locator(manualSel).first();
+    if (await manualBtn.isVisible().catch(() => false)) {
+      progress(`Workday [${tenant}]: choosing application mode`);
       await manualBtn.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(3500);
     }
-    await page.waitForTimeout(3000);
 
-    // 3. Handle Account Wall (Sign in or Create Account)
-    const emailInput = page.locator('input[data-automation-id="email"], input[type="email"]:visible').first();
-    const passInput = page.locator('input[data-automation-id="password"], input[type="password"]:visible').first();
+    // 3. Wait for client-side React to load Account / Sign In inputs
+    const authInputSel = 'input[data-automation-id="email"], input[data-automation-id="password"]';
+    await page.waitForSelector(authInputSel, { timeout: 20000 }).catch(() => {});
+
+    const emailInput = page.locator('input[data-automation-id="email"]').first();
+    const passInput = page.locator('input[data-automation-id="password"]').first();
+    const verifyPass = page.locator('input[data-automation-id="verifyPassword"]').first();
 
     if (await emailInput.isVisible().catch(() => false) && await passInput.isVisible().catch(() => false)) {
-      progress(`Workday [${tenant}]: authentication page encountered`);
+      const isCreateAccount = await verifyPass.isVisible().catch(() => false);
       const accounts = getAccounts();
       const existing = accounts[tenant];
       const agentUrl = who().agent;
       const candidateEmail = existing?.email || await getCandidateEmail(agentUrl);
       const password = existing?.password || DEFAULT_PASS;
 
-      let signedIn = false;
-      if (existing) {
+      if (!isCreateAccount && existing) {
         progress(`Workday [${tenant}]: signing in with existing account`);
         await emailInput.fill(candidateEmail).catch(() => {});
         await passInput.fill(password).catch(() => {});
-        const submitSignIn = page.locator('button[data-automation-id="signInSubmitButton"], button:has-text("Sign In"), button:has-text("Log In")').first();
+        const submitSignIn = page.locator('button[data-automation-id="signInSubmitButton"], button:has-text("Sign In")').first();
         await submitSignIn.click({ timeout: 8000 }).catch(() => {});
-        await page.waitForTimeout(3500);
-        const err = await page.innerText('body').catch(() => '');
-        if (!/invalid (user name|username|password)|credentials/i.test(err)) {
-          signedIn = true;
-        }
-      }
-
-      if (!signedIn) {
-        progress(`Workday [${tenant}]: creating new account`);
-        const createAccountLink = page.locator('button[data-automation-id="createAccountLink"], a[data-automation-id="createAccountLink"], button:has-text("Create Account"), a:has-text("Create Account")').first();
-        if (await createAccountLink.isVisible().catch(() => false)) {
-          await createAccountLink.click({ timeout: 6000 }).catch(() => {});
-          await page.waitForTimeout(2000);
+        await page.waitForTimeout(4000);
+      } else {
+        // If on Sign In screen but no account yet, click Create Account tab/link
+        if (!isCreateAccount) {
+          const createAccountLink = page.locator('button[data-automation-id="createAccountLink"], a[data-automation-id="createAccountLink"], button:has-text("Create Account"), a:has-text("Create Account")').first();
+          if (await createAccountLink.isVisible().catch(() => false)) {
+            await createAccountLink.click({ timeout: 6000 }).catch(() => {});
+            await page.waitForTimeout(3000);
+          }
         }
 
-        const newEmail = page.locator('input[data-automation-id="email"], input[type="email"]:visible').first();
-        const newPass = page.locator('input[data-automation-id="password"], input[type="password"]:visible').first();
-        const verifyPass = page.locator('input[data-automation-id="verifyPassword"]:visible').first();
-        const agreeCheckbox = page.locator('input[data-automation-id="createAccountCheckbox"], input[type="checkbox"]:visible').first();
+        progress(`Workday [${tenant}]: creating new candidate account (${candidateEmail})`);
+        await emailInput.fill(candidateEmail).catch(() => {});
+        await passInput.fill(password).catch(() => {});
+        if (await verifyPass.isVisible().catch(() => false)) {
+          await verifyPass.fill(password).catch(() => {});
+        }
 
-        if (await newEmail.isVisible().catch(() => false) && await newPass.isVisible().catch(() => false)) {
-          await newEmail.fill(candidateEmail).catch(() => {});
-          await newPass.fill(password).catch(() => {});
-          if (await verifyPass.isVisible().catch(() => false)) await verifyPass.fill(password).catch(() => {});
-          if (await agreeCheckbox.isVisible().catch(() => false)) await agreeCheckbox.check().catch(() => agreeCheckbox.click().catch(() => {}));
+        // Terms checkbox
+        const agreeCheckbox = page.locator('input[data-automation-id="createAccountCheckbox"], input[type="checkbox"]').first();
+        if (await agreeCheckbox.isVisible().catch(() => false)) {
+          await agreeCheckbox.check().catch(() => agreeCheckbox.click().catch(() => {}));
+        }
 
-          saveAccount(tenant, candidateEmail, password);
+        saveAccount(tenant, candidateEmail, password);
 
-          const submitCreate = page.locator('button[data-automation-id="createAccountSubmitButton"], button:has-text("Create Account")').first();
-          await submitCreate.click({ timeout: 8000 }).catch(() => {});
-          await page.waitForTimeout(4000);
+        const submitCreate = page.locator('button[data-automation-id="createAccountSubmitButton"], button:has-text("Create Account")').first();
+        await submitCreate.click({ timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(5000);
 
-          // Check if email verification code was sent
-          const codeInput = page.locator('input[data-automation-id="verificationCode"], input[name*="code" i]:visible').first();
-          if (await codeInput.isVisible().catch(() => false) || /verification code|security code/i.test(await page.innerText('body').catch(() => ''))) {
-            const code = await fetchVerificationCode(agentUrl, tenant);
-            if (code && await codeInput.isVisible().catch(() => false)) {
-              await codeInput.fill(code);
-              const verifyBtn = page.locator('button[data-automation-id="submit-button"], button:has-text("Submit"), button:has-text("Verify")').first();
-              await verifyBtn.click({ timeout: 8000 }).catch(() => {});
-              await page.waitForTimeout(3500);
-            }
+        // Check if email verification code was requested
+        const codeInput = page.locator('input[data-automation-id="verificationCode"], input[name*="code" i]').first();
+        if (await codeInput.isVisible().catch(() => false) || /verification code|security code/i.test(await page.innerText('body').catch(() => ''))) {
+          const code = await fetchVerificationCode(agentUrl, tenant);
+          if (code && await codeInput.isVisible().catch(() => false)) {
+            await codeInput.fill(code);
+            const verifyBtn = page.locator('button[data-automation-id="submit-button"], button:has-text("Submit"), button:has-text("Verify")').first();
+            await verifyBtn.click({ timeout: 8000 }).catch(() => {});
+            await page.waitForTimeout(4000);
           }
         }
       }
@@ -169,7 +171,7 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
 
     // 4. Stepper Wizard loop (up to 7 steps)
     for (let step = 1; step <= 7; step++) {
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(3000);
 
       // Check CAPTCHA
       if (await captchaVisible(page)) {
@@ -195,7 +197,9 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
       if (res.status === 'needs_answer') return { ...res, shot: await snap(`wd-step${step}-question`) };
 
       // Look for next or submit button
-      const nextBtn = page.locator('button[data-automation-id="bottom-navigation-next-button"], button:has-text("Save and Continue"), button:has-text("Next"), button[data-automation-id="submit-button"], button:has-text("Submit")').first();
+      const nextSel = 'button[data-automation-id="bottom-navigation-next-button"], button:has-text("Save and Continue"), button:has-text("Next"), button[data-automation-id="submit-button"], button:has-text("Submit")';
+      await page.waitForSelector(nextSel, { timeout: 15000 }).catch(() => {});
+      const nextBtn = page.locator(nextSel).first();
       if (!await nextBtn.isVisible().catch(() => false)) {
         break; // Reached end or unable to find navigation button
       }
@@ -207,10 +211,10 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
         return { status: 'dry_run', shot: await snap('wd-dry') };
       }
 
-      progress(`Workday [${tenant}]: clicking ${btnText || 'Next'}`);
+      progress(`Workday [${tenant}]: advancing (${btnText || 'Next'})`);
       await nextBtn.scrollIntoViewIfNeeded().catch(() => {});
       await nextBtn.click({ timeout: 10000 }).catch(() => nextBtn.click({ force: true }).catch(() => {}));
-      await page.waitForTimeout(4000);
+      await page.waitForTimeout(4500);
 
       const afterText = await page.innerText('body').catch(() => '');
       if (DONE.test(afterText) || /thank|success|confirm/i.test(page.url())) {
