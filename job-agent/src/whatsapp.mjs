@@ -32,14 +32,14 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 /** Queue a message to the owner. ref links a reply back to a question/draft. Returns the outbox id. */
 // toOwner: technical alerts from someone else's agent go to the owner (who maintains it), not to that person.
 // chat: 'ncr' = the person's separate "📍 Delhi NCR jobs" chat; links: [{label, url}] buttons; images: screenshot paths.
-export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null, chat = null, links = null, images = null, silent = false } = {}) {
+export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null, chat = null, links = null, images = null, silent = false, mirror = false } = {}) {
   // Someone else's urgent message (an NCR job that needs them): the owner, who runs the agents, gets the same alert at once.
-  if (urgent && PERSON && !toOwner) tell(`🚨 ${PERSON[0].toUpperCase()}${PERSON.slice(1)}'s agent needs her now (she got this too; only she can answer, replies here don't reach her agent):\n${body.replace(/\n*— Reply to this message[^\n]*/g, '').slice(0, 600)}`, { urgent, toOwner: true });
+  if (urgent && PERSON && !toOwner) tell(`🚨 ${PERSON[0].toUpperCase()}${PERSON.slice(1)}'s agent needs her now (she got this too; if you reply here, your answer goes to her agent):\n${body.slice(0, 600)}`, { urgent, toOwner: true, mirror: true, refKind: refKind === 'question' ? refKind : null, refId, options });
   if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
     (async () => {
-      if (await toCupboard(body, refKind, refId, options, toOwner, link, { chat, links, images, silent, urgent })) return;
+      if (await toCupboard(body, refKind, refId, options, toOwner, link, { chat, links, images, silent, urgent, mirror })) return;
       if (!OWNER && toOwner) return;
       ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
     })().catch((e) => log(`tell: ${e.message}`));
@@ -61,12 +61,12 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
   try {
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
-      body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
-        replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
+      body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner && !more.mirror ? null : ref, actions: toOwner && !more.mirror ? [] : actions,
+        replyTo: ref && (!toOwner || more.mirror) ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
         ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.urgent ? { urgent: more.urgent, urgentAgent: AGENT_URL } : {}), ...(more.silent ? { silent: true } : {}) }) });
     if (!r.ok) return false;
     const out = await r.json();
-    if (ref && out.id) setKv(`cupcard:${refKind}:${refId}`, String(out.id));   // so the card can be closed later
+    if (ref && out.id && !more.mirror) setKv(`cupcard:${refKind}:${refId}`, String(out.id));   // so the card can be closed later
     return out.pushable === true;
   } catch { return false; }
 }
