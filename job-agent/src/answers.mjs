@@ -33,6 +33,8 @@ function similarity(a, b) {
 }
 
 export function remember(question, answer, source = 'owner') {
+  // A button label is not an answer (Naukri's "Skip this question" got saved for "current CTC" and looped it: see watchdog.mjs).
+  if (source !== 'owner' && /^\s*(skip( this question)?|save|submit|next|continue|apply|cancel|close|back)\s*$/i.test(String(answer))) return unanswered(question).id;
   const n = norm(question);
   const existing = one('SELECT id FROM questions WHERE norm = ?', n);
   if (existing) run('UPDATE questions SET answer = ?, updated_at = ?, source = ? WHERE id = ?', answer, Date.now(), source, existing.id);
