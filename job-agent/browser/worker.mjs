@@ -181,7 +181,9 @@ setInterval(async () => {                             // frames for the sign-in 
   if (!s?.page || s.page.isClosed() || signinShooting) return;
   try { if (Date.now() - statSync(join(s.who.data, 'live-watch')).mtimeMs > 30e3) return; } catch { return; }
   signinShooting = true;
-  try { const out = join(s.who.data, 'live.jpg'); await s.page.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 60, timeout: 4000 }); renameSync(`${out}.tmp`, out); }
+  // Its own file: the lane snapshot above writes live.jpg while the person's lane runs a task, and the two overwrote each other
+  // (the CAPTCHA page flickered between the form and a Naukri search).
+  try { const out = join(s.who.data, 'live-signin.jpg'); await s.page.screenshot({ path: `${out}.tmp`, type: 'jpeg', quality: 60, timeout: 4000 }); renameSync(`${out}.tmp`, out); }
   catch { /* navigating */ } finally { signinShooting = false; }
 }, 900);
 

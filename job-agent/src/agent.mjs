@@ -110,8 +110,8 @@ createServer((req, res) => {
         if (what === 'frame') {
           const { writeFileSync, statSync } = await import('node:fs');
           writeFileSync(join(DATA, 'live-watch'), String(Date.now()));
-          try { if (!mine || Date.now() - statSync(join(DATA, 'live.jpg')).mtimeMs > 15e3) return reply(204, ''); } catch { return reply(204, ''); }
-          res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(readFileSync(join(DATA, 'live.jpg')));
+          try { if (!mine || Date.now() - statSync(join(DATA, 'live-signin.jpg')).mtimeMs > 15e3) return reply(204, ''); } catch { return reply(204, ''); }
+          res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(readFileSync(join(DATA, 'live-signin.jpg')));
         }
         if (what === 'input' && req.method === 'POST') {
           if (!mine) return json({ error: 'The sign-in page is not open on the phone yet.' }, 409);
