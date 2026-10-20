@@ -3,7 +3,7 @@
 // Meta only allows free-form messages within 24h of the owner's last message; outside that window the
 // agent sends the pre-approved hello_world template plus an ntfy push, and holds messages until the owner replies.
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { secret, log, ntfy, istHour, config, OWNER, AGENT_URL, privateProfile } from './core.mjs';
+import { secret, log, ntfy, istHour, config, OWNER, PERSON, AGENT_URL, privateProfile } from './core.mjs';
 import { getKv, setKv, all, run } from './db.mjs';
 
 const API = 'https://graph.facebook.com/v21.0';
@@ -33,11 +33,13 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 // toOwner: technical alerts from someone else's agent go to the owner (who maintains it), not to that person.
 // chat: 'ncr' = the person's separate "📍 Delhi NCR jobs" chat; links: [{label, url}] buttons; images: screenshot paths.
 export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null, chat = null, links = null, images = null, silent = false } = {}) {
+  // Someone else's urgent message (an NCR job that needs them): the owner, who runs the agents, gets the same alert at once.
+  if (urgent && PERSON && !toOwner) tell(`🚨 ${PERSON[0].toUpperCase()}${PERSON.slice(1)}'s agent needs her now:\n${body.slice(0, 600)}`, { urgent, toOwner: true });
   if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
     (async () => {
-      if (await toCupboard(body, refKind, refId, options, toOwner, link, { chat, links, images, silent })) return;
+      if (await toCupboard(body, refKind, refId, options, toOwner, link, { chat, links, images, silent, urgent })) return;
       if (!OWNER && toOwner) return;
       ntfy('Job agent', `${body.slice(0, 900)}${refKind === 'question' ? '\n\nAnswer on the hub: /jobs' : ''}`, { priority: urgent ? 'high' : 'default' });
     })().catch((e) => log(`tell: ${e.message}`));
@@ -61,7 +63,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner ? null : ref, actions: toOwner ? [] : actions,
         replyTo: ref && !toOwner ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
-        ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.silent ? { silent: true } : {}) }) });
+        ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.urgent ? { urgent: more.urgent, urgentAgent: AGENT_URL } : {}), ...(more.silent ? { silent: true } : {}) }) });
     if (!r.ok) return false;
     const out = await r.json();
     if (ref && out.id) setKv(`cupcard:${refKind}:${refId}`, String(out.id));   // so the card can be closed later

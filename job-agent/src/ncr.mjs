@@ -158,21 +158,21 @@ export async function ncrFill(jobId) {
       setKv(`ncrwait:${job.id}`, '1');
       for (const u of res.unknown || []) askOwner(u.label, { jobId: job.id, context: `${label(job)} application`, kind: u.type, options: u.options?.length ? u.options : null, chat: 'ncr' });
       return say(`❓ ${label(job)} asks ${(res.unknown || []).length} question(s) I don't know yet (above). Answer them and I'll fill it again automatically.`,
-        { images: res.shot ? [res.shot] : [], links: open });
+        { images: res.shot ? [res.shot] : [], links: open, urgent: job.id });
     }
     case 'already_applied': run("UPDATE jobs SET status = 'applied', status_note = 'already applied before' WHERE id = ?", job.id); return say(`✅ Already applied to ${label(job)}.`);
     case 'closed': run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id); return say(`🚫 ${label(job)} is closed.`);
     case 'email': return say(`✉️ ${label(job)} takes applications by email: ${res.email}.`, { links: open });
     default:
       if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
-      return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open });
+      return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open, urgent: job.id });
   }
 }
 
 // CAPTCHA: same handoff as the queue (apply.mjs): the job waits in the CAPTCHA list and scripts/finish.sh on the Mac opens it prefilled.
 function captchaHandoff(job, res) {
   run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
-  return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat: 'ncr', images: res.shot ? [res.shot] : null }));
+  return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat: 'ncr', images: res.shot ? [res.shot] : null, urgent: job.id }));
 }
 
 // "✓ Submit" after the screenshots: the real application, same answers, then the confirmation screenshot.
@@ -189,7 +189,7 @@ export async function ncrSubmit(jobId) {
   if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
   if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, job.id);
   return say(`⚠️ ${label(job)} didn't go through: ${String(res.reason || res.status).slice(0, 200)}. ${res.status === 'needs_answer' ? 'Answer the question(s) and tap Fill again.' : 'Apply on the site yourself.'}`,
-    { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }] });
+    { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }], urgent: job.id });
 }
 
 // Taps on the NCR cards.

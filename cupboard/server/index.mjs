@@ -487,6 +487,11 @@ async function api(req, res, path, query) {
       if (!text) throw err(400, 'Empty message.');
       const msg = await postMessage(convId, me.id, { text, extra: b.replyTo ? { replyTo: Number(b.replyTo) } : null });
       love.onMessage(me, convId, text);
+      if (/^(stop|stop (the )?(reminders?|alerts?|urgent))\.?$/i.test(text) && (isNcrConv(conv) || conv.kind === 'bot')) {   // ends the urgent nagging
+        const n = all("SELECT k, v FROM kv WHERE k LIKE 'urgent:%'").filter((r) => JSON.parse(r.v).uid === me.id);
+        for (const r of n) run('DELETE FROM kv WHERE k = ?', r.k);
+        if (n.length) { postMessage(convId, botId(), { kind: 'text', text: `🔕 Okay, urgent reminders stopped (${n.length} open). New urgent alerts will start again.` }, { pushOnly: [] }); return send(res, 200, { id: msg.id }); }
+      }
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
       else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
@@ -803,7 +808,10 @@ createServer(async (req, res) => {
         if (m) await postMessage(convId, botId(), { kind: 'image', media: m.media, extra: { name: 'screenshot.png', size: m.size, w: m.w, h: m.h } }, { pushOnly: [] });
       }
       // silent: no phone notification (a batch of job cards pings once, through its own summary message)
-      const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true ? { pushOnly: [] } : {});
+      // urgent (an NCR job needs the person now): pushed even to a muted chat or an open app, with its own title
+      const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true ? { pushOnly: [] }
+        : b.urgent ? { force: true, pushAs: { title: '🚨 URGENT · NCR job needs you', body: text.replace(/^\S+\s*/, '') } } : {});
+      if ((typeof b.urgent === 'string' || typeof b.urgent === 'number') && b.silent !== true) setKv(`urgent:${msg.id}`, JSON.stringify({ uid: target.id, conv: convId, text: text.slice(0, 120), n: 0, job: typeof b.urgent === 'string' || typeof b.urgent === 'number' ? String(b.urgent) : null, agent: /^http:\/\/127\.0\.0\.1:\d+$/.test(b.urgentAgent || '') ? b.urgentAgent : null, next: Date.now() + URGENT_EVERY }));   // nagged until opened
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
     if (req.url === '/love') {                          // the server's own sweet notes to her: {text, ask?, partner?}
@@ -839,6 +847,31 @@ createServer(async (req, res) => {
     return send(res, 404, { error: 'Not found' });
   } catch (e) { send(res, e.status || 500, { error: e.message }); }
 }).listen(INTERNAL, '127.0.0.1', () => log(`cupboard internal on 127.0.0.1:${INTERNAL}`));
+
+// Urgent cards (an NCR job needs the person): push again every 12 minutes, daytime only (8:00-22:00 IST), until the person
+// sends "stop" in the chat or the job is dealt with (the agent says so). One reminder per person per round, however many are waiting; it REPLACES the previous
+// reminder on the phone (same tag), and nothing is added to the chat, so nothing piles up.
+const URGENT_EVERY = 12 * 60e3;
+setInterval(async () => {
+  const h = (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) / 60 % 24;
+  const due = new Map();                                    // person -> reminders due this round
+  for (const r of all("SELECT k, v FROM kv WHERE k LIKE 'urgent:%'")) {
+    const u = JSON.parse(r.v), id = Number(r.k.slice(7));
+    if (!one('SELECT 1 FROM messages WHERE id = ?', id)) { run('DELETE FROM kv WHERE k = ?', r.k); continue; }
+    if (Date.now() < u.next || h < 8 || h >= 22) continue;
+    if (u.job && u.agent) {                                   // the job was dealt with (applied, skipped, queued, closed): no more reminders
+      const st = await fetch(`${u.agent}/internal/urgent-open?job=${encodeURIComponent(u.job)}`, { signal: AbortSignal.timeout(4000) }).then((x) => x.json()).catch(() => null);
+      if (st && st.open === false) { run('DELETE FROM kv WHERE k = ?', r.k); continue; }
+    }
+    setKv(r.k, JSON.stringify({ ...u, n: u.n + 1, next: Date.now() + URGENT_EVERY }));
+    due.set(u.uid, [...(due.get(u.uid) || []), { u, id }]);
+  }
+  for (const [uid, list] of due) {
+    const first = list[0];
+    push.notify(uid, { title: `🚨 URGENT (reminder): ${list.length} NCR job${list.length > 1 ? 's' : ''} need${list.length > 1 ? '' : 's'} you`,
+      body: `Reply "stop" in the chat to end reminders. ${first.u.text.replace(/^\S+\s*/, '').slice(0, 130)}`, url: `/c/${first.u.conv}`, tag: `urgent-${uid}`, urgent: true });
+  }
+}, 60e3);
 
 // Keep the database tidy: expired invites and sessions.
 setInterval(() => { run('DELETE FROM sessions WHERE expires < ?', Date.now()); run('DELETE FROM invites WHERE used_by IS NULL AND expires < ?', Date.now());

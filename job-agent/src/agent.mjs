@@ -122,6 +122,11 @@ createServer((req, res) => {
         }
         return reply(404, 'not found');
       }
+      // Is an urgent alert still needed? Cupboard asks before every reminder: once the job is applied, skipped, queued or closed, it stops.
+      if (url.pathname === '/internal/urgent-open' && !req.headers['x-visitor-ip']) {
+        const j = one('SELECT status FROM jobs WHERE id = ?', url.searchParams.get('job') || '');
+        return reply(200, JSON.stringify({ open: !!j && ['manual', 'captcha', 'needs_answer', 'failed'].includes(j.status) }), 'application/json');
+      }
       // The self-review for a day (default today), read-only: used by the morning fix-up session.
       if (url.pathname === '/internal/review' && req.method === 'GET' && !req.headers['x-visitor-ip']) {
         const { buildReview } = await import('./review.mjs');

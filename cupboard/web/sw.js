@@ -27,6 +27,7 @@ self.addEventListener('push', (e) => {
     data: { url: d.url || '/' },
     // A call stays on screen until you act on it (where the phone allows) and buzzes in a ringing rhythm.
     ...(d.call ? { requireInteraction: true, vibrate: [400, 200, 400, 200, 400, 200, 800] } : {}),
+    ...(d.urgent ? { requireInteraction: true, vibrate: [300, 150, 300, 150, 600] } : {}),   // urgent NCR reminders stay until dismissed; the next one replaces them
   }));
 });
 

@@ -4,7 +4,7 @@ import { one, all, run, event } from './db.mjs';
 import { unanswered, remember } from './answers.mjs';
 import { tell } from './whatsapp.mjs';
 
-export function askOwner(question, { jobId = null, draftId = null, context = '', kind = 'text', options = null, chat = null } = {}) {
+export function askOwner(question, { jobId = null, draftId = null, context = '', kind = 'text', options = null, chat = null, urgent = false } = {}) {
   const q = unanswered(question, { kind, options, source: context });
   if (q.answer) return q.id;
   const alreadyAsked = one("SELECT 1 FROM asks WHERE question_id = ? AND status = 'open'", q.id);
@@ -12,7 +12,7 @@ export function askOwner(question, { jobId = null, draftId = null, context = '',
   if (!alreadyAsked || chat) {                            // the NCR chat shows its own questions even if asked elsewhere
     const opts = q.options ? `\nOptions: ${JSON.parse(q.options).join(' / ')}` : '';
     tell(`❓ Q${q.id}: ${q.question}${opts}\n(${context})\n\n— Reply to this message with your answer. I'll remember it for every future application.`,
-      { refKind: 'question', refId: q.id, options: q.options ? JSON.parse(q.options) : null, chat });
+      { refKind: 'question', refId: q.id, options: q.options ? JSON.parse(q.options) : null, chat, urgent });
   }
   return q.id;
 }

@@ -110,14 +110,14 @@ function settle(job, res) {
     case 'needs_answer':
       activity(`❓ ${label}: needs your answer to ${res.unknown.length} question(s) — see Needs you on /jobs`);
       run("UPDATE jobs SET status = 'needs_answer', status_note = ? WHERE id = ?", `${res.unknown.length} question(s) for you`, job.id);
-      for (const u of res.unknown) askOwner(u.label, { jobId: job.id, context: `${label} application`, kind: u.type, options: u.options?.length ? u.options : null });
+      for (const u of res.unknown) askOwner(u.label, { jobId: job.id, context: `${label} application`, kind: u.type, options: u.options?.length ? u.options : null, urgent: isNcr(job) && job.id });
       run('UPDATE jobs SET attempts = 0 WHERE id = ?', job.id);
       // Every question already has a saved answer the form still rejected (e.g. a school missing from its list): nothing
       // was asked, so waiting would requeue it forever. Hand it to the person instead.
       if (!one("SELECT 1 FROM asks WHERE job_id = ? AND status = 'open'", job.id)) {
         const fields = res.unknown.map((u) => u.label).join(', ');
         run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `saved answer doesn't fit the form: ${fields}`, job.id);
-        tell(`🖐 ${label}: my saved answer for "${fields}" isn't one of the form's options. Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
+        tell(`🖐 ${label}: my saved answer for "${fields}" isn't one of the form's options. Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
       }
       break;
     case 'manual':
@@ -136,11 +136,11 @@ function settle(job, res) {
       if (/captcha/i.test(res.reason || '')) {
         run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
         activity(`🧩 ${label}: CAPTCHA — prefilled for you via ./scripts/finish.sh`);
-        import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job)).catch((e) => logError('captcha card', e, { job: job.id }));
+        import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { urgent: isNcr(job) && job.id })).catch((e) => logError('captcha card', e, { job: job.id }));
         break;
       }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
-      tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id });
+      tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
       break;
     case 'email':                                     // the company takes applications by email: draft it, the person approves
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `drafting an email application to ${res.email}`, job.id);

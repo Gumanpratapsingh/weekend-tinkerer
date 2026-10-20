@@ -10,7 +10,7 @@ import { tell } from './whatsapp.mjs';
 const label = (j) => `${j.title} @ ${j.company}`;
 
 // A card in the person's chat with a link to the live page. Called when a job lands on the CAPTCHA list.
-export async function captchaCard(job, { chat = null, images = null } = {}) {
+export async function captchaCard(job, { chat = null, images = null, urgent = false } = {}) {
   let link = null;
   try {
     const r = await fetch('http://127.0.0.1:8086/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
@@ -18,7 +18,7 @@ export async function captchaCard(job, { chat = null, images = null } = {}) {
     link = (await r.json()).path;
   } catch (e) { log(`captcha link: ${e.message}`); }
   const text = `🧩 ${label(job)} needs a CAPTCHA. ${link ? 'Tap "Fill and open": I fill the form, you type the CAPTCHA and press Submit.\nOn the Mac it also opens by itself.' : 'Run ./scripts/finish.sh on the Mac, solve it, press Submit.'}`;
-  return tell(text, { chat, images, ...(link ? { refKind: 'captcha', refId: job.id, link: { label: 'Fill and open', path: link } } : {}) });
+  return tell(text, { chat, images, urgent, ...(link ? { refKind: 'captcha', refId: job.id, link: { label: 'Fill and open', path: link } } : {}) });
 }
 
 let live = null;                                      // { id, at }: one handoff at a time (one browser slot)
