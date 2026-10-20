@@ -21,3 +21,5 @@ data/agent.db  jobs · questions · asks · emails · drafts · events
 - **Private data** (`profile/master.json`, `profile/private.json`, `data/`) is gitignored; see `profile/README.md`.
 
 Deploy: `./deploy.sh` (copies to `~/jobagent` on the phone, restarts both processes). Boot: `~/start.sh` runs `scripts/run.sh start`.
+
+<!-- auto-deploy test -->
