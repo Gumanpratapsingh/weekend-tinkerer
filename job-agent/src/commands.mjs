@@ -16,7 +16,7 @@ const HELP = `Job agent commands:
 • forget <Q-number> — delete an answer
 • pause / resume — stop or restart applying
 • go live / dry run — submit for real, or only fill forms
-• ncr — Gurgaon/Noida jobs to apply to yourself · ncr off / ncr on — stop or restart those links
+• ncr — best Gurgaon/Noida jobs · ncr aside — companies with nobody on LinkedIn · ncr referrals on/off — automatic connection requests · ncr on/off — the whole NCR watch (details: type help in the 📍 chat)
 Reply to any ❓ message to answer it, or to a ✍️ draft with ok / no / your own text.`;
 
 export async function onAnswered(qid, text) {

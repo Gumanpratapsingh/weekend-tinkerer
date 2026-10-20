@@ -225,6 +225,15 @@ export async function ncrAfterAnswer() {
   }
 }
 
+// What can be said in the NCR chat (the chat also shows these as buttons above the message box).
+export const NCR_HELP = `📍 This chat is for Delhi NCR jobs. What you can do here:
+• Paste a job link: I fill the form and send screenshots; nothing is submitted until you tap ✓ Submit.
+• ncr: the best Gurgaon/Noida jobs waiting for you
+• ncr aside: companies where nobody came up on LinkedIn (kept aside for you)
+• ncr referrals off / on: stop or restart my automatic connection requests to people who could refer you
+• ncr off / on: stop or restart this whole NCR watch (off: NCR jobs go back to normal auto-apply)
+Each job card has buttons: Fill & show me · Find referral · I applied · Not for me.`;
+
 // Free text in the NCR chat: a job link to fill, an answer ("Q12 …"), or help.
 export async function ncrChat(text) {
   const urls = [...new Set((text.match(/https?:\/\/\S+/g) || []).map((u) => u.replace(/[)>.,]+$/, '')))].slice(0, 10);
@@ -234,7 +243,7 @@ export async function ncrChat(text) {
   if (/^ncr( referrals| aside)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
   const qm = /^q(\d+)[:\s]+([\s\S]+)$/i.exec(text.trim());
   if (qm) { const { onAnswered } = await import('./commands.mjs'); return onAnswered(+qm[1], qm[2]); }
-  return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
+  return say(NCR_HELP);
 }
 
 // Automatic connections: the best recent matches (NCR ones first, then any other) whose company nobody was asked at yet get the 🤝 Find referral search

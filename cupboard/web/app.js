@@ -1088,6 +1088,11 @@ function drawComposer() {
   const c = state.cur;
   const parts = [];
   const cmds = state.me.role === 'owner' ? ['status', 'room', 'arm', 'disarm', 'spent today', 'spent month', 'help'] : ["what's waiting for me?", 'applied today', 'help'];
+  // The NCR chat shows what it understands as buttons (label, then the command it sends): nobody has to remember them.
+  if (isNcrChat(c)) parts.push(h('div', { class: 'chips' }, [['Best jobs', 'ncr'], ['Kept aside', 'ncr aside'], ['Auto-connect: off', 'ncr referrals off'], ['Auto-connect: on', 'ncr referrals on'],
+    ['Pause NCR', 'ncr off'], ['Resume NCR', 'ncr on'], ['Help', 'help']].map(([label, cmd]) => {
+    const b = h('button', { type: 'button', title: cmd }, label); b.addEventListener('click', () => sendText(cmd)); return b;
+  })));
   if (c.kind === 'bot' && !isNcrChat(c)) parts.push(h('div', { class: 'chips' }, cmds.map((cmd) => {
     const b = h('button', { type: 'button' }, cmd); b.addEventListener('click', () => sendText(cmd)); return b;
   })));
