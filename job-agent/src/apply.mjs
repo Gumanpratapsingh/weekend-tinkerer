@@ -132,11 +132,11 @@ function settle(job, res) {
         run("UPDATE jobs SET apply_type = 'linkedin', status = 'queued', attempts = 0, status_note = 'Easy Apply on LinkedIn' WHERE id = ?", job.id);
         break;
       }
-      // CAPTCHA: the Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
+      // CAPTCHA: act the same day: the posting may close within days (see expireStale in captcha.mjs). The Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
       if (/captcha/i.test(res.reason || '')) {
         run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
         activity(`🧩 ${label}: CAPTCHA — prefilled for you via ./scripts/finish.sh`);
-        import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { urgent: isNcr(job) && job.id })).catch((e) => logError('captcha card', e, { job: job.id }));
+        import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { urgent: job.id })).catch((e) => logError('captcha card', e, { job: job.id }));
         break;
       }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);

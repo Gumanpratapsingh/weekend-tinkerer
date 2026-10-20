@@ -1,5 +1,6 @@
 #!/bin/sh
 # CAPTCHA handoff on the Mac: prefilled forms open in a browser; you solve the CAPTCHA and press Submit.
+# Do this the SAME DAY the job lands: postings close within days and a closed job is a lost application (see expireStale in src/captcha.mjs).
 # Usage: ./scripts/finish.sh [ssh-host]   (default: where the agents run now)
 #        PERSON=vertika ./scripts/finish.sh   (someone else's agent: their CAPTCHA list, logins and resumes)
 set -e
