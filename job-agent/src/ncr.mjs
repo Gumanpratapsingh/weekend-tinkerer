@@ -3,7 +3,7 @@
 // automatically (the person applies themselves). "ncr off" in the chat stops it; "ncr on" starts it again.
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { config, log, activity, istHour, hasSession, resumeFile } from './core.mjs';
+import { config, log, logError, activity, istHour, istDate, hasSession, resumeFile, sleep } from './core.mjs';
 import { one, all, run, getKv, setKv, dedupeKey } from './db.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
 import { browserTask } from './browser.mjs';
@@ -231,7 +231,7 @@ export async function ncrChat(text) {
   if (urls.length > 1) say(`🖊 ${urls.length} links — filling them one by one, screenshots for each. Nothing is submitted until you tap ✓ Submit.`);
   for (const u of urls) { const job = await jobFromUrl(u); await ncrFill(job.id); }
   if (urls.length) return;
-  if (/^ncr( referrals)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
+  if (/^ncr( referrals| aside)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
   const qm = /^q(\d+)[:\s]+([\s\S]+)$/i.exec(text.trim());
   if (qm) { const { onAnswered } = await import('./commands.mjs'); return onAnswered(+qm[1], qm[2]); }
   return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
@@ -243,20 +243,28 @@ export async function ncrChat(text) {
 // most in the daytime (LinkedIn limits people searches and invites).
 // Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
 const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
+let inflight = 0;
 export async function ncrReferrals() {
   if (getKv('ncr_ref_off') === '1') return;
   const h = istHour();
   if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
-  if (Date.now() - Number(getKv('ncr_ref_last', 0)) < 50 * 60e3) return;                                  // at most one job an hour: LinkedIn limits people searches
-  if (one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 6) return;  // plain requests already queued
+  if (Date.now() < Number(getKv('ncr_ref_backoff', 0))) return;                                       // LinkedIn did not answer: wait a while
+  const key = `ncr_ref_n:${istDate()}`;                                                              // company lookups today (LinkedIn limits people searches)
+  const room = Math.min((config().ncr?.parallel || 3) - inflight, (config().ncr?.lookups_per_day || 20) - Number(getKv(key, 0)));
+  if (room <= 0) return;
+  if (one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 12) return;   // plain requests already queued
   const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
+  const taken = new Set();
+  const fresh = (j) => j.company && !asked.has(j.company.toLowerCase()) && !taken.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`);
   // NCR jobs first, then any other good match (queued ones too: the request goes out before the application does).
-  const fresh = (j) => j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`);
   const rows = all(`SELECT * FROM jobs WHERE status IN ('queued','manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
     Math.max(ncrMin(), 65), Date.now() - 7 * 864e5);
-  const job = (ncrOn() && rows.find((j) => isNcr(j) && fresh(j))) || rows.find(fresh);
-  if (!job) return;
-  setKv('ncr_ref_last', Date.now());
+  const picks = [];
+  for (const j of [...(ncrOn() ? rows.filter(isNcr) : []), ...rows]) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
+  if (!picks.length) return;
   const { connectForJob } = await import('./referrals.mjs');
-  await connectForJob(job.id);                      // plain connection requests now; the referral message waits for the person's OK
+  picks.forEach((job, i) => {          // side by side, a few seconds apart: nothing waits for another company, for LinkedIn, or for the applying
+    inflight++; setKv(key, Number(getKv(key, 0)) + 1);
+    sleep(i * 4000).then(() => connectForJob(job.id)).catch((e) => logError('auto connect', e, { job: job.id })).finally(() => { inflight--; });
+  });
 }

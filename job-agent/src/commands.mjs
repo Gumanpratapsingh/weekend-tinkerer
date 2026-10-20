@@ -5,6 +5,7 @@ import { composeDraft, sendDraft } from './mail.mjs';
 import { todayStats } from './apply.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
 import { ncrOn, isNcr, ncrSweep, ncrNotify, ncrAction, ncrAfterAnswer } from './ncr.mjs';
+import { asideList } from './referrals.mjs';
 
 const HELP = `Job agent commands:
 • status — today's numbers
@@ -70,6 +71,10 @@ export async function handleOwner(text, ref) {
     }
     case 'ncr referrals off': setKv('ncr_ref_off', '1'); return tell('🤝 Automatic connection requests for NCR jobs off (the 🤝 button on job cards still works).');
     case 'ncr referrals on': setKv('ncr_ref_off', '0'); return tell('🤝 Automatic connection requests on: plain requests (no message) to people who could refer you at NCR companies, one job an hour in the daytime. Your referral message still waits for your OK.');
+    case 'ncr aside': {
+      const rows = asideList();
+      return tell(rows.length ? `🗂 Kept aside (nobody found on LinkedIn):\n${rows.map((r) => `• ${r.company} — ${r.job_title}\n  ${r.job_url}`).join('\n')}` : '🗂 Nothing kept aside yet.');
+    }
     case 'ncr off': setKv('ncr_off', '1'); return tell('📍 Gurgaon/Noida watch off: NCR jobs go back to the normal queue (applied automatically).');
     case 'ncr on': setKv('ncr_off', '0'); ncrSweep(); await ncrNotify(); return tell('📍 Gurgaon/Noida watch on: NCR jobs come here as links, I won\'t apply to them.');
     case 'ncr': {

@@ -141,10 +141,16 @@ async function runSignin(w, site) {
 // (/input and the frames use `signin`). They type the CAPTCHA and press Submit; we only watch for the confirmation.
 // The CAPTCHA is never read or solved here.
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|applied successfully|you have (successfully )?applied/i;
-async function runCaptcha(w, { job, resume }) {
-  const handler = tasks[`apply_${job.apply_type}`] || tasks.apply_external;
-  let res;
-  try { res = await handler({ job, resume, keepOpen: true }); } catch (e) { res = { status: 'error', reason: e.message }; }
+async function runCaptcha(w, args) {
+  begin();                                            // a task in progress: the idle timer must not close the browser under the person
+  try { return await runCaptchaOpen(w, args); } finally { end(); }
+}
+async function runCaptchaOpen(w, { job, resume }) {
+  // Only the company-site handlers can fill and stop (keepOpen). LinkedIn Easy Apply and Naukri would submit for real: for
+  // those the job page is just opened and the person does the rest.
+  const handler = ['external', 'greenhouse', 'lever', 'ashby'].includes(job.apply_type) ? (tasks[`apply_${job.apply_type}`] || tasks.apply_external) : null;
+  let res = { status: 'none' };
+  if (handler) { try { res = await handler({ job, resume, keepOpen: true }); } catch (e) { res = { status: 'error', reason: e.message }; } }
   let page = res.page;
   if (res.status !== 'handoff' || !page) {            // no form reached: still open the job page, the person finishes by hand
     const ctx = await session.siteContext('external');
@@ -198,6 +204,22 @@ async function online() {
 // taking turns between people, so it stays cool. JA_LANES overrides.
 const LANES = Number(process.env.JA_LANES) || (totalmem() > 12e9 ? 2 : 1);
 const waiting = [];                                  // [{ who, run }]
+// LinkedIn people work (a company's people, connection requests, messages) takes minutes: it has its own lane, several at once,
+// so it never holds up a person's applying or job searches and never waits behind them. The phone keeps 1.
+const SOCIAL_TASKS = new Set(['linkedin_people', 'linkedin_job_network', 'linkedin_connect', 'linkedin_message', 'linkedin_state', 'linkedin_posts']);
+const SOCIAL = Number(process.env.JA_SOCIAL) || (totalmem() > 12e9 ? 4 : 1);
+const social = { waiting: [], running: new Map() };  // running: id -> { task, who, since }
+let socialSeq = 0;
+function pumpSocial() {
+  while (social.running.size < SOCIAL && social.waiting.length) {
+    // The oldest waiting task of a person who has fewer than 3 running.
+    const i = social.waiting.findIndex((w) => [...social.running.values()].filter((r) => r.who.person === w.who.person).length < 3);
+    if (i < 0) return;
+    const [next] = social.waiting.splice(i, 1), id = ++socialSeq;
+    social.running.set(id, { task: next.name, who: next.who, since: Date.now() });
+    session.person.run(next.who, next.run).finally(() => { social.running.delete(id); pumpSocial(); });
+  }
+}
 let lastPerson = null;
 function pump() {
   while (lanes.size < LANES && waiting.length) {
@@ -268,8 +290,8 @@ createServer((req, res) => {
     return;
   }
   // "running" stays null only when no lane is busy (linux/switch-to-laptop.sh and failover wait for that).
-  if (req.url === '/health') { const first = [...lanes.values()][0];
-    return reply(200, { ok: true, pid: process.pid, waiting: waiting.length, running: first?.task || null, for: first?.who.person || null, signin: signin?.who.person || null,
+  if (req.url === '/health') { const first = [...lanes.values()][0] || [...social.running.values()][0];   // (LinkedIn lane counts as busy for deploys)
+    return reply(200, { ok: true, pid: process.pid, waiting: waiting.length + social.waiting.length, running: first?.task || null, for: first?.who.person || null, signin: signin?.who.person || null, social: social.running.size,
       lanes: Object.fromEntries([...lanes].map(([p, l]) => [p, l.task])), max: LANES }); }   // instant, not queued
   let raw = '';
   req.on('data', (c) => { raw += c; });
@@ -278,7 +300,7 @@ createServer((req, res) => {
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     let body, w;
     try { body = raw ? JSON.parse(raw) : {}; w = whoOf(body); } catch (e) { return reply(400, { error: e.message }); }
-    waiting.push({ who: w, name, run: async () => {
+    const entry = { who: w, name, run: async () => {
       begin();
       let timer;
       try {
@@ -301,7 +323,7 @@ createServer((req, res) => {
         clearTimeout(timer); end();
         try { writeFileSync(join(w.data, 'live.json'), JSON.stringify({ task: null, url: null, at: Date.now() })); } catch {}
       }
-    } });
-    pump();
+    } };
+    if (SOCIAL_TASKS.has(name)) { social.waiting.push(entry); pumpSocial(); } else { waiting.push(entry); pump(); }
   });
 }).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));

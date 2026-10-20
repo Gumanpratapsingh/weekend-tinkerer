@@ -2,7 +2,7 @@
 // (SRM alumni first), draft a short note naming the exact job, and ask the owner to approve EVERY message.
 // Approved invites go out slowly (10/day, spaced, 9:00-21:00 IST). When someone accepts, a referral request with the
 // resume follows: by email if they publish one, else a LinkedIn message, again only after approval.
-import { config, log, logError, activity, master, persona, istHour, istDate, llm, yearsWorked } from './core.mjs';
+import { config, log, logError, activity, master, persona, istHour, istDate, llm, yearsWorked, sleep } from './core.mjs';
 import { one, all, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
@@ -135,26 +135,42 @@ const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaz
 async function findReferrers(job) {
   const P = persona(), school = R().school || P.school_short || '';
   const people = new Map();
-  if (/linkedin\.com\/jobs\/view\//.test(job.url || '')) {
-    const r = await browserTask('linkedin_job_network', { url: job.url }, 5 * 60e3).catch((e) => { log(`job network ${job.id}: ${e.message}`); return { people: [] }; });
-    for (const p of r.people || []) if (['colleague', 'alumni'].includes(p.tag)) people.set(p.url, p);
-  }
   // Senior people who'd know the team: product leads for a product/analyst role, engineering leads otherwise.
   const product = job.track === 'product' || /product|business analyst|project manager|analyst/i.test(job.title || '');
   const seniors = R().senior_titles || P.referral_seniors
     || (product ? ['senior product manager', 'product lead', 'engineering manager'] : ['tech lead', 'engineering manager', 'principal engineer', 'senior software engineer']);
-  const r2 = await browserTask('linkedin_people', { company: job.company, school, queries: [[`${job.company} ${school}`, true], ...seniors.map((t) => [`${job.company} ${t}`, 'senior'])] }, 12 * 60e3)
-    .catch((e) => { log(`referral people ${job.company}: ${e.message}`); return { people: [] }; });
+  const queries = [[`${job.company} ${school}`, true], ...seniors.map((t) => [`${job.company} ${t}`, 'senior'])];
+  // Every lookup is its own browser task and they run side by side on the worker's LinkedIn lane (a few seconds apart, not a
+  // burst): the job page's panel, and each search. Nothing waits for another lookup, another company, or the applying.
+  const lookups = [];
+  if (/linkedin\.com\/jobs\/view\//.test(job.url || '')) lookups.push(browserTask('linkedin_job_network', { url: job.url }, 5 * 60e3).then((r) => ({ panel: r })));
+  queries.forEach((q, i) => lookups.push(sleep(i * 2500 + Math.random() * 1500).then(() => browserTask('linkedin_people', { company: job.company, school, queries: [q] }, 8 * 60e3)).then((r) => ({ search: r }))));
+  const results = await Promise.allSettled(lookups);
+  let failed = 0;
+  for (const r of results) {
+    if (r.status === 'rejected' || r.value?.panel?.status === 'session_expired' || r.value?.search?.status === 'session_expired') { failed++; log(`referral lookup ${job.company}: ${r.reason?.message || 'LinkedIn session expired'}`); continue; }
+    for (const p of r.value.panel?.people || []) if (['colleague', 'alumni'].includes(p.tag)) people.set(p.url, p);
+  }
   const region = NCR_RE.test(job.location || '') ? NCR_RE : null;
-  for (const p of r2.people || []) {
+  for (const r of results) for (const p of (r.status === 'fulfilled' && r.value.search?.people) || []) {
     if (people.has(p.url)) continue;
     if (p.tag === 'senior' && (!SENIOR.test(p.headline || '') || (region && !region.test(p.location || '')))) continue;   // senior AND in the job's region
     if (p.tag === 'other' && !p.alumni) continue;
     people.set(p.url, { ...p, tag: p.alumni ? 'alumni' : p.tag });
   }
   const fresh = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url));
-  return { found: people.size, fresh };
+  return { found: people.size, fresh, failed };
 }
+// Nobody at the company came up on LinkedIn: kept aside for the person (they may know someone, or the company has its own form).
+function setAside(job) {
+  run(`INSERT INTO referrals(company, job_id, job_title, job_url, person, stage, reason, source, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    job.company, job.id, job.title, job.url, '—', 'skipped', 'aside: nobody found on LinkedIn', 'auto', now(), now());
+  activity(`🗂 ${job.title} @ ${job.company}: nobody found on LinkedIn, kept aside for you`);
+  tell(`🗂 Kept aside: nobody at ${job.company} came up on LinkedIn (${job.title}). Maybe you know someone there, or their careers page has a referral form.`,
+    { chat: NCR_RE.test(job.location || '') ? 'ncr' : null, silent: true, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }] });
+  return 0;
+}
+export const asideList = () => all("SELECT company, job_title, job_url FROM referrals WHERE reason LIKE 'aside:%' ORDER BY id DESC LIMIT 20");
 const byKind = (fresh, quota) => ['colleague', 'senior', 'alumni'].flatMap((k) => fresh.filter((p) => p.tag === k).slice(0, quota[k] || 0));
 
 export async function refForJob(jobId, { chat = null } = {}) {
@@ -166,7 +182,9 @@ export async function refForJob(jobId, { chat = null } = {}) {
   // People the agent already sent a connection request to when this job turned up: say so (their follow-up comes when they accept).
   const early = all("SELECT person, stage FROM referrals WHERE job_id = ? AND source = 'auto' ORDER BY id", job.id);
   if (early.length) say(`🔗 Already sent plain connection requests for this job: ${early.map((e) => `${e.person}${e.stage === 'invited' ? ' (waiting to accept)' : e.stage === 'approved' ? ' (queued)' : ''}`).join(', ')}. When someone accepts, their referral message appears here for your OK.`);
-  const { found, fresh } = await findReferrers(job);
+  const { found, fresh, failed } = await findReferrers(job);
+  if (!found && !failed) { setAside(job); return; }
+  if (!found && failed) return say('⚠️ LinkedIn did not answer the lookup (it may be limiting searches). Try again in a little while.');
   // A share for each kind, so alumni never crowd out the senior people in the region: 2 colleagues, 2 alumni, 3 seniors.
   const quota = { colleague: 2, alumni: 2, senior: 3, ...(R().per_kind || {}) };
   const picks = byKind(fresh, quota);
@@ -192,7 +210,9 @@ export async function connectForJob(jobId) {
   const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
   if (!job || getKv(`autoconnect:${job.id}`)) return 0;
   setKv(`autoconnect:${job.id}`, String(now()));
-  const { fresh } = await findReferrers(job);
+  const { found, fresh, failed } = await findReferrers(job);
+  if (!found && failed) { setKv(`autoconnect:${job.id}`, ''); setKv('ncr_ref_backoff', now() + 30 * 60e3); return 0; }   // LinkedIn did not answer: try again later, nothing recorded
+  if (!found) return setAside(job);
   const quota = { colleague: 1, senior: 2, alumni: 1, ...(R().auto_per_kind || {}) };
   const picks = byKind(fresh.filter((p) => p.degree !== '1st'), quota);
   for (const p of picks) {

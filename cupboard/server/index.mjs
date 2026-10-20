@@ -817,7 +817,7 @@ createServer(async (req, res) => {
     if (req.url === '/calls-active') return send(res, 200, { active: calls.activeCount() });   // deploy.sh: never restart under a live call
     if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
-      const u = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to || '').toLowerCase());
+      const u = b.to ? one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to).toLowerCase()) : owner();   // no `to` = the owner's agent
       if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri|captcha)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
       const token = randomBytes(16).toString('hex');
       setKv(`signin:${token}`, JSON.stringify({ uid: u.id, agent: b.agent, site: b.site, ...(b.site === 'captcha' ? { job: String(b.job || '').slice(0, 120) } : {}), exp: Date.now() + (b.site === 'captcha' ? 24 : 2) * 3600e3 }));

@@ -89,7 +89,7 @@ createServer((req, res) => {
         if (loginCommand(text)) return json({});
         const step = pendingStep();
         if (step) { onboardReply(step, text, b.msgId); return json({}); }
-        if (/^ncr( referrals)?( on| off)?$/i.test(text)) { await handleOwner(text.toLowerCase()); return json({}); }   // Gurgaon/Noida watch commands
+        if (/^ncr( referrals| aside)?( on| off)?$/i.test(text)) { await handleOwner(text.toLowerCase()); return json({}); }   // Gurgaon/Noida watch commands
         const { ask } = await import('./assistant.mjs');
         try { return json({ answer: await ask(text) }); }
         catch (e) { return json({ answer: /rate limited/i.test(e.message) ? 'The free AI is busy right now. Ask again in a few minutes.' : `Couldn't answer: ${e.message}` }); }
@@ -217,7 +217,7 @@ every(ncrEvery(), 'ncr watch', async () => {             // all night too: Naukr
   })();
 }, { delay: 90e3 });
 every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
-every(30, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // auto-connect: plain requests to referrers at NCR companies (one job an hour at most; the gate is inside)
+every(10, 'ncr referrals', () => ncrReferrals(), { delay: 5 * 60e3 });   // auto-connect: plain requests to referrers at NCR companies (one job an hour at most; the gate is inside)
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
 every(5, 'naukri refresh', async () => {
