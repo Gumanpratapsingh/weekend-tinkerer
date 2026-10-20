@@ -164,15 +164,15 @@ export async function ncrFill(jobId) {
     case 'closed': run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id); return say(`🚫 ${label(job)} is closed.`);
     case 'email': return say(`✉️ ${label(job)} takes applications by email: ${res.email}.`, { links: open });
     default:
-      if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, open);
+      if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
       return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open });
   }
 }
 
 // CAPTCHA: same handoff as the queue (apply.mjs): the job waits in the CAPTCHA list and scripts/finish.sh on the Mac opens it prefilled.
-function captchaHandoff(job, res, links) {
+function captchaHandoff(job, res) {
   run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
-  return say(`🧩 ${label(job)} needs a CAPTCHA. Everything else is ready: run ./scripts/finish.sh on the Mac, solve it, press Submit.`, { images: res.shot ? [res.shot] : [], links });
+  return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat: 'ncr', images: res.shot ? [res.shot] : null }));
 }
 
 // "✓ Submit" after the screenshots: the real application, same answers, then the confirmation screenshot.
@@ -186,7 +186,7 @@ export async function ncrSubmit(jobId) {
   run('DELETE FROM kv WHERE key = ?', `fillans:${job.id}`);
   const shots = res.shot ? [res.shot] : [];
   if (res.status === 'applied') return say(`✅ Applied: ${label(job)}.`, { images: shots });
-  if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, [{ label: 'Open job ↗', url: job.apply_url || job.url }]);
+  if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
   if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, job.id);
   return say(`⚠️ ${label(job)} didn't go through: ${String(res.reason || res.status).slice(0, 200)}. ${res.status === 'needs_answer' ? 'Answer the question(s) and tap Fill again.' : 'Apply on the site yourself.'}`,
     { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }] });
@@ -237,21 +237,24 @@ export async function ncrChat(text) {
   return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
 }
 
-// Automatic NCR connections: the best recent NCR matches whose company nobody was asked at yet get the 🤝 Find referral search
+// Automatic connections: the best recent matches (NCR ones first, then any other) whose company nobody was asked at yet get the 🤝 Find referral search
 // (former colleagues, school alumni, senior people in NCR) and PLAIN connection requests go to the top few, so some have
 // accepted by the time the person opens the job. The referral message itself still waits for their OK. One job an hour at
 // most in the daytime (LinkedIn limits people searches and invites).
 // Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
 const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
 export async function ncrReferrals() {
-  if (!ncrOn() || getKv('ncr_ref_off') === '1') return;
+  if (getKv('ncr_ref_off') === '1') return;
   const h = istHour();
   if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
   if (Date.now() - Number(getKv('ncr_ref_last', 0)) < 50 * 60e3) return;                                  // at most one job an hour: LinkedIn limits people searches
   if (one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 6) return;  // plain requests already queued
   const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
-  const job = all(`SELECT * FROM jobs WHERE status IN ('manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
-    Math.max(ncrMin(), 65), Date.now() - 7 * 864e5).find((j) => isNcr(j) && j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`));
+  // NCR jobs first, then any other good match (queued ones too: the request goes out before the application does).
+  const fresh = (j) => j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`);
+  const rows = all(`SELECT * FROM jobs WHERE status IN ('queued','manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
+    Math.max(ncrMin(), 65), Date.now() - 7 * 864e5);
+  const job = (ncrOn() && rows.find((j) => isNcr(j) && fresh(j))) || rows.find(fresh);
   if (!job) return;
   setKv('ncr_ref_last', Date.now());
   const { connectForJob } = await import('./referrals.mjs');

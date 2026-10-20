@@ -136,6 +136,39 @@ async function runSignin(w, site) {
     return { ok: false, reason: 'no sign-in within 15 minutes' };
   } finally { signin = null; await browser.close().catch(() => {}); }
 }
+// ---------- live CAPTCHA handoff (outside the queue) ----------
+// The form is filled in a kept-open page, which the person sees and taps through the same live page as the sign-in
+// (/input and the frames use `signin`). They type the CAPTCHA and press Submit; we only watch for the confirmation.
+// The CAPTCHA is never read or solved here.
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|applied successfully|you have (successfully )?applied/i;
+async function runCaptcha(w, { job, resume }) {
+  const handler = tasks[`apply_${job.apply_type}`] || tasks.apply_external;
+  let res;
+  try { res = await handler({ job, resume, keepOpen: true }); } catch (e) { res = { status: 'error', reason: e.message }; }
+  let page = res.page;
+  if (res.status !== 'handoff' || !page) {            // no form reached: still open the job page, the person finishes by hand
+    const ctx = await session.siteContext('external');
+    page = await ctx.newPage();
+    await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  }
+  const ctx = page.context();
+  signin = { who: w, site: 'captcha', page, browser: null };
+  session.progress(`🧩 CAPTCHA page open for ${job.title}: waiting for the person to solve it and submit`);
+  const startUrl = page.url(), alreadySaid = DONE.test(await page.innerText('body').catch(() => ''));
+  try {
+    for (const until = Date.now() + 15 * 60e3; Date.now() < until;) {
+      const pages = ctx.pages();
+      if (!pages.length) return { ok: false, applied: false, reason: 'the page was closed' };
+      signin.page = pages.at(-1);
+      for (const p of pages) {
+        const text = await p.innerText('body').catch(() => '');
+        if ((!alreadySaid && DONE.test(text)) || (p.url() !== startUrl && /thank|success|confirm/i.test(p.url()))) return { ok: true, applied: true, filled: res.filled?.length || 0 };
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    return { ok: false, applied: false, reason: 'no confirmation within 15 minutes' };
+  } finally { signin = null; await ctx.close().catch(() => {}); }
+}
 let signinShooting = false;
 setInterval(async () => {                             // frames for the sign-in page, ~1 a second while it is open
   const s = signin;
@@ -219,6 +252,18 @@ createServer((req, res) => {
       try { reply(200, await session.person.run(w, () => runSignin(w, b.site))); }
       catch (e) { console.error(`[${w.person}] signin`, e?.message); session.person.run(w, () => session.workerError('signin', e)); reply(500, { error: e?.message || String(e) }); }
       finally { clearTimeout(limit); }
+    });
+    return;
+  }
+  if (req.url === '/captcha') {                      // fill a job's form now, then hand the CAPTCHA to the person; answers when it ends
+    let raw = ''; req.on('data', (c) => { raw += c; if (raw.length > 2e6) req.destroy(); });
+    req.on('end', async () => {
+      let w, b;
+      try { b = JSON.parse(raw || '{}'); w = whoOf(b); } catch (e) { return reply(400, { error: e.message }); }
+      if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'The phone browser is busy with someone else right now. Try again in a few minutes.' });
+      if (!b.job?.apply_url) return reply(400, { error: 'no job' });
+      try { reply(200, await session.person.run(w, () => runCaptcha(w, b))); }
+      catch (e) { console.error(`[${w.person}] captcha`, e?.message); session.person.run(w, () => session.workerError('captcha', e)); reply(500, { error: e?.message || String(e) }); }
     });
     return;
   }

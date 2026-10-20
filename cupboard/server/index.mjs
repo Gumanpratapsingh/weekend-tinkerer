@@ -722,10 +722,11 @@ async function api(req, res, path, query) {
     const s = JSON.parse(getKv(`signin:${m[1]}`) || 'null');
     if (!s || s.uid !== me.id || s.exp < Date.now()) throw err(404, 'This sign-in link has expired. Ask your job agent for a new one ("login linkedin").');
     const sub = m[2] || '', to = (p, init) => fetch(`${s.agent}/internal/signin/${p}`, { signal: AbortSignal.timeout(20000), ...init });
-    if (M === 'GET' && sub === '') { const st = await to(`status?site=${s.site}`).then((r) => r.json()).catch(() => ({})); return send(res, 200, { site: s.site, ...st }); }
-    if (M === 'POST' && sub === '/start') { const r = await to('start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site }) }); return send(res, r.status, await r.json().catch(() => ({}))); }
+    const q = `site=${s.site}${s.job ? `&job=${encodeURIComponent(s.job)}` : ''}`;      // a CAPTCHA page is for one job
+    if (M === 'GET' && sub === '') { const st = await to(`status?${q}`).then((r) => r.json()).catch(() => ({})); return send(res, 200, { site: s.site, ...st }); }
+    if (M === 'POST' && sub === '/start') { const r = await to('start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site, job: s.job }) }); return send(res, r.status, await r.json().catch(() => ({}))); }
     if (M === 'GET' && sub === '/frame') {
-      const r = await to(`frame?site=${s.site}`).catch(() => null);
+      const r = await to(`frame?${q}`).catch(() => null);
       if (!r?.ok) { res.writeHead(204, { 'Cache-Control': 'no-store' }); return res.end(); }
       const buf = Buffer.from(await r.arrayBuffer());
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'Content-Length': buf.length }); return res.end(buf);
@@ -733,7 +734,7 @@ async function api(req, res, path, query) {
     if (M === 'POST' && sub === '/input') {
       if (!rateOk(me.id)) throw err(429, 'Slow down a little.');
       const b = await readJson(req, 2000);
-      const r = await to('input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site, kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key }) });
+      const r = await to('input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: s.site, job: s.job, kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key }) });
       return send(res, r.status, await r.json().catch(() => ({})));
     }
     throw err(404, 'Not found.');
@@ -817,9 +818,9 @@ createServer(async (req, res) => {
     if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
       const u = one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to || '').toLowerCase());
-      if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
+      if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri|captcha)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
       const token = randomBytes(16).toString('hex');
-      setKv(`signin:${token}`, JSON.stringify({ uid: u.id, agent: b.agent, site: b.site, exp: Date.now() + 2 * 3600e3 }));
+      setKv(`signin:${token}`, JSON.stringify({ uid: u.id, agent: b.agent, site: b.site, ...(b.site === 'captcha' ? { job: String(b.job || '').slice(0, 120) } : {}), exp: Date.now() + (b.site === 'captcha' ? 24 : 2) * 3600e3 }));
       return send(res, 200, { path: `/signin/${token}` });
     }
     if (req.url === '/redact') {                       // a message carried a secret: keep the bubble, drop the text

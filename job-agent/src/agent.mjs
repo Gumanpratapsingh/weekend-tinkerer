@@ -16,6 +16,7 @@ import { webhook, flush, tell, configured as waConfigured } from './whatsapp.mjs
 import { handleOwner, onAnswered } from './commands.mjs';
 import { one, run } from './db.mjs';
 
+import { startCaptcha, captchaDone, liveCaptcha } from './captcha.mjs';
 import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin } from './onboard.mjs';
 
 gate.open = !needsSetup();                          // a new person: only the chat + setup run until their profile exists
@@ -54,7 +55,7 @@ createServer((req, res) => {
         return reply(200, JSON.stringify(await latestSecurityCode(url.searchParams.get('company') || '').catch(() => null) || {}), 'application/json');
       }
       if (url.pathname === '/internal/captcha-jobs' && !req.headers['x-visitor-ip']) {
-        return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' ORDER BY score DESC")), 'application/json');
+        return reply(200, JSON.stringify(all("SELECT id, title, company, apply_url, apply_type, resume_path, score FROM jobs WHERE status = 'captcha' AND id != ? ORDER BY score DESC", liveCaptcha() || '')), 'application/json');
       }
       // Free-form question from the owner (Cupboard): answer from the agent's live state. Read-only.
       if (url.pathname === '/internal/ask' && req.method === 'POST' && !req.headers['x-visitor-ip']) {
@@ -96,13 +97,16 @@ createServer((req, res) => {
       // Live sign-in page (Cupboard -> here -> browser worker): status, screen, taps/keys. Input bodies are never logged.
       if (url.pathname.startsWith('/internal/signin/') && !req.headers['x-visitor-ip']) {
         const site = url.searchParams.get('site') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').site;
-        if (!['linkedin', 'naukri'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
+        if (!['linkedin', 'naukri', 'captcha'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
+        const cjob = site === 'captcha' ? (url.searchParams.get('job') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').job) : null;
         const json = (x, code = 200) => reply(code, JSON.stringify(x), 'application/json');
         const health = await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => ({}));
         const mine = health.signin === (PERSON || 'owner');
         const what = url.pathname.slice('/internal/signin/'.length);
-        if (what === 'status') return json({ mine, busy: !!health.signin && !mine, signedIn: !!getKv(`signin_done_${site}`) && !mine });
-        if (what === 'start') { setKv(`signin_done_${site}`, ''); return json(await startSignin(site)); }
+        if (what === 'status') return json(site === 'captcha'
+          ? { mine, busy: !!health.signin && !mine, signedIn: captchaDone(cjob) && !mine, title: one('SELECT title, company FROM jobs WHERE id = ?', String(cjob)) }
+          : { mine, busy: !!health.signin && !mine, signedIn: !!getKv(`signin_done_${site}`) && !mine });
+        if (what === 'start') { if (site === 'captcha') return json(await startCaptcha(cjob)); setKv(`signin_done_${site}`, ''); return json(await startSignin(site)); }
         if (what === 'frame') {
           const { writeFileSync, statSync } = await import('node:fs');
           writeFileSync(join(DATA, 'live-watch'), String(Date.now()));

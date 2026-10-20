@@ -407,7 +407,8 @@ const screens = {
     const base = `/signin/${r.token}`;
     let info;
     try { info = await api(base); } catch (e) { app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Sign in')), h('div', { class: 'page' }, h('p', { class: 'lede' }, e.message))); return; }
-    const site = { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
+    const captcha = info.site === 'captcha';
+    const site = captcha ? (info.title ? `${info.title.title} @ ${info.title.company}` : 'the application') : { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
     const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back'));
     const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the phone browser…');
     const img = h('img', { class: 'screen', alt: `${site} on the phone's browser`, draggable: 'false' });
@@ -423,15 +424,15 @@ const screens = {
       const rect = img.getBoundingClientRect();
       input({ kind: 'tap', x: Math.round((e.clientX - rect.left) * (img.naturalWidth / rect.width)), y: Math.round((e.clientY - rect.top) * (img.naturalHeight / rect.height)) });
     });
-    app.replaceChildren(h('div', { class: 'bar' }, back, h('div', { class: 't' }, h('h1', {}, `${site} sign-in`), h('small', {}, 'on your job agent\'s phone browser'))),
+    app.replaceChildren(h('div', { class: 'bar' }, back, h('div', { class: 't' }, h('h1', {}, captcha ? 'CAPTCHA' : `${site} sign-in`), h('small', {}, captcha ? site : 'on your job agent\'s phone browser'))),
       h('div', { class: 'scroll signin' }, status, img, h('div', { class: 'srow' }, box, sendBtn), h('div', { class: 'srow' }, ...keys, show),
-        h('p', { class: 'note' }, `Tap the screen to click. What you type goes straight into ${site}'s page; your job agent keeps only the signed-in session, never your password.`)));
+        h('p', { class: 'note' }, captcha ? 'The form is already filled. Tap the CAPTCHA box and type it below, check the details, then tap Submit on the screen. I only watch for the confirmation.' : `Tap the screen to click. What you type goes straight into ${site}'s page; your job agent keeps only the signed-in session, never your password.`)));
     await api(`${base}/start`, { method: 'POST' }).catch((e) => toast(e.message, true));
     const tick = async () => {
       if (route().name !== 'signin') return;
       try {
         const s = await api(base);
-        status.textContent = s.signedIn ? `✅ Signed in to ${site}. You can close this page.` : s.mine ? 'Your turn: sign in below.' : s.busy ? 'Waiting for the phone browser (it is finishing another task)…' : 'Starting…';
+        status.textContent = s.signedIn ? (captcha ? `✅ Applied: ${site}. You can close this page.` : `✅ Signed in to ${site}. You can close this page.`) : s.mine ? (captcha ? 'Your turn: solve the CAPTCHA and press Submit.' : 'Your turn: sign in below.') : s.busy ? 'Waiting for the phone browser (it is finishing another task)…' : captcha ? 'Filling the form… this takes a minute or two.' : 'Starting…';
         if (s.signedIn) return;
         if (s.mine) { const r2 = await fetch(`/api${base}/frame?t=${Date.now()}`, { credentials: 'same-origin' }); if (r2.status === 200) { const u = URL.createObjectURL(await r2.blob()); const old = img.src; img.src = u; if (old.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(old), 2000); } }
       } catch { /* keep trying */ }

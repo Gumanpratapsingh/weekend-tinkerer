@@ -136,7 +136,7 @@ function settle(job, res) {
       if (/captcha/i.test(res.reason || '')) {
         run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
         activity(`🧩 ${label}: CAPTCHA — prefilled for you via ./scripts/finish.sh`);
-        tell(`🧩 ${label} needs a CAPTCHA. Everything else is ready: run ./scripts/finish.sh on the Mac, solve it, press Submit.`);
+        import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job)).catch((e) => logError('captcha card', e, { job: job.id }));
         break;
       }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
