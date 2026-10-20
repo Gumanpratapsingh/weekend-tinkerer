@@ -181,12 +181,17 @@ export default {
       if (quota || await refused(page)) return { status: 'site_limit', reason: `Naukri refused the apply: ${quota || 'error while processing your request'}`, shot: await snap(page, 'naukri-limit') };
 
       // Questions drawer: one question at a time, chat-style.
+      let lastQ = '', sameQ = 0;
       for (let i = 0; i < 25; i++) {
         if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
         const drawer = page.locator('.chatbot_DrawerContentWrapper, [class*="chatbot_Drawer"], [class*="chatbot"]').first();
         if (!await drawer.count()) break;
         const q = await currentQuestion(page);
         if (!q) { await page.waitForTimeout(2000); continue; }
+        // The same question again and again (13 times on 2026-10-19, ending as "no confirmation seen" and retried 3 times): the answer
+        // is not being accepted. Stop after 3 and hand it to the person with the question named, instead of burning the attempt.
+        sameQ = q.label === lastQ ? sameQ + 1 : 1; lastQ = q.label;
+        if (sameQ >= 4) return { status: 'manual', reason: `Naukri keeps asking "${q.label.slice(0, 100)}" and does not accept the answer`, shot: await snap(page, 'naukri-stuck-question') };
         progress(`Naukri asks: "${q.label.slice(0, 120)}"`);
         const r = await fetch(AGENT(), { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
