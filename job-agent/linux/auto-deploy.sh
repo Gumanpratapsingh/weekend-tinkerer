@@ -8,7 +8,7 @@ set -u
 D=$HOME/auto-deploy; REPO=$D/repo; STATE=$D/last-good; PENDING=$D/pending-since
 mkdir -p "$D"; exec 9>"$D/lock"; flock -n 9 || exit 0
 log() { echo "$(date -Is) $*" >> "$D/log"; }
-notify() { printf '{"title":"Auto-deploy","text":%s}' "$(node -e 'console.log(JSON.stringify(process.argv[1]))' "$1")" | curl -s -m 8 -X POST 127.0.0.1:8086/notify -H 'Content-Type: application/json' -d @- >/dev/null; }
+notify() { printf '{"title":"Auto-deploy","text":%s,"silent":%s}' "$(node -e 'console.log(JSON.stringify(process.argv[1]))' "$1")" "${2:-false}" | curl -s -m 8 -X POST 127.0.0.1:8086/notify -H 'Content-Type: application/json' -d @- >/dev/null; }
 [ -d "$REPO/.git" ] || git clone -q https://github.com/Gumanpratapsingh/weekend-tinkerer.git "$REPO" || exit 0
 cd "$REPO"; git fetch -q origin main || exit 0
 NEW=$(git rev-parse origin/main)
@@ -48,7 +48,7 @@ install_tree() {   # $1 = commit
 log "deploying $OLD -> $NEW (job-agent=$JA cupboard=$CB)"
 if install_tree "$NEW"; then
   echo "$NEW" > "$STATE"; rm -f "$PENDING"; log "ok $NEW"
-  notify "Deployed $(git log -1 --format=%s "$NEW" | cut -c1-120) ($(echo "$NEW" | cut -c1-7))"
+  notify "Deployed $(git log -1 --format=%s "$NEW" | cut -c1-120) ($(echo "$NEW" | cut -c1-7))" true
 else
   RC=$?; log "FAILED rc=$RC, rolling back to $OLD"
   install_tree "$OLD"; echo "$NEW" > "$D/failed-commit"

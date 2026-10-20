@@ -808,9 +808,15 @@ createServer(async (req, res) => {
         if (m) await postMessage(convId, botId(), { kind: 'image', media: m.media, extra: { name: 'screenshot.png', size: m.size, w: m.w, h: m.h } }, { pushOnly: [] });
       }
       // silent: no phone notification (a batch of job cards pings once, through its own summary message)
-      // urgent (an NCR job needs the person now): pushed even to a muted chat or an open app, with its own title
-      const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true ? { pushOnly: [] }
-        : b.urgent ? { force: true, pushAs: { title: '🚨 URGENT · NCR job needs you', body: text.replace(/^\S+\s*/, '') } } : {});
+      // Phone pushes only 08:00-22:00 IST: at night the card still lands in the chat, silently (the urgent reminders start at 08:00).
+      // Urgent (an NCR job needs the person now): pushed even to a muted chat or an open app, but at most once every 5 minutes per
+      // person; the ones in between arrive silently and the 12-minute reminder covers them (20 failures at once was 40 buzzes at night).
+      const hIST = (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) / 60 % 24, day = hIST >= 8 && hIST < 22;
+      const recentUrgent = Date.now() - Number(getKv(`urgent_push:${target.id}`) || 0) < 5 * 60e3;
+      const loud = b.urgent && day && !recentUrgent;
+      if (loud) setKv(`urgent_push:${target.id}`, Date.now());
+      const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true || !day || (b.urgent && !loud) ? { pushOnly: [] }
+        : loud ? { force: true, pushAs: { title: '🚨 URGENT · NCR job needs you', body: text.replace(/^\S+\s*/, '') } } : {});
       if ((typeof b.urgent === 'string' || typeof b.urgent === 'number') && b.silent !== true) setKv(`urgent:${msg.id}`, JSON.stringify({ uid: target.id, conv: convId, text: text.slice(0, 120), n: 0, job: typeof b.urgent === 'string' || typeof b.urgent === 'number' ? String(b.urgent) : null, agent: /^http:\/\/127\.0\.0\.1:\d+$/.test(b.urgentAgent || '') ? b.urgentAgent : null, next: Date.now() + URGENT_EVERY }));   // nagged until opened
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
