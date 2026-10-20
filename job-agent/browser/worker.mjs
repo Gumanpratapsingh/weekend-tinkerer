@@ -153,9 +153,17 @@ async function runCaptchaOpen(w, { job, resume }) {
   if (handler) { try { res = await handler({ job, resume, keepOpen: true }); } catch (e) { res = { status: 'error', reason: e.message }; } }
   let page = res.page;
   if (res.status !== 'handoff' || !page) {            // no form reached: still open the job page, the person finishes by hand
-    const ctx = await session.siteContext('external');
+    // Naukri / LinkedIn jobs open with that site's saved login (the "external" context is logged out: Naukri showed Login/Register
+    // instead of Apply on 2026-10-20), and on Naukri the Apply button is pressed so its questions panel is what the person sees.
+    const site = /naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external';
+    const ctx = await session.siteContext(site);
     page = await ctx.newPage();
     await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    if (site === 'naukri') {
+      await page.waitForTimeout(3000);
+      if (!await page.locator('#already-applied, button:has-text("Applied")').count().catch(() => 0))
+        await page.locator('button:has-text("Apply"):not(:has-text("company site")), #apply-button').first().click({ timeout: 8000 }).catch(() => {});
+    }
   }
   const ctx = page.context();
   signin = { who: w, site: 'captcha', page, browser: null };
