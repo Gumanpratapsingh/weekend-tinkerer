@@ -152,6 +152,7 @@ function connect() {
   es.addEventListener('msg', (e) => {
     const { msg, conv } = JSON.parse(e.data);
     upsertConv(conv);
+    if (msg.from !== state.me?.id && !conv?.muted && document.visibilityState === 'visible') Ring.pop();   // closed/hidden: the push notification sounds instead
     if (state.cur?.id === msg.conv) {
       if (!state.msgs.some((m) => m.id === msg.id)) { state.msgs.push(msg); drawMessages(true); markRead(); }
       delete state.typing[msg.conv]; drawHeader();
@@ -635,6 +636,14 @@ const screens = {
       ringSwitch.textContent = on ? 'Call ring: on (tap to turn off)' : 'Call ring: off (tap to turn on)';
       if (on) { Ring.start('in'); setTimeout(() => Ring.stop(), 2600); }      // a preview, so you know what it sounds like
     });
+    const popOn = () => { try { return localStorage.getItem('cb_pop') !== '0'; } catch { return true; } };
+    const popSwitch = h('button', { class: 'btn ghost', type: 'button' }, popOn() ? 'Message sound: on (tap to turn off)' : 'Message sound: off (tap to turn on)');
+    popSwitch.addEventListener('click', () => {
+      const on = !popOn();
+      try { localStorage.setItem('cb_pop', on ? '1' : '0'); } catch { /* private mode */ }
+      popSwitch.textContent = on ? 'Message sound: on (tap to turn off)' : 'Message sound: off (tap to turn on)';
+      if (on) Ring.pop();                                          // a preview
+    });
     // Trusted devices: remove a lost one, or add a new one with a 15-minute link.
     const devBox = h('div', {}), devOut = h('div', {});
     const paintDevices = async () => {
@@ -690,6 +699,9 @@ const screens = {
         h('div', { class: 'sec' }, 'Devices'),
         h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
         devBox, addDev, devOut,
+        h('div', { class: 'sec' }, 'Sounds'),
+        h('p', { class: 'lede' }, 'A soft pop when a message arrives while Cupboard is open (not for muted chats). When it is closed, your phone\'s notification sound plays.'),
+        popSwitch,
         h('div', { class: 'sec' }, 'Calls'),
         h('p', { class: 'lede' }, 'Cupboard rings while it is open. When it is closed you get a notification instead. On iPhone the side Ring/Silent switch mutes the ring.'),
         ringSwitch,
@@ -1731,7 +1743,7 @@ async function eventForm(ev = {}, opts = {}) {
 // ----- call sounds: a chime for the person being called, a soft "ringing…" for the caller. Made on the spot with the
 // phone's own audio (no sound files). They play while Cupboard is open; on iPhone the side Ring/Silent switch mutes them.
 const Ring = (() => {
-  let ctx = null, out = null, timer = null;
+  let ctx = null, out = null, timer = null, lastPop = 0;
   const enabled = () => { try { return localStorage.getItem('cb_ring') !== '0'; } catch { return true; } };
   function ensure() {
     if (!ctx) {
@@ -1754,6 +1766,16 @@ const Ring = (() => {
   };
   return {
     unlock: () => { ensure(); },                 // any first tap lets the first call ring
+    // Message "pop" (a short soft bubble) while Cupboard is open; at most one every 1.5 s, so a batch of cards pops once.
+    pop() {
+      let on = true; try { on = localStorage.getItem('cb_pop') !== '0'; } catch { /* private mode */ }
+      if (!on || Date.now() - lastPop < 1500 || !ensure()) return;
+      lastPop = Date.now();
+      const t = ctx.currentTime + 0.03, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(620, t); o.frequency.exponentialRampToValueAtTime(1180, t + 0.084);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.5, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.14);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.19);
+    },
     start(kind) {
       this.stop();
       if (!enabled() || !ensure()) return;
