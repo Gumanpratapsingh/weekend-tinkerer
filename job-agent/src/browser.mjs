@@ -3,8 +3,14 @@
 // search takes ~20 minutes (that silently threw away every search result until 2026-10-10).
 import { request } from 'node:http';
 import { PERSON, PORT } from './core.mjs';
+import { held, holdOff } from './holdoff.mjs';
+
+// Searches on a site that answered "too many requests" are not sent for 12-18 hours (src/holdoff.mjs).
+const SEARCH_SITE = { naukri_search: 'naukri.com', naukri_recommended: 'naukri.com' };
 
 export function browserTask(name, body = {}, timeoutMs = 300000) {
+  const site = SEARCH_SITE[name];
+  if (site && held(site)) return Promise.resolve({ status: 'rate_limited', jobs: [] });
   const payload = JSON.stringify({ ...body, _who: { person: PERSON || 'owner', port: PORT } });   // whose logins and folders to use
   return new Promise((resolve, reject) => {
     const req = request({ host: '127.0.0.1', port: 8084, path: `/${name}`, method: 'POST',
@@ -14,7 +20,8 @@ export function browserTask(name, body = {}, timeoutMs = 300000) {
       res.on('end', () => {
         clearTimeout(timer);
         let out; try { out = JSON.parse(raw); } catch { out = { error: `worker ${res.statusCode}` }; }
-        if (res.statusCode >= 400) reject(new Error(out.error || `worker ${res.statusCode}`)); else resolve(out);
+        if (res.statusCode >= 400) reject(new Error(out.error || `worker ${res.statusCode}`));
+        else { if (site && out.status === 'rate_limited') holdOff(site, `${name} got 429`); resolve(out); }
       });
     });
     const timer = setTimeout(() => req.destroy(new Error(`browser task ${name} timed out`)), timeoutMs);

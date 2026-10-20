@@ -1,5 +1,6 @@
 // LinkedIn's public (logged-out) job search, Easy Apply jobs only, posted in the last 24 hours.
 // Kept gentle: a few queries every few hours. Applying itself happens in the browser with the owner's session.
+import { held } from '../holdoff.mjs';
 import { config, log, sleep } from '../core.mjs';
 import { getKv, setKv, run } from '../db.mjs';
 import { getText, htmlToText, decode, locationOk, titleOk } from './common.mjs';
@@ -13,8 +14,8 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
   const queries = only || Object.values(c.tracks).flatMap((t) => t.queries);
   const seen = new Set();
   const out = [];
-  // LinkedIn answers 429 when we search too much: then stay away for an hour.
-  if (Number(getKv('linkedin_backoff_until', 0)) > Date.now()) { log('linkedin search: backing off after a 429'); return out; }
+  // LinkedIn answers 429 when we search too much: then stay away for 12-18 hours (getText starts the hold, src/holdoff.mjs).
+  if (held('linkedin.com')) return out;
   for (const q of queries) {
     for (const { location: loc, remote } of locations || c.locations.linkedin) for (const easy of allJobs ? [false] : [true, false])
     for (let start = 0; start < (pages || (fresh ? 1 : c.linkedin_pages || 3)) * 25; start += 25) {
@@ -25,7 +26,7 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
       try { html = await getText(url); }
       catch (e) {
         log(`linkedin search: ${e.message}`);
-        if (/^429/.test(e.message)) { setKv('linkedin_backoff_until', Date.now() + 3600e3); return out; }
+        if (/^429/.test(e.message)) return out;
         await sleep(60000); break;
       }
       const cards = html.split('<li>').slice(1);

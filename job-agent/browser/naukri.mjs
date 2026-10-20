@@ -59,6 +59,7 @@ export default {
       if (loggedOut(page)) return { status: 'session_expired', jobs: out };
       const resp = await respP;
       const r = { status: resp?.status() || 0, body: resp ? await resp.json().catch(() => ({})) : {} };
+      if (r.status === 429) return { status: 'rate_limited', jobs: out };      // too many requests: the agent holds off 12-18 h
       if (r.status !== 200) { console.error('naukri search', r.status, slug); if (await page.locator('iframe[src*="recaptcha/api2/bframe"]').count()) return { status: 'captcha', jobs: out }; continue; }
       if (!(r.body.jobDetails || []).length) break;                  // no more pages for this query
       progress(`Naukri: "${q}" page ${pg} (${loc || 'all India'}) → ${(r.body.jobDetails || []).length} jobs · ${out.length + (r.body.jobDetails || []).length} so far`);
