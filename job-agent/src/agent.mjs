@@ -71,6 +71,11 @@ createServer((req, res) => {
         const ref = b.ref?.ref_kind ? { ref_kind: String(b.ref.ref_kind), ref_id: String(b.ref.ref_id) } : null;
         if (ref?.ref_kind === 'onboard') { onboardReply(ref.ref_id, String(b.text || '').slice(0, 2000), b.msgId); return reply(200, '{"ok":true}', 'application/json'); }
         await handleOwner(String(b.text || '').trim().slice(0, 2000), ref);
+        // The owner answered through the copy of this person's question in the owner's chat: tell the person what was said for them.
+        if (url.searchParams.get('by') === 'owner' && ref?.ref_kind === 'question') {
+          const q = one('SELECT question FROM questions WHERE id = ?', Number(ref.ref_id));
+          tell(`ℹ️ Guman answered "${String(q?.question || 'a question').slice(0, 120)}" for you: "${String(b.text || '').slice(0, 200)}". It will be used on your applications. If that's wrong, tell your job agent the right answer.`);
+        }
         return reply(200, '{"ok":true}', 'application/json');
       }
       // Free text in the "📍 Delhi NCR jobs" chat: a job link to fill and show, or an answer. Replies go back to that chat.

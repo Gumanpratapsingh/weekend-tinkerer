@@ -62,7 +62,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
   try {
     const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner && !more.mirror ? null : ref, actions: toOwner && !more.mirror ? [] : actions,
-        replyTo: ref && (!toOwner || more.mirror) ? `${AGENT_URL}/internal/cupboard` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
+        replyTo: ref && (!toOwner || more.mirror) ? `${AGENT_URL}/internal/cupboard${more.mirror ? '?by=owner' : ''}` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
         ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.urgent ? { urgent: more.urgent, urgentAgent: AGENT_URL } : {}), ...(more.silent ? { silent: true } : {}) }) });
     if (!r.ok) return false;
     const out = await r.json();
