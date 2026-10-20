@@ -68,8 +68,8 @@ export async function handleOwner(text, ref) {
       const rows = all("SELECT title, company, score FROM jobs WHERE status = 'queued' ORDER BY score DESC LIMIT 8");
       return tell(rows.length ? `Next up:\n${rows.map((r) => `• ${r.score}% ${r.title} @ ${r.company}`).join('\n')}` : 'Queue is empty.');
     }
-    case 'ncr referrals off': setKv('ncr_ref_off', '1'); return tell('🤝 Automatic NCR referral drafts off (the 🤝 button on job cards still works).');
-    case 'ncr referrals on': setKv('ncr_ref_off', '0'); return tell('🤝 Automatic NCR referral drafts on: one company every 4 hours in the daytime, each draft waits for your Send.');
+    case 'ncr referrals off': setKv('ncr_ref_off', '1'); return tell('🤝 Automatic connection requests for NCR jobs off (the 🤝 button on job cards still works).');
+    case 'ncr referrals on': setKv('ncr_ref_off', '0'); return tell('🤝 Automatic connection requests on: plain requests (no message) to people who could refer you at NCR companies, one job an hour in the daytime. Your referral message still waits for your OK.');
     case 'ncr off': setKv('ncr_off', '1'); return tell('📍 Gurgaon/Noida watch off: NCR jobs go back to the normal queue (applied automatically).');
     case 'ncr on': setKv('ncr_off', '0'); ncrSweep(); await ncrNotify(); return tell('📍 Gurgaon/Noida watch on: NCR jobs come here as links, I won\'t apply to them.');
     case 'ncr': {

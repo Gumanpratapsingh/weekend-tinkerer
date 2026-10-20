@@ -130,12 +130,10 @@ export async function prospect({ only, jobId } = {}) {
 // for approval in the same chat; nothing is sent until "Send", and sends keep the usual daily/weekly limits.
 const SENIOR = /\b(lead|manager|principal|staff|architect|head|director|senior|sr\.?|vp)\b/i;
 const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
-export async function refForJob(jobId, { chat = null } = {}) {
-  const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
-  if (!job) return;
+// Who could refer this person for a job: the job page's "People you can reach out to" panel (former colleagues, school alumni),
+// plus a LinkedIn people search at the company (school alumni, and senior people in the job's region). Not yet contacted only.
+async function findReferrers(job) {
   const P = persona(), school = R().school || P.school_short || '';
-  const say = (t, more = {}) => tell(t, { chat, ...more });
-  say(`🔎 Looking for people who could refer you at ${job.company} (former colleagues, ${school || 'school'} alumni, senior people${NCR_RE.test(job.location || '') ? ' in Delhi NCR' : ''})…`);
   const people = new Map();
   if (/linkedin\.com\/jobs\/view\//.test(job.url || '')) {
     const r = await browserTask('linkedin_job_network', { url: job.url }, 5 * 60e3).catch((e) => { log(`job network ${job.id}: ${e.message}`); return { people: [] }; });
@@ -154,12 +152,26 @@ export async function refForJob(jobId, { chat = null } = {}) {
     if (p.tag === 'other' && !p.alumni) continue;
     people.set(p.url, { ...p, tag: p.alumni ? 'alumni' : p.tag });
   }
-  // A share for each kind, so alumni never crowd out the senior people in the region: 2 colleagues, 2 alumni, 3 seniors.
   const fresh = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url));
+  return { found: people.size, fresh };
+}
+const byKind = (fresh, quota) => ['colleague', 'senior', 'alumni'].flatMap((k) => fresh.filter((p) => p.tag === k).slice(0, quota[k] || 0));
+
+export async function refForJob(jobId, { chat = null } = {}) {
+  const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
+  if (!job) return;
+  const P = persona(), school = R().school || P.school_short || '';
+  const say = (t, more = {}) => tell(t, { chat, ...more });
+  say(`🔎 Looking for people who could refer you at ${job.company} (former colleagues, ${school || 'school'} alumni, senior people${NCR_RE.test(job.location || '') ? ' in Delhi NCR' : ''})…`);
+  // People the agent already sent a connection request to when this job turned up: say so (their follow-up comes when they accept).
+  const early = all("SELECT person, stage FROM referrals WHERE job_id = ? AND source = 'auto' ORDER BY id", job.id);
+  if (early.length) say(`🔗 Already sent plain connection requests for this job: ${early.map((e) => `${e.person}${e.stage === 'invited' ? ' (waiting to accept)' : e.stage === 'approved' ? ' (queued)' : ''}`).join(', ')}. When someone accepts, their referral message appears here for your OK.`);
+  const { found, fresh } = await findReferrers(job);
+  // A share for each kind, so alumni never crowd out the senior people in the region: 2 colleagues, 2 alumni, 3 seniors.
   const quota = { colleague: 2, alumni: 2, senior: 3, ...(R().per_kind || {}) };
-  const picks = ['colleague', 'senior', 'alumni'].flatMap((k) => fresh.filter((p) => p.tag === k).slice(0, quota[k]));
-  activity(`🤝 Referrals for ${job.title} @ ${job.company}: ${people.size} found, ${picks.length} new drafted`);
-  if (!picks.length) return say(`🤝 Nobody new at ${job.company} who could refer you${people.size ? ' (everyone found was already contacted)' : ''}.`);
+  const picks = byKind(fresh, quota);
+  activity(`🤝 Referrals for ${job.title} @ ${job.company}: ${found} found, ${picks.length} new drafted`);
+  if (!picks.length) return say(`🤝 Nobody new at ${job.company} who could refer you${found ? ' (everyone found was already contacted)' : ''}.`);
   for (const p of picks) {
     const text = note(p.name, job, job.company, p.tag === 'alumni', p.tag === 'colleague' ? (p.org || master().experience[0]?.org) : null);
     run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, created_at)
@@ -170,6 +182,25 @@ export async function refForJob(jobId, { chat = null } = {}) {
     tell(`🤝 Referral #${id} for ${job.title} @ ${job.company}\n${p.name} (${who}${p.degree ? `, ${p.degree}` : ''})\n${p.headline || ''}${p.location ? `\n${p.location}` : ''}\n\nInvite note:\n${text}\n\n— Send, Skip, or type your own note.`,
       { refKind: 'referral', refId: id, chat, links: [{ label: 'Profile ↗', url: p.url }] });
   }
+}
+
+// When a good job turns up, send PLAIN connection requests (no note: free accounts have only a few notes a month, and nothing
+// unapproved is said in the person's name) to the few most likely to refer: a former colleague, up to two seniors in the job's
+// region, a school alum. By the time the job card is opened, some have accepted; the referral ask itself stays approval-gated:
+// an accepted request drafts "Thanks for connecting…" for Send / Skip (checkAccepted). Own daily/weekly budget, queued in send().
+export async function connectForJob(jobId) {
+  const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
+  if (!job || getKv(`autoconnect:${job.id}`)) return 0;
+  setKv(`autoconnect:${job.id}`, String(now()));
+  const { fresh } = await findReferrers(job);
+  const quota = { colleague: 1, senior: 2, alumni: 1, ...(R().auto_per_kind || {}) };
+  const picks = byKind(fresh.filter((p) => p.degree !== '1st'), quota);
+  for (const p of picks) {
+    run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, created_at, updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, job.company, job.id, job.title, job.url, p.name, p.headline || '', p.url, p.tag === 'alumni' ? 1 : 0, 'approved', '', 'auto', now(), now());
+  }
+  activity(`🔗 ${job.title} @ ${job.company}: ${picks.length} connection request(s) queued (${picks.map((p) => `${p.name} ${p.tag}`).join(', ') || 'nobody new'})`);
+  return picks.length;
 }
 
 // Owner's reply on a draft (from Cupboard / commands).
@@ -187,21 +218,26 @@ export function decide(id, text) {
 }
 
 // 2) Send approved invites / follow-ups, slowly.
-function slotOpen() {
+function windowOpen() {                                     // when anything may go out: the daytime, no LinkedIn back-off, spaced out
   const c = R(); const h = istHour();
   if (h < (c.hours || [9, 21])[0] || h >= (c.hours || [9, 21])[1]) return false;
   if (Number(getKv('ref_backoff_until', 0)) > now()) return false;
-  if (now() < Number(getKv('ref_next_at', 0))) return false;
-  const day = Date.parse(`${istDate()}T00:00:00+05:30`);
-  const sentToday = one("SELECT count(*) n FROM referrals WHERE stage NOT IN ('drafted','approved','skipped','failed') AND updated_at >= ? AND note IS NOT NULL", day).n;
-  const sentWeek = one("SELECT count(*) n FROM referrals WHERE stage NOT IN ('drafted','approved','skipped','failed') AND updated_at >= ?", now() - 7 * 864e5).n;
-  return sentToday < (c.per_day || 10) && sentWeek < (c.per_week || 70);
+  return now() >= Number(getKv('ref_next_at', 0));
 }
+// Sent so far, split: what the person approved (with a note, follow-up messages) and the plain requests the agent sends itself.
+function sentCounts(auto) {
+  const day = Date.parse(`${istDate()}T00:00:00+05:30`), cond = auto ? "source = 'auto'" : "COALESCE(source, '') != 'auto'";
+  const q = (since) => one(`SELECT count(*) n FROM referrals WHERE ${cond} AND stage NOT IN ('drafted','approved','skipped','failed') AND updated_at >= ? AND note IS NOT NULL`, since).n;
+  return { today: q(day), week: q(now() - 7 * 864e5) };
+}
+const approvedBudget = () => { const c = R(), n = sentCounts(false); return n.today < (c.per_day || 10) && n.week < (c.per_week || 70); };
+const autoBudget = () => { const c = R(), n = sentCounts(true); return n.today < (c.auto_per_day || 6) && n.week < (c.auto_per_week || 30); };
 const nextGap = () => { const [a, b] = R().gap_min || [20, 40]; setKv('ref_next_at', now() + (a + Math.random() * (b - a)) * 60e3); };
 
 export async function send() {
-  if (!slotOpen()) return;
-  const fu = one("SELECT * FROM referrals WHERE stage = 'followup_approved' ORDER BY updated_at LIMIT 1");
+  if (!windowOpen()) return;
+  const mine = approvedBudget();
+  const fu = mine ? one("SELECT * FROM referrals WHERE stage = 'followup_approved' ORDER BY updated_at LIMIT 1") : null;
   if (fu) {
     nextGap();
     try {
@@ -217,11 +253,12 @@ export async function send() {
     } catch (e) { set(fu.id, { stage: 'failed', reason: e.message.slice(0, 300) }); logError('referral follow-up', e, { id: fu.id }); }
     return;
   }
-  const r = one("SELECT * FROM referrals WHERE stage = 'approved' ORDER BY updated_at LIMIT 1");
+  const r = (mine && one("SELECT * FROM referrals WHERE stage = 'approved' AND COALESCE(source, '') != 'auto' ORDER BY updated_at LIMIT 1"))
+    || (autoBudget() && one("SELECT * FROM referrals WHERE stage = 'approved' AND source = 'auto' ORDER BY updated_at LIMIT 1")) || null;
   if (!r) return;
   nextGap();
   try {
-    const res = await browserTask('linkedin_connect', { url: r.profile, note: r.note }, 10 * 60e3);
+    const res = await browserTask('linkedin_connect', { url: r.profile, note: r.note || '' }, 10 * 60e3);   // no note = a plain "Connect"
     if (res.status === 'limit') { setKv('ref_backoff_until', now() + 7 * 864e5); set(r.id, { stage: 'approved', reason: 'LinkedIn weekly invite limit: paused 7 days' });
       tell('🤝 LinkedIn says the weekly invitation limit is reached. Referral invites are paused for 7 days.'); return; }
     if (res.status === 'connected') { set(r.id, { stage: 'accepted', reason: 'already connected' }); return draftFollowup(r.id); }
@@ -241,13 +278,15 @@ function draftFollowup(id) {
   const r = one('SELECT * FROM referrals WHERE id = ?', id);
   const text = followupText(r);
   set(id, { stage: 'followup_drafted', followup: text });
+  const j = r.job_id ? one('SELECT location FROM jobs WHERE id = ?', r.job_id) : null;
   tell(`🤝 ${r.person} (${r.company}) accepted your request! Referral message #${id}${r.email ? ` (by email to ${r.email}, resume attached)` : ' (LinkedIn message, resume attached)'}:\n\n${text}\n\n— Send, Skip, or type your own message.`,
-    { refKind: 'referral', refId: id });
+    { refKind: 'referral', refId: id, chat: j && NCR_RE.test(j.location || '') ? 'ncr' : null });   // NCR jobs: in the NCR chat
 }
 
 // 3) Once a day: who accepted? (and do they publish an email?)
 export async function checkAccepted() {
-  const due = all("SELECT * FROM referrals WHERE stage = 'invited' AND updated_at < ? ORDER BY updated_at LIMIT 8", now() - 20 * 3600e3);
+  // Automatic requests are checked every ~4 h (people accept within hours), the person's own once a day.
+  const due = all("SELECT * FROM referrals WHERE stage = 'invited' AND updated_at < ? - CASE WHEN source = 'auto' THEN 0 ELSE 16 * 3600000 END ORDER BY updated_at LIMIT 8", now() - 4 * 3600e3);
   for (const r of due) {
     try {
       const st = await browserTask('linkedin_state', { url: r.profile }, 5 * 60e3);

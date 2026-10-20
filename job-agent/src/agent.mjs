@@ -213,7 +213,7 @@ every(ncrEvery(), 'ncr watch', async () => {             // all night too: Naukr
   })();
 }, { delay: 90e3 });
 every(5, 'ncr links', async () => { ncrSweep(); await ncrNotify(); }, { delay: 100e3 });
-every(240, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // senior people / ex-colleagues / alumni at NCR companies; every 4 h: LinkedIn limits people searches
+every(30, 'ncr referrals', () => ncrReferrals(), { delay: 15 * 60e3 });   // auto-connect: plain requests to referrers at NCR companies (one job an hour at most; the gate is inside)
 
 // Naukri profile refresh: 09:05 (base resume + next headline -> "updated today") and 22:45 (restore base resume).
 every(5, 'naukri refresh', async () => {

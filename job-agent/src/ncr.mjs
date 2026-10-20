@@ -237,21 +237,23 @@ export async function ncrChat(text) {
   return say('📍 Paste any job link (Naukri, LinkedIn or a company page) and I\'ll fill the form and send you screenshots — I submit only when you tap ✓ Submit.\nNew Gurgaon/Noida jobs arrive here as cards: Fill & show me / I applied / Not for me.');
 }
 
-// Automatic NCR referrals: the best recent NCR matches whose company nobody was asked at yet get the same search as the
-// "🤝 Find referral" button (former colleagues, school alumni, senior people at that company in NCR), one company per run.
-// Drafts wait in the NCR chat for Send / Skip; it pauses while 15+ drafts are waiting. LinkedIn caps people searches
-// on free accounts, so this stays slow (one company every 4 hours in the daytime).
+// Automatic NCR connections: the best recent NCR matches whose company nobody was asked at yet get the 🤝 Find referral search
+// (former colleagues, school alumni, senior people in NCR) and PLAIN connection requests go to the top few, so some have
+// accepted by the time the person opens the job. The referral message itself still waits for their OK. One job an hour at
+// most in the daytime (LinkedIn limits people searches and invites).
 // Recruiting agencies and "hiring for a client" posts: nobody inside them can refer you to the actual employer.
 const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(consultants?|consultancy|hr (solutions?|services)|careers?|jobs?|search partners|training|outsourc\w*|for (a|our) client|client of)\b/i;
 export async function ncrReferrals() {
   if (!ncrOn() || getKv('ncr_ref_off') === '1') return;
   const h = istHour();
   if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
-  if (one("SELECT count(*) n FROM referrals WHERE stage = 'drafted' AND source = 'job'").n >= 15) return;   // its own drafts only
+  if (Date.now() - Number(getKv('ncr_ref_last', 0)) < 50 * 60e3) return;                                  // at most one job an hour: LinkedIn limits people searches
+  if (one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 6) return;  // plain requests already queued
   const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
   const job = all(`SELECT * FROM jobs WHERE status IN ('manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
     Math.max(ncrMin(), 65), Date.now() - 7 * 864e5).find((j) => isNcr(j) && j.company && !asked.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`));
   if (!job) return;
-  const { refForJob } = await import('./referrals.mjs');
-  await refForJob(job.id, { chat: 'ncr' });
+  setKv('ncr_ref_last', Date.now());
+  const { connectForJob } = await import('./referrals.mjs');
+  await connectForJob(job.id);                      // plain connection requests now; the referral message waits for the person's OK
 }
