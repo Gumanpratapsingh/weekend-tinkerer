@@ -34,7 +34,7 @@ const quiet = () => { const [from, to] = config().whatsapp_quiet_hours; const h 
 // chat: 'ncr' = the person's separate "📍 Delhi NCR jobs" chat; links: [{label, url}] buttons; images: screenshot paths.
 export function tell(body, { refKind = null, refId = null, urgent = false, options = null, toOwner = false, link = null, chat = null, links = null, images = null, silent = false } = {}) {
   // Someone else's urgent message (an NCR job that needs them): the owner, who runs the agents, gets the same alert at once.
-  if (urgent && PERSON && !toOwner) tell(`🚨 ${PERSON[0].toUpperCase()}${PERSON.slice(1)}'s agent needs her now:\n${body.slice(0, 600)}`, { urgent, toOwner: true });
+  if (urgent && PERSON && !toOwner) tell(`🚨 ${PERSON[0].toUpperCase()}${PERSON.slice(1)}'s agent needs her now (she got this too; only she can answer, replies here don't reach her agent):\n${body.replace(/\n*— Reply to this message[^\n]*/g, '').slice(0, 600)}`, { urgent, toOwner: true });
   if (!OWNER || !configured()) {
     // Chat channel: Cupboard (the owner's chat app on this phone). Answers and button taps come back to
     // /internal/cupboard. ntfy + the hub /jobs page stay as the fallback until Cupboard can notify the owner.
