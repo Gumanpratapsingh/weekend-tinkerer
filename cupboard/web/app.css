@@ -644,3 +644,32 @@ div:has(> .jrow) .jrow:last-child{border-bottom:0}
 .brandbox h2{font-size:1.9rem;font-weight:700;letter-spacing:-.03em;line-height:1.12}
 .page:has(.brandbox){max-width:27rem;width:100%;margin:0 auto}
 input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
+
+/* ---------- Laptop layout: sidebar (sections + chats) beside the page. Phones keep the single-screen app. ---------- */
+#shell{display:flex;height:100dvh;width:100%;max-width:100rem;margin:0 auto}
+#app{flex:1 1 0;min-width:0}
+#side{display:none}
+.welcome{margin:auto;padding:2rem;text-align:center;color:var(--soft);display:grid;gap:.4rem;justify-items:center}
+.welcome .ic{width:3rem;height:3rem;stroke-width:1.2;color:var(--c3)}
+.welcome h2{margin:.2rem 0 0;font-size:1.6rem;font-weight:700;letter-spacing:-.03em;color:var(--ink)}
+.welcome p{margin:0 0 .8rem}
+@media (min-width:64rem){
+  #shell.has-side{border-left:.5px solid var(--line);border-right:.5px solid var(--line)}
+  #shell.has-side #side{display:flex;flex-direction:column;flex:none;width:23rem;height:100dvh;border-right:.5px solid var(--line);background:var(--bg)}
+  #shell.has-side #app{max-width:none;margin:0;border:0}
+  .tabbar{display:none}
+  .bar>a.icon[href="/"],.bar>a.back[href="/"]{display:none}
+  .sbhead{flex:none;display:flex;align-items:center;justify-content:space-between;padding:1.1rem 1.1rem .5rem 1.3rem}
+  .sbhead b{font-size:1.4rem;font-weight:700;letter-spacing:-.035em}
+  .sbnavbox{flex:none;padding:.2rem .7rem .6rem}
+  .sbnav{display:flex;flex-direction:column;gap:.1rem}
+  .sbnav .tab{flex:none;flex-direction:row;justify-content:flex-start;gap:.75rem;padding:.55rem .75rem;border-radius:.65rem;color:var(--ink);font-size:.95rem;font-weight:500}
+  .sbnav .tab:hover{background:var(--fill)}
+  .sbnav .tab.on{background:var(--fill);color:var(--accent)}
+  .sbnav .tab .ic{width:21px;height:21px}
+  .sbnav .tab .tb{left:auto;right:-.55rem;top:-.35rem}
+  #side .row.on{background:var(--fill)}
+  #side .lsearch{margin:.2rem .9rem .6rem}
+  .jd{max-width:60rem;margin-inline:auto}
+  .jtabs{justify-content:center}
+}

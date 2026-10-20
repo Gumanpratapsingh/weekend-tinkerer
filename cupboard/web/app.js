@@ -1,5 +1,15 @@
 // Cupboard web app. One page; the path picks the screen. Messages and names are always inserted as text.
 const app = document.getElementById('app');
+// On a laptop (wide screen) Cupboard is a website: a sidebar (sections + chat list) beside the page. On a phone it stays an app:
+// one screen at a time with the tab bar at the bottom.
+let shell = document.getElementById('shell'), side = document.getElementById('side');
+if (!shell || !side) {                                       // an older cached index.html has no sidebar frame: build it
+  shell = document.createElement('div'); shell.id = 'shell'; side = document.createElement('aside'); side.id = 'side';
+  app.before(shell); shell.append(side, app);
+}
+const desktopMq = window.matchMedia('(min-width: 64rem)');
+const isDesktop = () => desktopMq.matches;
+const SECTION = { chat: 'chats', list: 'chats', archived: 'chats', search: 'chats', new: 'chats', group: 'chats', media: 'chats', together: 'together', tlist: 'together', jobs: 'jobs', signin: 'jobs', me: 'settings', monitor: 'settings' };
 
 // ---------- helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -142,6 +152,7 @@ function upsertConv(c) {
   const i = state.convs.findIndex((x) => x.id === c.id);
   if (i >= 0) state.convs[i] = c; else state.convs.push(c);
   state.convs.sort((a, b) => (b.last?.at || b.created) - (a.last?.at || a.created));
+  refreshSide();
 }
 
 // ---------- live updates ----------
@@ -259,6 +270,7 @@ function markRead() {
     if (!state.cur || !last || document.visibilityState !== 'visible') return;
     api(`/convs/${state.cur.id}/read`, { method: 'POST', body: { upTo: last.id } }).catch(() => {});
     const c = convById(state.cur.id); if (c) c.unread = 0;
+    refreshSide();
   }, 300);
 }
 
@@ -287,6 +299,7 @@ document.addEventListener('click', (e) => {
 async function render() {
   const r = route();
   state.cur = r.name === 'chat' ? state.cur : null;
+  drawSide();
   if (r.name === 'invite') return screens.invite(r.token);
   if (r.name === 'reset') return screens.reset(r.token);
   if (r.name === 'device') return screens.device(r.token);
@@ -298,6 +311,7 @@ async function render() {
     state.me = me.user; connect(); presence(); await loadConvs().catch(() => {}); checkCall();
   }
   if (r.name === 'login') return go('/', true);
+  drawSide();
   try { await screens[r.name](r); } catch (e) { app.replaceChildren(h('p', { class: 'loading' }, e.message)); }
 }
 
@@ -440,6 +454,11 @@ const screens = {
   },
 
   list() {
+    if (isDesktop()) {
+      app.replaceChildren(h('div', { class: 'welcome' }, ic('chat'), h('h2', {}, 'Cupboard'), h('p', {}, 'Pick a chat on the left, or start a new one.'),
+        h('a', { class: 'btn', href: '/new', 'data-link': true }, 'New chat')));
+      return;
+    }
     app.replaceChildren(
       h('div', { class: 'lhead' }, h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, ic('compose'))),
       h('div', { class: 'scroll' },
@@ -730,15 +749,32 @@ const screens = {
 
 // ---------- drawing ----------
 // The bottom tab bar of the four top-level screens. The Chats tab shows how many messages are waiting.
-function tabbar(active) {
+function tabbar(active, cls = 'tabbar') {
   const unread = state.convs.filter((c) => !c.muted && !c.archived).reduce((n, c) => n + (c.unread || 0), 0);
   const tab = (id, href, icon, label, badge) => h('a', { class: 'tab' + (id === active ? ' on' : ''), href, 'data-link': true, 'aria-label': label },
     h('span', { class: 'ti' }, ic(icon), badge ? h('i', { class: 'tb' }, badge > 99 ? '99+' : String(badge)) : null), h('span', {}, label));
-  return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
+  return h('nav', { class: cls, 'aria-label': 'Sections' },
     tab('chats', '/', 'chat', 'Chats', unread), tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), tab('settings', '/me', 'sliders', 'Settings'));
 }
-function drawList() {
-  const list = document.getElementById('list');
+// The desktop sidebar: brand, the four sections, search, and the chat list (never the archived view: that opens on the right).
+function drawSide() {
+  const show = isDesktop() && !!state.me && !['login', 'invite', 'reset', 'device'].includes(route().name);
+  shell.classList.toggle('has-side', show);
+  if (!show) { if (side.firstChild) side.replaceChildren(); return; }
+  if (!side.querySelector('#sblist')) {
+    side.replaceChildren(
+      h('div', { class: 'sbhead' }, h('b', {}, 'Cupboard'), h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, ic('compose'))),
+      h('div', { class: 'sbnavbox' }),
+      h('div', { class: 'scroll' }, h('a', { class: 'lsearch', href: '/search', 'data-link': true, 'aria-label': 'Search messages' }, ic('search'), 'Search'), h('div', { id: 'sblist' })));
+  }
+  side.querySelector('.sbnavbox').replaceChildren(tabbar(SECTION[route().name] || '', 'sbnav'));
+  drawList(side.querySelector('#sblist'));
+}
+const refreshSide = () => { const el = side.querySelector('#sblist'); if (el) drawList(el); };
+desktopMq.addEventListener('change', () => render());
+
+function drawList(target) {
+  const list = target || document.getElementById('list');
   if (!list) return;
   const banners = [];
   if (isIOS() && !isStandalone()) banners.push(h('div', { class: 'banner' }, h('b', {}, 'Install Cupboard'), 'Tap Share (□↑) → Add to Home Screen. Then open it from your Home Screen to get notifications.'));
@@ -747,13 +783,13 @@ function drawList() {
     b.addEventListener('click', async () => { try { await enablePush(); toast('Notifications on'); drawList(); } catch (e) { toast(e.message, true); } });
     banners.push(h('div', { class: 'banner' }, h('b', {}, 'Get notified'), 'So the S20 and your friends can reach you.', h('div', {}, b)));
   }
-  const showArchived = route().name === 'archived';
+  const showArchived = !target && route().name === 'archived';        // (the sidebar always lists the live chats)
   const shown = state.convs.filter((c) => !!c.archived === showArchived);
   const archived = state.convs.filter((c) => c.archived);
   if (!showArchived && archived.length) banners.push(h('a', { class: 'row arch', href: '/archived', 'data-link': true }, h('div', { class: 'av t-teal' }, ic('archive')),
     h('div', { class: 'mid' }, h('div', { class: 'name' }, h('span', {}, 'Archived'), h('small', {}, String(archived.length))))));
   list.replaceChildren(...(showArchived ? [] : banners), ...(shown.length ? shown.map((c) => {
-    const row = h('a', { class: 'row', href: `/c/${c.id}`, 'data-link': true }, avatar(c),
+    const row = h('a', { class: 'row' + (target && route().name === 'chat' && route().id === c.id ? ' on' : ''), href: `/c/${c.id}`, 'data-link': true }, avatar(c),
       h('div', { class: 'mid' },
         h('div', { class: 'name' }, h('span', {}, chatTitle(c)), h('small', {}, c.muted ? ic('bellOff', 'mini') : null, c.last ? when(c.last.at) : '')),
         h('div', { class: 'prev' }, h('span', {}, (() => { const who = c.last && c.kind === 'group' && c.last.from !== state.me.id ? c.people.find((p) => p.id === c.last.from)?.name?.split(' ')[0] : ''; return (who ? `${who}: ` : '') + preview(c.last); })()),
@@ -763,6 +799,7 @@ function drawList() {
   }) : [h('p', { class: 'empty' }, showArchived ? 'No archived chats.' : 'No chats yet.')]));
   const tb = document.querySelector('.tabbar');                  // keep the unread count on the Chats tab current
   if (tb && route().name === 'list') tb.replaceWith(tabbar('chats'));
+  const sn = side.querySelector('.sbnav'); if (sn) sn.replaceWith(tabbar(SECTION[route().name] || '', 'sbnav'));
 }
 
 // Long-press (touch) or right-click (mouse) opens a menu. A plain tap still works as before.
