@@ -64,7 +64,7 @@ export async function fetchNcr() {
 export function ncrSweep() {
   if (!ncrOn()) return 0;
   const rows = all(`SELECT id, location FROM jobs WHERE status IN ('queued','ready','needs_answer')
-    OR (found_at >= ? AND (status IN ('failed','captcha') OR (status = 'scored' AND score >= ?)))`, Date.now() - 14 * 864e5, ncrMin()).filter(isNcr);
+    OR (found_at >= ? AND (status IN ('failed','captcha') OR (status = 'scored' AND score >= ?)))`, Date.now() - 14 * 864e5, ncrMin()).filter(isNcr).filter((r) => !getKv(`ncrapply:${r.id}`));   // jobs the person asked the agent to apply to stay in the pipeline
   for (const r of rows) {
     run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, r.id);
     run("UPDATE asks SET status = 'dismissed' WHERE job_id = ? AND status = 'open'", r.id);   // no questions for a job they apply to

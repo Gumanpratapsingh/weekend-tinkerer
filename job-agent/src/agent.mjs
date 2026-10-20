@@ -159,7 +159,7 @@ createServer((req, res) => {
           case 'live': setKv('dry_run', '0'); run("UPDATE jobs SET status = 'queued' WHERE status = 'ready'"); return ok();
           case 'dry': setKv('dry_run', '1'); return ok();
           case 'skip': run("UPDATE jobs SET status = 'skipped', status_note = 'skipped by you' WHERE id = ?", String(b.id)); return ok();
-          case 'queue': run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'queued by you' WHERE id = ? AND status NOT IN ('applied','interview')", String(b.id)); return ok();
+          case 'queue': run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'queued by you' WHERE id = ? AND status NOT IN ('applied','interview')", String(b.id)); setKv(`ncrapply:${String(b.id)}`, '1'); return ok();   // ncrapply: the NCR sweep leaves it alone
           // Owner is applying by hand: park the job where neither the apply loop nor a bulk requeue of 'manual' jobs touches it.
           case 'claim': {
             const j = one('SELECT status FROM jobs WHERE id = ?', String(b.id));
