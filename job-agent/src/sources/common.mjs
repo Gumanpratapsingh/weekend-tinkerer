@@ -4,18 +4,20 @@ import { held, holdOff } from '../holdoff.mjs';
 
 export const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-export async function getJson(url, opts = {}) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(30000), ...opts });
+// 429 "too many requests": that site is left alone for 12-18 h (src/holdoff.mjs); later calls fail at once without sending anything.
+async function guarded(url, init) {
+  const site = new URL(url).hostname.replace(/^www\./, '');
+  if (held(site)) throw new Error(`429 holding off ${site}`);
+  const r = await fetch(url, init);
   if (r.status === 429) holdOff(site);
   if (!r.ok) throw new Error(`${r.status} ${url}`);
-  return r.json();
+  return r;
+}
+export async function getJson(url, opts = {}) {
+  return (await guarded(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(30000), ...opts })).json();
 }
 export async function getText(url) {
-  const site = new URL(url).hostname.replace(/^www\./, '');
-  if (held(site)) throw new Error(`429 holding off ${site}`);   // asked too often: stay away 12-18 h (src/holdoff.mjs)
-  const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-IN,en;q=0.9' }, signal: AbortSignal.timeout(30000) });
-  if (!r.ok) throw new Error(`${r.status} ${url}`);
-  return r.text();
+  return (await guarded(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-IN,en;q=0.9' }, signal: AbortSignal.timeout(30000) })).text();
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };

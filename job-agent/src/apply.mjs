@@ -48,7 +48,7 @@ export async function applyNext({ dryRun = false } = {}) {
   const job = queued.find((j) => {
     const b = BUCKET[j.apply_type];
     return b && siteReady(b) && (dryRun || appliedToday(b) < caps[b]) && companyToday(j.company) < caps.per_company
-      && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && isNcr(j));   // NCR: the person applies
+      && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && isNcr(j) && j.status_note !== 'queued by you');   // NCR: the person applies (or taps Queue / asks for it)
   });
   if (!job) return null;
   noteAttempt(BUCKET[job.apply_type]);
