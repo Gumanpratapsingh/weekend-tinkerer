@@ -21,6 +21,8 @@ async function openForOwner(job, site, applySelector = null) {
   const page = await ctx.newPage();
   await page.goto(job.apply_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(3000);
+  // Naukri shows "Applied" when it already went through (earlier, by the agent or by you): nothing to do, and never click it again.
+  if (applySelector && await page.locator('#already-applied, button:has-text("Applied")').count().catch(() => 0)) return { status: 'already', page, filled: [] };
   if (applySelector) await page.locator(applySelector).first().click({ timeout: 8000 }).catch(() => {});
   return { status: 'handoff', page, filled: [] };
 }
@@ -37,8 +39,22 @@ for (const [i, job] of jobs.entries()) {
   // Naukri: open the job signed in and press Apply; you answer Naukri's question panel and the CAPTCHA.
   if (/naukri\.com/.test(job.apply_url)) res = await openForOwner(job, 'naukri', 'button:has-text("Apply"):not(:has-text("company site")), #apply-button');
   else { try { res = await run({ job, resume, keepOpen: true }); } catch (e) { res = { status: 'error', reason: e.message }; } }
+  if (res.status === 'already') {
+    await fetch(`${AGENT}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'applied', id: job.id }) }).catch(() => {});
+    console.log('   Already applied on the site: marked applied.\n');
+    await res.page.context().close().catch(() => {});
+    continue;
+  }
   // Couldn't reach a form automatically: still open the job page for you to finish by hand.
   if (res.status !== 'handoff') { console.log(`   (${res.status}: ${res.reason || ''}) — opening the job page for you instead`); res = await openForOwner(job, 'external'); }
+  // A job that has closed since (LinkedIn "No longer accepting applications"): skip it and mark it closed instead of making you look.
+  const first = await res.page.innerText('body').catch(() => '');
+  if (/no longer accepting applications|this job is no longer available|job (is )?(no longer|not) (open|available)|position has been filled|posting (has )?(expired|closed)/i.test(first.slice(0, 6000))) {
+    await fetch(`${AGENT}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'skip', id: job.id }) }).catch(() => {});
+    console.log('   Job closed: skipped.\n');
+    await res.page.context().close().catch(() => {});
+    continue;
+  }
   if (resume) console.log(`   Tailored resume to upload if asked: ${resume}`);
   console.log(`   Filled ${res.filled?.length || 0} field(s) and attached the resume.`);
   if (res.unknown?.length) console.log(`   Left for you: ${res.unknown.map((u) => u.label).join(' · ')}`);
