@@ -10,7 +10,7 @@ import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 import { ncrOn, isNcr } from './ncr.mjs';
 
-const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats' };
+const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats' };
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
 
 function appliedToday(bucket) {

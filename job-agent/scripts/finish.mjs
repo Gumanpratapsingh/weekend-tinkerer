@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import ats from '../browser/ats.mjs';
 import { siteContext, person } from '../browser/session.mjs';
 import external from '../browser/external.mjs';
+import workday from '../browser/workday.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENT = process.env.AGENT_URL;
@@ -14,7 +15,7 @@ const WHO = process.env.JA_PERSON || '';
 const DATA = WHO ? join(ROOT, 'people', WHO, 'data') : join(ROOT, 'data');
 const main = async () => {
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|applied successfully|you have (successfully )?applied/i;
-const handlers = { greenhouse: ats.apply_greenhouse, lever: ats.apply_lever, ashby: ats.apply_ashby, external: external.apply_external };
+const handlers = { greenhouse: ats.apply_greenhouse, lever: ats.apply_lever, ashby: ats.apply_ashby, external: external.apply_external, workday: workday.apply_workday };
 
 async function openForOwner(job, site, applySelector = null) {
   const ctx = await siteContext(site);

@@ -3,6 +3,7 @@
 // fill() types/selects/uploads them. Unknown required fields stop the run so the owner can be asked.
 
 import { who } from './session.mjs';
+import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 const AGENT = () => `${who().agent}/internal/resolve`;   // the agent of the person this task is for
 
 // Runs in the page: tag each visible field with data-ja-key and describe it.
@@ -211,7 +212,13 @@ export async function captchaVisible(page) {
   for (const fr of page.frames()) {
     if (/hcaptcha\.com\/.*(challenge|checkbox)|recaptcha\/api2\/(bframe|anchor)|challenges\.cloudflare\.com/.test(fr.url())) {
       const box = await fr.frameElement().then((h) => h.boundingBox()).catch(() => null);
-      if (box && box.width > 50 && box.height > 50) return true;
+      if (box && box.width > 50 && box.height > 50) {
+        if (solverConfigured()) {
+          const r = await solveCaptcha(page).catch(() => ({ solved: false }));
+          if (r.solved) return false;
+        }
+        return true;
+      }
     }
   }
   return false;

@@ -4,9 +4,11 @@
 import { siteContext, shotPath, progress, capture } from './session.mjs';
 import { fillForm, captchaVisible } from './forms.mjs';
 import ats from './ats.mjs';
+import { isWorkday, applyWorkday } from './workday.mjs';
+import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 
 // Sites that require creating a candidate account before applying.
-const ACCOUNT_WALL = /myworkdayjobs|myworkdaysite|workday\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
+const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
@@ -81,6 +83,9 @@ export default {
 };
 
 async function applyExternal({ job, resume, dryRun = false, keepOpen = false, seen = {} }) {
+  if (isWorkday(job.apply_url)) {
+    return applyWorkday({ job, resume, dryRun, keepOpen });
+  }
   {
     const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external');
     // Record every address the page asks to open in a new tab (LinkedIn's Apply does this): the real company link
@@ -111,9 +116,16 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         const url = page.url();
         progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
         if (!/naukri\.com|linkedin\.com/.test(url)) seen.url = url;
-        // Bot-check walls (DataDome, Cloudflare, "verify you are human"): hand to the owner's CAPTCHA list.
+        // Bot-check walls (DataDome, Cloudflare, "verify you are human"): auto-solve or hand to CAPTCHA list.
         if (/captcha-delivery|challenges\.cloudflare|\/captcha\b|perimeterx|hcaptcha\.com/i.test(url)
             || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000))) {
+          if (solverConfigured()) {
+            const solved = await solveCaptcha(page).catch(() => ({ solved: false }));
+            if (solved.solved) {
+              await page.waitForTimeout(3000);
+              continue;
+            }
+          }
           if (!keepOpen) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
           // Mac handoff: the owner solves it in the open window; then carry on to the form and prefill it.
           console.log('   Bot check on the page: solve it in the browser window, the form will be filled right after.');
@@ -121,6 +133,10 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
           for (let w = 0; w < 150 && page.url() === start; w++) await page.waitForTimeout(2000);
           await page.waitForTimeout(3000);
           continue;
+        }
+        if (isWorkday(url)) {
+          await ctx.close().catch(() => {});
+          return applyWorkday({ job: { ...job, apply_url: url }, resume, dryRun, keepOpen });
         }
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
         const known = await knownAts(url);

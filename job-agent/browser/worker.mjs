@@ -58,7 +58,7 @@ const tasks = {
 };
 
 // Site modules (naukri, linkedin, ats) add their own tasks.
-for (const mod of ['naukri', 'linkedin', 'ats', 'external']) {
+for (const mod of ['naukri', 'linkedin', 'ats', 'external', 'workday']) {
   const f = join(ROOT, 'browser', `${mod}.mjs`);
   if (existsSync(f)) Object.assign(tasks, (await import(f)).default);
 }
