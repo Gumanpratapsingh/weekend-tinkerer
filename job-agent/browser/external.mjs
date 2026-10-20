@@ -72,7 +72,16 @@ async function formScore(page) {
 }
 
 export default {
-  async apply_external({ job, resume, dryRun = false, keepOpen = false }) {
+  // Also reports the last company-site address reached (company_url), so referral notes can cite the company's own job ID.
+  async apply_external(args) {
+    const seen = {};
+    const res = await applyExternal({ ...args, seen });
+    return res && seen.url ? { ...res, company_url: seen.url } : res;
+  },
+};
+
+async function applyExternal({ job, resume, dryRun = false, keepOpen = false, seen = {} }) {
+  {
     const ctx = await siteContext(/naukri\.com/.test(job.apply_url) ? 'naukri' : /linkedin\.com/.test(job.apply_url) ? 'linkedin' : 'external');
     // Record every address the page asks to open in a new tab (LinkedIn's Apply does this): the real company link
     // can then be opened directly, without chasing tabs or tracker redirects.
@@ -101,6 +110,7 @@ export default {
         }
         const url = page.url();
         progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
+        if (!/naukri\.com|linkedin\.com/.test(url)) seen.url = url;
         // Bot-check walls (DataDome, Cloudflare, "verify you are human"): hand to the owner's CAPTCHA list.
         if (/captcha-delivery|challenges\.cloudflare|\/captcha\b|perimeterx|hcaptcha\.com/i.test(url)
             || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000))) {
@@ -258,5 +268,5 @@ export default {
       const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
       return { status: 'failed', reason: errors.filter(Boolean).slice(0, 4).join(' | ') || 'no confirmation seen', shot: await snap('ext-unsure') };
     } finally { if (!keepOpen) await ctx.close().catch(() => {}); }
-  },
-};
+  }
+}

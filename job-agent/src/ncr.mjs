@@ -164,8 +164,15 @@ export async function ncrFill(jobId) {
     case 'closed': run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id); return say(`🚫 ${label(job)} is closed.`);
     case 'email': return say(`✉️ ${label(job)} takes applications by email: ${res.email}.`, { links: open });
     default:
+      if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, open);
       return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open });
   }
+}
+
+// CAPTCHA: same handoff as the queue (apply.mjs): the job waits in the CAPTCHA list and scripts/finish.sh on the Mac opens it prefilled.
+function captchaHandoff(job, res, links) {
+  run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
+  return say(`🧩 ${label(job)} needs a CAPTCHA. Everything else is ready: run ./scripts/finish.sh on the Mac, solve it, press Submit.`, { images: res.shot ? [res.shot] : [], links });
 }
 
 // "✓ Submit" after the screenshots: the real application, same answers, then the confirmation screenshot.
@@ -179,6 +186,7 @@ export async function ncrSubmit(jobId) {
   run('DELETE FROM kv WHERE key = ?', `fillans:${job.id}`);
   const shots = res.shot ? [res.shot] : [];
   if (res.status === 'applied') return say(`✅ Applied: ${label(job)}.`, { images: shots });
+  if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, [{ label: 'Open job ↗', url: job.apply_url || job.url }]);
   if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, job.id);
   return say(`⚠️ ${label(job)} didn't go through: ${String(res.reason || res.status).slice(0, 200)}. ${res.status === 'needs_answer' ? 'Answer the question(s) and tap Fill again.' : 'Apply on the site yourself.'}`,
     { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }] });
@@ -191,6 +199,8 @@ export async function ncrAction(ref, value) {
   if (ref.ref_kind === 'ncrjob') {
     if (v === 'fill') { done('Filling…'); ncrFill(id).catch((e) => log(`ncr fill ${id}: ${e.message}`)); return; }   // minutes: never make the tap wait
     if (v === 'referral') {                                  // the card stays open: Fill / I applied still work afterwards
+      if (Date.now() - Number(getKv(`ncrref:${id}`, 0)) < 15 * 60e3) return say('🤝 Already looking for people at that company. The drafts will appear here in a minute.');   // double taps
+      setKv(`ncrref:${id}`, Date.now());
       const { refForJob } = await import('./referrals.mjs');
       refForJob(id, { chat: 'ncr' }).catch((e) => log(`ncr referral ${id}: ${e.message}`));
       return;

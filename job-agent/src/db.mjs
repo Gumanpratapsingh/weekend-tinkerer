@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 // Later columns (added in place on existing databases).
-for (const col of ['form_answers TEXT', 'priority INTEGER DEFAULT 0']) { try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch { /* already there */ } }
+for (const col of ['form_answers TEXT', 'priority INTEGER DEFAULT 0', 'company_url TEXT']) { try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch { /* already there */ } }
 
 for (const col of ['source TEXT', 'post TEXT']) { try { db.exec(`ALTER TABLE referrals ADD COLUMN ${col}`); } catch { /* already there */ } }
 

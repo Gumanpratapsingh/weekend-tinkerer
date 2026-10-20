@@ -76,6 +76,8 @@ export async function applyJob(job, { dryRun = false } = {}) {
     const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 30 * 60e3)   // may wait behind a search task
       .catch((e) => { record(job, t0, { status: 'error', reason: e.message }); throw e; });
     record(job, t0, res);
+    // The company's own posting (e.g. Workday ".../SW-Engineer_REF087844W"): referral notes cite its requisition ID.
+    if (res.company_url) run('UPDATE jobs SET company_url = ? WHERE id = ?', res.company_url, job.id);
     log(`apply ${job.id}: ${JSON.stringify({ ...res, unknown: res.unknown?.length })}`);
     return settle(job, res);
   } catch (e) {

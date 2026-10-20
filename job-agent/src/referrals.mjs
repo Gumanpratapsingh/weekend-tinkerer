@@ -38,7 +38,7 @@ const fitsYears = (min) => min != null && min <= Math.floor(yearsWorked()) + 1;
 // experience requirement stated in it.
 function jobAt(company) {
   const key = `%${company.toLowerCase().replace(/ (inc|ltd|llp|pvt|private|limited|group|global tech)\.?$/g, '')}%`;
-  return all(`SELECT id, title, url, score, description FROM jobs WHERE lower(company) LIKE ? AND score >= 65
+  return all(`SELECT id, title, url, score, description, company_url FROM jobs WHERE lower(company) LIKE ? AND score >= 65
     AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 15`, key)
     .find((j) => fitsYears(yearsAsked(`${j.title}\n${j.description}`))) || null;
 }
@@ -60,13 +60,25 @@ export async function rolesInPost(text) {
       location: x.location || null, min_years: Number.isFinite(Number(x.min_years)) && x.min_years !== null ? Number(x.min_years) : null }));
 }
 
+// The company's own requisition ID, which is what a referrer searches for in their referral portal: from the company's
+// posting address (Workday ".../SW-Engineer_REF087844W", "_R-12345", "?jobId=…") or a "Job ID: …" line in the description.
+// Never the job board's listing number (a Naukri ID sent to a Visa referrer was "not a valid ID"). Null when unknown.
+export function reqId(job) {
+  const u = String(job?.company_url || '');
+  return /_((?:REF|JR|R-?)\d{3,}[A-Z]?)(?:[/?#-]|$)/i.exec(u)?.[1]
+    || /[?&](?:jobId|reqId|requisitionId|job_id)=([A-Z]{0,4}-?\d{3,}[A-Z]?)\b/i.exec(u)?.[1]
+    || /\b(?:job|req(?:uisition)?|requisition)\s*(?:id|code|no\.?|number|#)\s*[:#-]?\s*([A-Z]{0,4}-?\d{4,}[A-Z]?)\b/i.exec(String(job?.description || ''))?.[1]
+    || null;
+}
+
 function note(person, job, company, alumni, colleagueOrg = null) {
   const first = String(person).split(/\s+/)[0];
   const m = master();
   const P = persona();
   const org = colleagueOrg && m.experience.find((e) => e.org.toLowerCase().includes(colleagueOrg.toLowerCase().split(/\s+/)[0]))?.org.split(/\s+/)[0];
   const intro = org ? `we've both worked at ${org}` : alumni ? `fellow ${P.school_short || 'school'} alum here${P.alum_tag ? ` (${P.alum_tag})` : ''}` : (P.intro || `I'm a ${m.experience[0]?.title || 'professional'}`);
-  const role = job ? `the ${job.title} role${job.id ? ` (job ${String(job.id).split(':').pop()})` : ''}` : (P.fallback_role || 'a role there');
+  const ref = job && reqId(job);
+  const role = job ? `the ${job.title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role there');
   // LinkedIn invite notes are capped at 300 characters.
   return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
 }
@@ -75,7 +87,11 @@ function followupText(r) {
   const first = String(r.person).split(/\s+/)[0];
   const m = master();
   const P = persona();
-  return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role` : (P.fallback_role || 'a role')} at ${r.company}${r.job_url ? `: ${r.job_url}` : ''}.\n\n`
+  // The company's own posting and ID when the agent reached it (a Naukri/LinkedIn link is no use in their referral portal).
+  const job = r.job_id ? one('SELECT description, company_url FROM jobs WHERE id = ?', r.job_id) : null;
+  const ref = !/Job ID/i.test(r.job_title || '') && reqId(job);
+  const link = job?.company_url || r.job_url;
+  return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role')} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
     + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
     + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
 }
@@ -88,7 +104,7 @@ export async function prospect({ only, jobId } = {}) {
   if (!only && waiting >= 15) return;                           // don't flood the owner with drafts
   const companies = only ? [only] : targetCompanies().filter((c) => !done.has(c.toLowerCase())).slice(0, 2);
   for (const company of companies) {
-    const job = jobId ? one('SELECT id, title, url, score FROM jobs WHERE id = ?', jobId) : jobAt(company);
+    const job = jobId ? one('SELECT id, title, url, score, description, company_url FROM jobs WHERE id = ?', jobId) : jobAt(company);
     let people;
     try { people = (await browserTask('linkedin_people', { company, school: R().school || persona().school_short || '' }, 10 * 60e3)).people || []; }
     catch (e) { logError('referrals people', e, { company }); continue; }

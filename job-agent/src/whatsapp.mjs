@@ -53,7 +53,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
   const ref = refKind ? { ref_kind: refKind, ref_id: String(refId) } : null;
   const actions = refKind === 'draft' || refKind === 'emailapp' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Discard', value: 'no' }]
     : refKind === 'referral' ? [{ id: 'ok', label: '✓ Send', value: 'ok', style: 'go' }, { id: 'no', label: '✕ Skip', value: 'skip' }]
-    : refKind === 'ncrjob' ? [{ id: 'fill', label: '🖊 Fill & show me', value: 'fill', style: 'go' }, { id: 'ref', label: '🤝 Find referral', value: 'referral' },
+    : refKind === 'ncrjob' ? [{ id: 'fill', label: '🖊 Fill & show me', value: 'fill', style: 'go' }, { id: 'ref', label: '🤝 Find referral', value: 'referral', keep: true },
       { id: 'done', label: '✓ I applied', value: 'applied' }, { id: 'skip', label: '✕ Not for me', value: 'skip' }]
     : refKind === 'ncrsubmit' ? [{ id: 'ok', label: '✓ Submit', value: 'submit', style: 'go' }, { id: 'no', label: '✕ Cancel', value: 'cancel' }]
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
