@@ -182,6 +182,7 @@ export default {
 
       // Questions drawer: one question at a time, chat-style.
       let lastQ = '', sameQ = 0;
+      const skipped = new Set();
       for (let i = 0; i < 25; i++) {
         if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
         const drawer = page.locator('.chatbot_DrawerContentWrapper, [class*="chatbot_Drawer"], [class*="chatbot"]').first();
@@ -199,7 +200,18 @@ export default {
         const { answers, unknown } = await r.json();
         const odd = oddField(unknown);
         if (odd) return { ...odd, shot: await snap(page, 'naukri-question') };
-        if (unknown.length) return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
+        // An old saved answer that is literally the Skip button's label (saved by the bug above): not an answer.
+        if (/^skip this question$/i.test(String(answers.a || ''))) unknown.push({ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true });
+        if (unknown.length) {
+          // Nothing safe to say. If Naukri lets this one be skipped, skip it once (as before); if it comes back, it is required: ask the person.
+          if (q.canSkip && !skipped.has(q.label)) {
+            skipped.add(q.label);
+            await page.locator('[class*="chatbot_Drawer"] [class*="chip"]', { hasText: /skip this question/i }).first().click({ timeout: 5000 }).catch(() => {});
+            await page.waitForTimeout(2500);
+            continue;
+          }
+          return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
+        }
         await answer(page, q, answers.a);
         await page.waitForTimeout(2500);
       }
@@ -233,9 +245,13 @@ async function currentQuestion(page) {
     const bot = [...document.querySelectorAll('[class*="botMsg"], [class*="bot-msg"], li.botItem, [class*="chatbot_ListItem"]')].map((e) => clean(e.innerText)).filter(Boolean);
     const label = bot.at(-1);
     if (!label) return null;
-    const options = [...document.querySelectorAll('[class*="chatbot_Drawer"] input[type="radio"], [class*="chatbot_Drawer"] input[type="checkbox"], .ssrc__radio-btn-container label, [class*="chipsContainer"] [class*="chip"]')]
+    const all = [...document.querySelectorAll('[class*="chatbot_Drawer"] input[type="radio"], [class*="chatbot_Drawer"] input[type="checkbox"], .ssrc__radio-btn-container label, [class*="chipsContainer"] [class*="chip"]')]
       .map((e) => clean(e.labels?.[0]?.innerText || e.value || e.innerText)).filter(Boolean);
-    return { label, options: [...new Set(options)] };
+    // "Skip this question" is a button, not one of the answers. Counted as an option it made every text question look like a
+    // choice whose only answer was "Skip this question": that got saved as the answer (221 uses for "current CTC in Lacs") and
+    // the required questions would not accept it, so Naukri asked the same thing again and again (2026-10-19/20).
+    const skip = /^skip this question$/i;
+    return { label, options: [...new Set(all.filter((o) => !skip.test(o)))], canSkip: all.some((o) => skip.test(o)) };
   });
 }
 
