@@ -54,10 +54,10 @@ export function install({ readJson, send, err, getKv, setKv, log }) {
   async function route(req, res, path, query, me) {
     if (path === '/api/wall' && req.method === 'GET') {
       const opts = Object.fromEntries(Object.keys(OPTIONS).map((id) => [id, optsFor(id)]));
-      return send(res, 200, { scene: scene(), scenes: SCENES, options: OPTIONS, opts, canSet: me.role === 'owner' }), true;
+      return send(res, 200, { scene: scene(), scenes: SCENES, options: OPTIONS, opts, canSet: me.role === 'owner' || me.admin === 1 }), true;
     }
     if (path === '/api/wall' && req.method === 'POST') {
-      if (me.role !== 'owner') throw err(403, 'Only the owner can change the monitor.');
+      if (me.role !== 'owner' && me.admin !== 1) throw err(403, 'Only the owner or an admin can change the monitor.');
       const b = await readJson(req, 500);
       if (b.scene != null) {                               // {scene}: switch what the monitor shows
         const id = String(b.scene);

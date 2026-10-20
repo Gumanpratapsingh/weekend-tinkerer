@@ -55,7 +55,10 @@ CREATE TABLE IF NOT EXISTS w_vendors (id INTEGER PRIMARY KEY, wedding_id INTEGER
   quote INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0, due INTEGER, note TEXT, event_id INTEGER, created INTEGER NOT NULL);
 `);
 // Per-person chat settings (added later): mute until a time (0 = not muted), archived.
-for (const sql of ['ALTER TABLE members ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE members ADD COLUMN archived INTEGER NOT NULL DEFAULT 0']) {
+// users.admin: the owner's powers (invites, reset links, people, devices, monitor) without being the owner, whose own
+// S20 bot and job agent stay the owner's.
+for (const sql of ['ALTER TABLE members ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE members ADD COLUMN archived INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN admin INTEGER NOT NULL DEFAULT 0']) {
   try { db.exec(sql); } catch { /* column already there */ }
 }
 

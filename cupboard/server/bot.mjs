@@ -102,5 +102,6 @@ export async function botAction({ row, action, say, update }) {
   if (!card.replyTo) throw Object.assign(new Error('Nothing to send this to.'), { status: 400, expose: true });
   try { await forward(card.replyTo, { action: a.id, text: a.value || a.label, ref: card.ref }); }
   catch (e) { await say(`Couldn't deliver "${a.label}" (${e.message}).`); throw Object.assign(new Error('Delivery failed.'), { status: 502, expose: true }); }
+  if (a.keep || (card.ref?.ref_kind === 'ncrjob' && a.id === 'ref')) return update(row.id, {});   // leaves the card open: 🤝 Find referral on a job card keeps Fill / I applied
   return update(row.id, { done: a.label });
 }

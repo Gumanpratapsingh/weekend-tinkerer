@@ -60,7 +60,9 @@ function userOf(req) {
   if (!m) return null;
   return one('SELECT u.*, s.token, s.expires FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ? AND u.active = 1', m[1], Date.now()) || null;
 }
-const publicUser = (u) => u && ({ id: u.id, username: u.username, name: u.name, role: u.role });
+const publicUser = (u) => u && ({ id: u.id, username: u.username, name: u.name, role: u.role, admin: u.admin === 1 });
+// The owner, or someone the owner made an admin (Vertika): same management powers. The owner's account itself is protected.
+const isAdmin = (u) => u?.role === 'owner' || u?.admin === 1;
 
 // ---------- trusted devices ----------
 // A browser reaches Cupboard only once it is trusted: through a one-time "add a device" link made on a trusted device
@@ -381,7 +383,7 @@ async function api(req, res, path, query) {
   }
 
   if (M === 'GET' && path === '/api/users') {
-    return send(res, 200, { users: all("SELECT id, username, name, role FROM users WHERE active = 1 AND role != 'bot' AND id != ? ORDER BY name", me.id) });
+    return send(res, 200, { users: all("SELECT id, username, name, role, admin FROM users WHERE active = 1 AND role != 'bot' AND id != ? ORDER BY name", me.id) });
   }
   // Change my own password (signed in on a trusted device: no old password needed, e.g. when it's forgotten).
   if (M === 'POST' && path === '/api/password') {
@@ -394,17 +396,28 @@ async function api(req, res, path, query) {
   }
   // Owner: a one-time reset link for someone who forgot their password (1 hour).
   if ((m = /^\/api\/users\/(\d+)\/reset$/.exec(path)) && M === 'POST') {
-    if (me.role !== 'owner') throw err(403, 'Only the owner can make reset links.');
-    const u = one("SELECT id FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
+    if (!isAdmin(me)) throw err(403, 'Only the owner or an admin can make reset links.');
+    const u = one("SELECT id, role FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
     if (!u) throw err(404, 'No such person.');
+    if (u.role === 'owner' && me.role !== 'owner') throw err(403, 'The owner\'s password can only be changed by the owner.');
     const token = randomBytes(16).toString('hex');
     setKv(`reset:${token}`, JSON.stringify({ uid: u.id, by: me.id, exp: Date.now() + 3600e3 }));
     return send(res, 200, { path: `/reset/${token}`, expires: Date.now() + 3600e3 });
   }
+  // Owner only: give someone the owner's management powers (admin), or take them back. The owner's own account can't change.
+  if ((m = /^\/api\/users\/(\d+)\/admin$/.exec(path)) && M === 'POST') {
+    if (me.role !== 'owner') throw err(403, 'Only the owner can make admins.');
+    const t = one("SELECT id, role FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
+    if (!t || t.role === 'owner') throw err(404, 'No such person.');
+    const on = (await readJson(req, 200)).admin === true ? 1 : 0;
+    run('UPDATE users SET admin = ? WHERE id = ?', on, t.id);
+    log(`${on ? 'admin granted to' : 'admin removed from'} user ${t.id} by ${me.username}`);
+    return send(res, 200, { ok: true, admin: on === 1 });
+  }
   if ((m = /^\/api\/users\/(\d+)$/.exec(path)) && M === 'DELETE') {
-    if (me.role !== 'owner') throw err(403, 'Only the owner can remove people.');
-    const id = Number(m[1]);
-    if (id === me.id || one('SELECT role FROM users WHERE id = ?', id)?.role === 'bot') throw err(400, 'Not allowed.');
+    if (!isAdmin(me)) throw err(403, 'Only the owner or an admin can remove people.');
+    const id = Number(m[1]), t = one('SELECT role, admin FROM users WHERE id = ?', id);
+    if (id === me.id || t?.role === 'bot' || t?.role === 'owner' || (t?.admin === 1 && me.role !== 'owner')) throw err(400, 'Not allowed.');
     run('UPDATE users SET active = 0 WHERE id = ?', id);
     run('DELETE FROM sessions WHERE user_id = ?', id);
     run('DELETE FROM push_subs WHERE user_id = ?', id);
@@ -413,20 +426,20 @@ async function api(req, res, path, query) {
   }
   // ----- trusted devices: list (mine, and ones I added), add one through a link, remove one -----
   if (M === 'GET' && path === '/api/devices') {
-    const rows = me.role === 'owner' ? all('SELECT d.*, u.name AS uname FROM devices d LEFT JOIN users u ON u.id = d.user_id ORDER BY d.seen DESC')
+    const rows = isAdmin(me) ? all('SELECT d.*, u.name AS uname FROM devices d LEFT JOIN users u ON u.id = d.user_id ORDER BY d.seen DESC')
       : all('SELECT d.*, u.name AS uname FROM devices d LEFT JOIN users u ON u.id = d.user_id WHERE d.user_id = ? OR d.added_by = ? ORDER BY d.seen DESC', me.id, me.id);
     return send(res, 200, { devices: rows.map((d) => ({ id: d.id, name: d.name, who: d.uname, created: d.created, seen: d.seen, current: d.id === device.id })) });
   }
   if (M === 'POST' && path === '/api/devices/link') return send(res, 200, { path: deviceLink(me.id), expires: Date.now() + 15 * 60e3 });
   if ((m = /^\/api\/devices\/(\d+)$/.exec(path)) && M === 'DELETE') {
     const d = one('SELECT * FROM devices WHERE id = ?', Number(m[1]));
-    if (!d || (me.role !== 'owner' && d.user_id !== me.id && d.added_by !== me.id)) throw err(404, 'Not found.');
+    if (!d || (!isAdmin(me) && d.user_id !== me.id && d.added_by !== me.id)) throw err(404, 'Not found.');
     run('DELETE FROM devices WHERE id = ?', d.id);
     log(`device removed: ${d.name} by ${me.username}`);
     return send(res, 200, { ok: true }, d.id === device.id ? { 'Set-Cookie': devCookie('') } : {});
   }
   if (M === 'POST' && path === '/api/invites') {
-    if (me.role !== 'owner') throw err(403, 'Only the owner can invite.');
+    if (!isAdmin(me)) throw err(403, 'Only the owner or an admin can invite.');
     const token = randomBytes(16).toString('hex');
     run('INSERT INTO invites(token, created_by, expires) VALUES(?,?,?)', token, me.id, Date.now() + 7 * 86400e3);
     return send(res, 200, { path: `/invite/${token}`, expires: Date.now() + 7 * 86400e3 });
@@ -771,7 +784,7 @@ createServer(async (req, res) => {
       const text = String(b.text || '').slice(0, 4000);
       if (!text) return send(res, 400, { error: 'text required' });
       const replyTo = /^http:\/\/127\.0\.0\.1:\d+\//.test(b.replyTo || '') ? b.replyTo : null;
-      const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '' })) : [];
+      const actions = Array.isArray(b.actions) ? b.actions.slice(0, 6).map((a) => ({ id: String(a.id).slice(0, 40), label: String(a.label).slice(0, 30), value: String(a.value ?? a.label).slice(0, 300), style: a.style === 'go' ? 'go' : '', ...(a.keep === true ? { keep: true } : {}) })) : [];
       const link = b.link && /^\/signin\/[a-f0-9]{32}$/.test(b.link.path || '') ? { label: String(b.link.label || 'Open').slice(0, 40), path: b.link.path } : null;
       const links = Array.isArray(b.links) ? b.links.filter((l) => /^https:\/\/[^\s"'<>]+$/.test(String(l?.url || ''))).slice(0, 6)
         .map((l) => ({ label: String(l.label || 'Open ↗').slice(0, 40), url: String(l.url).slice(0, 1000) })) : [];

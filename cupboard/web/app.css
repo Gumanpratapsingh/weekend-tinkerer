@@ -581,3 +581,66 @@ button,input,textarea,select{font-family:inherit}
 .callui .cremote.whole{object-fit:contain}
 
 .updbar{position:fixed;left:12px;right:12px;bottom:calc(5.2rem + env(safe-area-inset-bottom));z-index:200;border:0;border-radius:14px;background:var(--accent);color:#fff;font-weight:600;padding:.8rem 1rem;box-shadow:0 6px 24px rgba(0,0,0,.25);cursor:pointer}
+
+/* ---------- Settings: grouped list (iPhone Settings style), centred on a laptop ---------- */
+.st{max-width:36rem;margin:0 auto;padding-bottom:1rem}
+.st-me{display:flex;align-items:center;gap:.9rem;padding:.4rem .25rem 1rem}
+.st-me .st-t b{font-size:1.25rem;letter-spacing:-.02em}
+.st-ic{flex:none;width:1.9rem;height:1.9rem;border-radius:.5rem;display:grid;place-items:center;color:#fff;font-weight:700;font-size:.9rem}
+.st-ic .ic{width:1.05rem;height:1.05rem;stroke-width:2}
+.st-ic.round{border-radius:50%}.st-ic.big{width:3.6rem;height:3.6rem;font-size:1.5rem}
+.st-sec h3{margin:1.4rem .9rem .4rem;font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.st-grp{background:var(--fill);border-radius:.8rem;overflow:hidden}
+.st-row{display:flex;align-items:center;gap:.75rem;width:100%;min-height:2.9rem;padding:.55rem .85rem;border:0;background:none;color:var(--ink);text-align:left;font:inherit;position:relative}
+.st-row+.st-row::before,.st-row+.st-panel::before,.st-panel+.st-row::before{content:"";position:absolute;top:0;left:3.5rem;right:0;border-top:.5px solid var(--line)}
+.st-panel+.st-row,.st-row+.st-panel{position:relative}
+.st-row.tap{cursor:pointer}.st-row.tap:active{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+.st-t{flex:1;min-width:0;display:flex;flex-direction:column}
+.st-t b{font-weight:500;font-size:1rem;display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.st-t small{color:var(--soft);font-size:.78rem;line-height:1.3;margin-top:.1rem}
+.st-chev{color:var(--c3);font-size:1.4rem;line-height:1}.st-val{color:var(--soft);font-size:.9rem}
+.st-pill{font-style:normal;font-size:.66rem;font-weight:700;padding:.1rem .5rem;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.st-sw{flex:none;width:3.1rem;height:1.9rem;border-radius:999px;border:0;padding:0;background:var(--c3);position:relative;cursor:pointer;transition:background .18s}
+.st-sw::after{content:"";position:absolute;left:.15rem;top:.15rem;width:1.6rem;height:1.6rem;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0004;transition:transform .18s}
+.st-sw.on{background:var(--ok)}.st-sw.on::after{transform:translateX(1.2rem)}.st-sw:disabled{opacity:.6}
+.st-note{margin:.45rem .9rem 0;color:var(--soft);font-size:.78rem;line-height:1.35}
+.st-panel{padding:.7rem .85rem .85rem;display:grid;gap:.55rem;position:relative}
+.st-panel[hidden]{display:none}
+.st-panel input{width:100%;border:.5px solid var(--line);background:var(--bg);color:var(--ink);border-radius:.6rem;padding:.65rem .8rem;font-size:1rem}
+.st-dev{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:.5px solid var(--line)}
+.st-dev b{display:block;font-weight:500;font-size:.95rem}.st-dev small{color:var(--soft);font-size:.78rem}
+.st-x{border:0;background:none;color:var(--danger);font-weight:600;font-size:.88rem;cursor:pointer;padding:.3rem .2rem}
+.st-outgrp{margin-top:1.6rem}.st-out{width:100%;border:0;background:none;color:var(--danger);font-size:1rem;font-weight:500;padding:.8rem;cursor:pointer}
+.mtext{margin:0;padding:.9rem 1rem;color:var(--soft);font-size:.9rem;line-height:1.45}
+@media (min-width:46rem){.st{padding-top:.5rem}.st-row{min-height:3.1rem}.st-t b{font-size:1.02rem}}
+
+/* ---------- One theme: soft grouped cards on every screen (Settings, Monitor, Jobs, sign-in) ---------- */
+.st-ic.soft{background:var(--bg);color:var(--ink);font-size:1rem}
+.st-check{color:var(--accent);font-weight:700;font-size:1.1rem}
+.st-seg{display:flex;flex-wrap:wrap;gap:.4rem;padding:.7rem .85rem}
+.st-seg button{border:0;border-radius:999px;padding:.4rem .85rem;background:var(--bg);color:var(--ink);font-size:.88rem;font-weight:500;cursor:pointer}
+.st-seg button.on{background:var(--accent);color:#fff}
+/* Jobs dashboard */
+.jd{padding:.3rem 0 2rem}
+.jsec{margin:.9rem 1rem 0;padding:.9rem 1rem;background:var(--fill);border:0;border-radius:.9rem}
+.jsec h3{margin:0 0 .5rem;font-size:.72rem;font-weight:600;letter-spacing:.06em}
+.warn{margin:.9rem 1rem 0;border:0;border-radius:.9rem;background:color-mix(in srgb,var(--accent) 12%,var(--fill))}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin:.9rem 1rem 0;border:0}
+@media (min-width:46rem){.stats{grid-template-columns:repeat(5,1fr)}}
+.stat{padding:.75rem .85rem;background:var(--fill);border:0;border-radius:.9rem}
+.stat b{font-size:1.5rem;font-weight:700;letter-spacing:-.03em}
+.bars{gap:4px}.bars i{border-radius:4px;background:color-mix(in srgb,var(--accent) 28%,transparent)}.bars i:last-child{background:var(--accent)}
+.conn{padding:.5rem 0;border-top:.5px solid var(--line)}.conn:first-of-type{border-top:0}
+.jsec .jrow{margin:0 -1rem;width:calc(100% + 2rem)}
+div:has(> .jrow){margin:.7rem 1rem 0;background:var(--fill);border-radius:.9rem;overflow:hidden}
+div:has(> .jrow) .jrow:last-child{border-bottom:0}
+.qa{border-top:.5px solid var(--line)}.jsec .qa:first-of-type{border-top:0}
+.jta{border:.5px solid var(--line);border-radius:.7rem;background:var(--bg);padding:.6rem .7rem}
+.rcard{border-top:.5px solid var(--line)}
+.tag{border:0;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);font-weight:700;padding:.12rem .55rem}
+.term{border-radius:.7rem}.jd .screen{border:0;border-radius:.7rem}
+/* sign-in / invite / reset / device pages: a small centred card instead of a poster headline */
+.brandbox{padding:2.2rem 0 1rem}
+.brandbox h2{font-size:1.9rem;font-weight:700;letter-spacing:-.03em;line-height:1.12}
+.page:has(.brandbox){max-width:27rem;width:100%;margin:0 auto}
+input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}

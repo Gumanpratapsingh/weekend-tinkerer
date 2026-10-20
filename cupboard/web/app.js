@@ -517,7 +517,7 @@ const screens = {
 
   async new() {
     state.users = (await api('/users')).users;
-    const owner = state.me.role === 'owner';
+    const owner = state.me.role === 'owner' || state.me.admin;   // the owner or an admin: same management powers
     const invite = h('div', {});
     const mk = h('button', { class: 'btn', type: 'button' }, 'Create invite link');
     mk.addEventListener('click', async () => {
@@ -570,146 +570,160 @@ const screens = {
     const wall = await api('/wall').catch(() => null);
     let wallBox = null;
     if (wall?.canSet) {
-      const chips = wall.scenes.map((sc) => {
-        const b = h('button', { class: 'btn' + (sc.id === wall.scene ? '' : ' ghost') }, `${sc.emoji} ${sc.label}`);
-        b.addEventListener('click', async () => {
-          try { await api('/wall', { method: 'POST', body: { scene: sc.id } }); toast(`Monitor: ${sc.label}`); screens.monitor(); } catch (e) { toast(e.message, true); }
-        });
-        return b;
-      });
-      // Options of the scene on screen now (style, range, …): one row of buttons per option.
       const cur = wall.scenes.find((sc) => sc.id === wall.scene), set = (wall.opts || {})[wall.scene] || {};
-      const optRows = (wall.options?.[wall.scene] || []).map((o) => h('div', { style: 'margin-top:.6rem' },
-        h('div', { style: 'font-size:.78rem;font-weight:700;margin-bottom:.3rem' }, o.label),
-        h('div', { style: 'display:flex;flex-wrap:wrap;gap:.35rem' }, ...o.values.map(([v, label]) => {
+      const pick = (sc) => async () => { try { await api('/wall', { method: 'POST', body: { scene: sc.id } }); toast(`Monitor: ${sc.label}`); screens.monitor(); } catch (e) { toast(e.message, true); } };
+      const sceneRows = wall.scenes.map((sc) => {
+        const el = h('button', { type: 'button', class: 'st-row tap' }, h('span', { class: 'st-ic soft' }, sc.emoji),
+          h('span', { class: 'st-t' }, h('b', {}, sc.label)), sc.id === wall.scene ? h('span', { class: 'st-check', 'aria-label': 'Showing now' }, '✓') : null);
+        el.addEventListener('click', pick(sc));
+        return el;
+      });
+      // Options of the scene on screen now (style, range, …): a row of choices for each.
+      const optSecs = (wall.options?.[wall.scene] || []).map((o) => h('section', { class: 'st-sec' }, h('h3', {}, `${cur.label} · ${o.label}`),
+        h('div', { class: 'st-grp' }, h('div', { class: 'st-seg' }, ...o.values.map(([v, label]) => {
           const on = (set[o.key] ?? o.values[0][0]) === v;
-          const b = h('button', { class: 'btn sm' + (on ? '' : ' ghost') }, label);
+          const b = h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on) }, label);
           b.addEventListener('click', async () => {
             try { await api('/wall', { method: 'POST', body: { option: { scene: wall.scene, key: o.key, value: v } } }); toast(`${cur.label}: ${o.label} → ${label}`); screens.monitor(); } catch (e) { toast(e.message, true); }
           });
           return b;
-        }))));
-      wallBox = h('div', {}, h('div', { class: 'sec' }, 'Monitor'), h('p', { class: 'lede' }, 'What the S20 shows on the monitor. It switches within about 10 seconds.'),
-        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, ...chips),
-        optRows.length ? h('div', {}, h('div', { class: 'sec' }, `${cur.emoji} ${cur.label} settings`), ...optRows) : null);
+        })))));
+      wallBox = h('div', { class: 'st' }, h('p', { class: 'st-note', style: 'margin-top:.2rem' }, 'What the S20 shows on the monitor. It switches within about 10 seconds.'),
+        h('section', { class: 'st-sec' }, h('h3', {}, 'Shows'), h('div', { class: 'st-grp' }, ...sceneRows)), ...optSecs);
     }
     app.replaceChildren(
       h('div', { class: 'bar' }, back('/me'), h('div', { class: 't' }, h('b', {}, 'Monitor'), h('small', {}, 'what the wall shows'))),
-      h('div', { class: 'page' }, wallBox || h('p', { class: 'lede' }, 'Only the owner can change the monitor.')),
+      h('div', { class: 'page' }, wallBox || h('p', { class: 'lede' }, 'Only the owner or an admin can change the monitor.')),
       tabbar('settings'));
   },
   async me() {
-    const owner = state.me.role === 'owner';
-    const notif = h('button', { class: 'btn', type: 'button' }, state.push ? 'Turn off on this device' : 'Turn on notifications');
-    notif.addEventListener('click', async () => {
-      notif.disabled = true;
-      try { if (state.push) { await disablePush(); toast('Notifications off'); } else { await enablePush(); toast('Notifications on'); } render(); }
-      catch (e) { toast(e.message, true); } finally { notif.disabled = false; }
-    });
-    const out = h('button', { class: 'btn ghost', type: 'button' }, 'Sign out');
-    out.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); es?.close(); state.me = null; go('/login', true); });
-    let people = [];
-    if (owner) {
-      state.users = (await api('/users')).users;
-      people = state.users.map((u) => {
-        const x = h('button', { class: 'x', type: 'button' }, 'Remove');
-        x.addEventListener('click', async () => { if (!confirm(`Remove ${u.name} from Cupboard? They'll be signed out and can't come back without a new invite.`)) return; await api(`/users/${u.id}`, { method: 'DELETE' }); toast('Removed'); render(); });
-        const rl = h('button', { class: 'x', type: 'button' }, 'Reset link');
-        rl.addEventListener('click', async () => {
-          try {
-            const { path } = await api(`/users/${u.id}/reset`, { method: 'POST' });
-            const url = location.origin + path;
-            try { await navigator.clipboard.writeText(url); } catch { /* not allowed here */ }
-            if (navigator.share) navigator.share({ text: `Cupboard password reset for ${u.name} (1 hour, once): ${url}` }).catch(() => {});
-            else prompt(`Reset link for ${u.name} (works once, for 1 hour). Copied:`, url);
-            toast('Reset link copied');
-          } catch (e) { toast(e.message, true); }
-        });
-        return h('div', { class: 'kv' }, h('span', {}, `${u.name} · @${u.username}`), h('span', {}, rl, ' ', x));
+    const me = state.me, isOwner = me.role === 'owner', admin = isOwner || !!me.admin;
+    const canManage = (u) => u.role !== 'owner' && (isOwner || !u.admin);          // the server checks too
+    const flag = (k) => { try { return localStorage.getItem(k) !== '0'; } catch { return true; } };
+    const setFlag = (k, on) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* private mode */ } };
+    const version = (() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })();
+    // Small building blocks: an icon tile, an on/off switch, and a settings row (a button when it does something).
+    const tile = (icon, color) => h('span', { class: 'st-ic', style: `background:${color}` }, ic(icon));
+    const sw = (on, change) => {
+      const b = h('button', { type: 'button', class: 'st-sw' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(!!on) });
+      b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const next = b.getAttribute('aria-checked') !== 'true';
+        b.disabled = true;
+        try { if (await change(next) !== false) { b.classList.toggle('on', next); b.setAttribute('aria-checked', String(next)); } }
+        catch (x) { toast(x.message, true); } finally { b.disabled = false; }
       });
-    }
-    const ringOn = () => { try { return localStorage.getItem('cb_ring') !== '0'; } catch { return true; } };
-    const ringSwitch = h('button', { class: 'btn ghost', type: 'button' }, ringOn() ? 'Call ring: on (tap to turn off)' : 'Call ring: off (tap to turn on)');
-    ringSwitch.addEventListener('click', () => {
-      const on = !ringOn();
-      try { localStorage.setItem('cb_ring', on ? '1' : '0'); } catch { /* private mode */ }
-      ringSwitch.textContent = on ? 'Call ring: on (tap to turn off)' : 'Call ring: off (tap to turn on)';
-      if (on) { Ring.start('in'); setTimeout(() => Ring.stop(), 2600); }      // a preview, so you know what it sounds like
-    });
-    const popOn = () => { try { return localStorage.getItem('cb_pop') !== '0'; } catch { return true; } };
-    const popSwitch = h('button', { class: 'btn ghost', type: 'button' }, popOn() ? 'Message sound: on (tap to turn off)' : 'Message sound: off (tap to turn on)');
-    popSwitch.addEventListener('click', () => {
-      const on = !popOn();
-      try { localStorage.setItem('cb_pop', on ? '1' : '0'); } catch { /* private mode */ }
-      popSwitch.textContent = on ? 'Message sound: on (tap to turn off)' : 'Message sound: off (tap to turn on)';
-      if (on) Ring.pop();                                          // a preview
-    });
-    // Trusted devices: remove a lost one, or add a new one with a 15-minute link.
-    const devBox = h('div', {}), devOut = h('div', {});
-    const paintDevices = async () => {
-      const { devices } = await api('/devices').catch(() => ({ devices: [] }));
-      devBox.replaceChildren(...devices.map((d) => {
-        const x = h('button', { class: 'x', type: 'button' }, 'Remove');
-        x.addEventListener('click', async () => {
-          if (!confirm(d.current ? 'Remove THIS device? It will be locked out until you add it again from another trusted device.' : `Remove ${d.name}? It will be locked out of Cupboard.`)) return;
-          await api(`/devices/${d.id}`, { method: 'DELETE' }); if (d.current) location.reload(); else paintDevices();
-        });
-        return h('div', { class: 'kv' }, h('span', {}, `${d.name}${d.current ? ' (this one)' : ''}`, h('br'),
-          h('small', { class: 'soft' }, `${d.who || 'not signed in yet'} · last used ${when(d.seen || d.created)}`)), x);
-      }));
+      return b;
     };
-    const addDev = h('button', { class: 'btn ghost', type: 'button' }, 'Add a device');
-    addDev.addEventListener('click', async () => {
-      try {
-        const { path } = await api('/devices/link', { method: 'POST' });
-        const url = location.origin + path;
-        const copy = h('button', { class: 'btn ghost', type: 'button' }, 'Copy');
-        copy.addEventListener('click', async () => { await navigator.clipboard.writeText(url); toast('Copied'); });
-        const share = navigator.share ? h('button', { class: 'btn', type: 'button' }, 'Share…') : null;
-        share?.addEventListener('click', () => navigator.share({ url }).catch(() => {}));
-        devOut.replaceChildren(h('p', { class: 'lede' }, 'Open this on the new phone or computer within 15 minutes. It works once.'), h('div', { class: 'link' }, url), h('div', { style: 'display:flex;gap:.5rem' }, share, copy));
-      } catch (e) { toast(e.message, true); }
-    });
-    paintDevices();
-    // Change my password: signed in on this trusted device, so the old one isn't needed.
-    const np = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'New password (8+ characters)' });
-    const np2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'Repeat it' });
-    const pwBtn = h('button', { class: 'btn ghost', type: 'button' }, 'Change password');
+    const row = (icon, color, title, sub, right, onTap) => {
+      const el = h(onTap ? 'button' : 'div', { type: onTap ? 'button' : null, class: 'st-row' + (onTap ? ' tap' : '') }, tile(icon, color),
+        h('span', { class: 'st-t' }, h('b', {}, title), sub ? h('small', {}, sub) : null), right);
+      if (onTap) el.addEventListener('click', onTap);
+      return el;
+    };
+    const chev = () => h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›');
+    const group = (title, ...rows) => h('section', { class: 'st-sec' }, title ? h('h3', {}, title) : null, h('div', { class: 'st-grp' }, ...rows.flat().filter(Boolean)));
+    const note = (t) => h('p', { class: 'st-note' }, t);
+    const shareLink = async (url, text, title) => {                                // copy it, and open the share sheet when there is one
+      try { await navigator.clipboard.writeText(url); } catch { /* not allowed here */ }
+      if (navigator.share) navigator.share({ title, text, url }).catch(() => {}); else prompt(`${text} Copied:`, url);
+      toast('Link copied');
+    };
+
+    // --- App ---
+    const notifRow = row('bell', '#ff3b30', 'Notifications', state.push ? 'On for this device' : 'Off for this device',
+      sw(!!state.push, async (on) => { if (on) await enablePush(); else await disablePush(); toast(on ? 'Notifications on' : 'Notifications off'); render(); return false; }));
+    const popRow = row('chat', '#ff9f0a', 'Message sound', 'A soft pop while Cupboard is open', sw(flag('cb_pop'), (on) => { setFlag('cb_pop', on); if (on) Ring.pop(); }));
+    const ringRow = row('phone', '#34c759', 'Call ring', 'Rings while Cupboard is open', sw(flag('cb_ring'), (on) => { setFlag('cb_ring', on); if (on) { Ring.start('in'); setTimeout(() => Ring.stop(), 2600); } }));
+    const installRow = !isStandalone() ? row('plus', '#5856d6', 'Install the app', isIOS() ? 'Safari → Share → Add to Home Screen' : 'Browser menu → Install app / Add to Dock', chev(),
+      () => sheet('Install Cupboard', [h('p', { class: 'mtext' }, isIOS()
+        ? 'On iPhone: open Cupboard in Safari, tap Share (the square with an arrow), then Add to Home Screen. Notifications work once it is on your Home Screen.'
+        : 'On a Mac or Android: in Chrome use the install icon in the address bar (or menu → Install app); in Safari on a Mac use File → Add to Dock.')])) : null;
+
+    // --- People (owner and admins) ---
+    let peopleGroup = null;
+    if (admin) {
+      state.users = (await api('/users')).users;
+      const inviteRow = row('plus', '#0a84ff', 'Invite someone', 'A link that works once, for 7 days', null, async () => {
+        try { const { path } = await api('/invites', { method: 'POST' }); await shareLink(location.origin + path, 'Join me on Cupboard, my private chat app:', 'Join me on Cupboard'); } catch (e) { toast(e.message, true); }
+      });
+      const personRow = (u) => {
+        const label = u.role === 'owner' ? 'Owner' : u.admin ? 'Admin' : null;
+        const el = h('button', { type: 'button', class: 'st-row tap' }, h('span', { class: 'st-ic round', style: 'background:#ff2d55' }, (u.name || '?').trim()[0]?.toUpperCase() || '?'),
+          h('span', { class: 'st-t' }, h('b', {}, u.name, label ? h('i', { class: 'st-pill' }, label) : null), h('small', {}, '@' + u.username)), canManage(u) ? chev() : null);
+        if (canManage(u)) el.addEventListener('click', () => sheet(u.name, [
+          ['Send a password reset link', async () => {
+            const { path } = await api(`/users/${u.id}/reset`, { method: 'POST' });
+            await shareLink(location.origin + path, `Cupboard password reset for ${u.name} (works once, for 1 hour):`, 'Cupboard password reset');
+          }],
+          isOwner ? [u.admin ? 'Remove admin rights' : 'Make admin', async () => { await api(`/users/${u.id}/admin`, { method: 'POST', body: { admin: !u.admin } }); toast(u.admin ? 'No longer an admin' : 'Now an admin'); render(); }] : null,
+          ['Remove from Cupboard', async () => {
+            if (!confirm(`Remove ${u.name} from Cupboard? They'll be signed out and can't come back without a new invite.`)) return;
+            await api(`/users/${u.id}`, { method: 'DELETE' }); toast('Removed'); render();
+          }, { danger: true }],
+        ]));
+        return el;
+      };
+      peopleGroup = [group('People', state.users.map(personRow), inviteRow), note(isOwner ? 'Tap a person to reset their password, make them an admin, or remove them. Admins can do everything except touch your account.' : 'Tap a person to send a password reset link or remove them.')];
+    }
+
+    // --- Security: change password and devices open inline ---
+    const np = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'New password (8+ characters)', 'aria-label': 'New password' });
+    const np2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: '8', placeholder: 'Repeat it', 'aria-label': 'Repeat the new password' });
+    const pwBtn = h('button', { class: 'btn full', type: 'button' }, 'Save new password');
     pwBtn.addEventListener('click', async () => {
       if (np.value.length < 8) return toast('At least 8 characters.', true);
       if (np.value !== np2.value) return toast('The two passwords don\'t match.', true);
       pwBtn.disabled = true;
-      try { await api('/password', { method: 'POST', body: { password: np.value } }); np.value = np2.value = ''; toast('Password changed'); }
+      try { await api('/password', { method: 'POST', body: { password: np.value } }); np.value = np2.value = ''; pwPanel.hidden = true; toast('Password changed'); }
       catch (e) { toast(e.message, true); } finally { pwBtn.disabled = false; }
     });
+    const pwPanel = h('div', { class: 'st-panel', hidden: true }, np, np2, pwBtn);
+    const devList = h('div', {}), devOut = h('div', {});
+    const devPanel = h('div', { class: 'st-panel', hidden: true }, devList, devOut);
+    const devCount = h('small', {}, 'Phones and computers that can open Cupboard');
+    const paintDevices = async () => {
+      const { devices } = await api('/devices').catch(() => ({ devices: [] }));
+      devCount.textContent = `${devices.length} trusted · only these can open Cupboard`;
+      devList.replaceChildren(...devices.map((d) => {
+        const x = h('button', { class: 'st-x', type: 'button' }, 'Remove');
+        x.addEventListener('click', async () => {
+          if (!confirm(d.current ? 'Remove THIS device? It will be locked out until you add it again from another trusted device.' : `Remove ${d.name}? It will be locked out of Cupboard.`)) return;
+          await api(`/devices/${d.id}`, { method: 'DELETE' }); if (d.current) location.reload(); else paintDevices();
+        });
+        return h('div', { class: 'st-dev' }, h('span', {}, h('b', {}, `${d.name}${d.current ? ' (this one)' : ''}`), h('small', {}, `${d.who || 'not signed in yet'} · last used ${when(d.seen || d.created)}`)), x);
+      }));
+    };
+    const addDev = h('button', { class: 'btn ghost full', type: 'button' }, 'Add a device');
+    addDev.addEventListener('click', async () => {
+      try {
+        const { path } = await api('/devices/link', { method: 'POST' });
+        const url = location.origin + path;
+        devOut.replaceChildren(h('p', { class: 'st-note' }, 'Open this on the new phone or computer within 15 minutes. It works once.'), h('div', { class: 'link' }, url));
+        await shareLink(url, 'Add this device to Cupboard (15 minutes, once):', 'Add a device to Cupboard');
+      } catch (e) { toast(e.message, true); }
+    });
+    devPanel.append(addDev);
+    paintDevices();
+    const toggle = (panel, other) => () => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+    const securityGroup = h('section', { class: 'st-sec' }, h('h3', {}, 'Security'), h('div', { class: 'st-grp' },
+      row('edit', '#8e8e93', 'Change password', 'Forgot it? Set a new one right here', chev(), toggle(pwPanel, devPanel)), pwPanel,
+      (() => { const r = row('brief', '#30b0c7', 'Devices', null, chev(), toggle(devPanel, pwPanel)); r.querySelector('.st-t').append(devCount); return r; })(), devPanel));
+
+    // --- Home / about / sign out ---
+    const monitorGroup = group('Home', row('eye', '#1c1c1e', 'Monitor', 'Choose what the living-room screen shows', chev(), () => go('/monitor')));
+    const aboutGroup = group('About', row('doc', '#636366', 'Version', 'Messages are stored on Guman\'s server, not end-to-end encrypted', h('span', { class: 'st-val' }, version.slice(0, 6))));
+    const out = h('button', { class: 'st-out', type: 'button' }, 'Sign out');
+    out.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); es?.close(); state.me = null; go('/login', true); });
+
     app.replaceChildren(
       h('div', { class: 'bar' }, h('a', { class: 'icon back', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back')), h('div', { class: 't' }, h('b', {}, 'Settings'))),
-      h('div', { class: 'page' },
-        h('h2', {}, state.me.name), h('p', { class: 'lede' }, '@' + state.me.username + (owner ? ' · owner' : '')),
-        h('div', { class: 'sec' }, 'Notifications'),
-        !isStandalone() && isIOS() ? h('p', { class: 'lede' }, 'On iPhone, notifications work once Cupboard is on your Home Screen: Safari → Share → Add to Home Screen, then open it from there.') : null,
-        notif,
-        !isStandalone() ? h('div', {}, h('div', { class: 'sec' }, 'Install'), h('p', { class: 'lede' }, isIOS() ? 'Safari → Share (□↑) → Add to Home Screen.' : 'Browser menu → Install app / Add to Home screen.')) : null,
-        owner ? h('div', {}, h('div', { class: 'sec' }, 'People'), ...(people.length ? people : [h('p', { class: 'lede' }, 'Nobody yet. Invite friends from ✎ → Invite a friend.')])) : null,
-        h('div', { class: 'sec' }, 'Monitor'),
-        h('a', { class: 'btn ghost', href: '/monitor', 'data-link': true }, '🖥️ Choose what the monitor shows'),
-        h('div', { class: 'sec' }, 'Password'),
-        h('p', { class: 'lede' }, 'Forgot it? Change it here on a device that is already signed in.' + (owner ? ' For someone else: People → Reset link.' : '')),
-        h('div', { style: 'display:grid;gap:.5rem;max-width:22rem' }, np, np2, pwBtn),
-        h('div', { class: 'sec' }, 'Devices'),
-        h('p', { class: 'lede' }, 'Only these phones and computers can open Cupboard. Anything else sees a blank page.'),
-        devBox, addDev, devOut,
-        h('div', { class: 'sec' }, 'Sounds'),
-        h('p', { class: 'lede' }, 'A soft pop when a message arrives while Cupboard is open (not for muted chats). When it is closed, your phone\'s notification sound plays.'),
-        popSwitch,
-        h('div', { class: 'sec' }, 'Calls'),
-        h('p', { class: 'lede' }, 'Cupboard rings while it is open. When it is closed you get a notification instead. On iPhone the side Ring/Silent switch mutes the ring.'),
-        ringSwitch,
-        h('div', { class: 'sec' }, 'About'),
-        h('p', { class: 'lede' }, `Cupboard version ${(() => { try { return new URL(import.meta.url).searchParams.get('v') || 'dev'; } catch { return 'dev'; } })()}`),
-        h('div', { class: 'sec' }, 'Privacy'),
-        h('p', { class: 'lede' }, 'Messages and voice notes are stored on Guman\'s S20 phone server. They are not end-to-end encrypted.'),
-        h('div', { style: 'margin-top:1.5rem' }, out)),
+      h('div', { class: 'page' }, h('div', { class: 'st' },
+        h('div', { class: 'st-me' }, h('span', { class: 'st-ic round big', style: 'background:linear-gradient(135deg,#ff9f0a,#ff375f)' }, (me.name || '?').trim()[0]?.toUpperCase() || '?'),
+          h('span', { class: 'st-t' }, h('b', {}, me.name), h('small', {}, '@' + me.username, isOwner ? h('i', { class: 'st-pill' }, 'Owner') : me.admin ? h('i', { class: 'st-pill' }, 'Admin') : null))),
+        group('App', notifRow, popRow, ringRow, installRow),
+        peopleGroup, securityGroup, monitorGroup, aboutGroup,
+        h('div', { class: 'st-grp st-outgrp' }, out))),
       tabbar('settings'));
   },
 };
@@ -933,7 +947,7 @@ function bubble(m, prev) {
   }
   const kids = [];
   if (c.kind === 'group' && !mine && who && prev?.from !== m.from) kids.push(h('span', { class: 'who' }, who.name));
-  if (m.extra?.replyTo) {
+  if (typeof m.extra?.replyTo === 'number') {                  // (a bot card's replyTo is the agent's address, not a message)
     const q = state.msgs.find((x) => x.id === m.extra.replyTo);
     const qb = h('button', { type: 'button', class: 'quote' }, q ? preview(q) : '↩ an earlier message');
     qb.addEventListener('click', () => scrollToMessage(m.extra.replyTo));
