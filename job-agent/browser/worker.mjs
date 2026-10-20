@@ -291,7 +291,7 @@ createServer((req, res) => {
   }
   // "running" stays null only when no lane is busy (linux/switch-to-laptop.sh and failover wait for that).
   if (req.url === '/health') { const first = [...lanes.values()][0] || [...social.running.values()][0];   // (LinkedIn lane counts as busy for deploys)
-    return reply(200, { ok: true, pid: process.pid, waiting: waiting.length + social.waiting.length, running: first?.task || null, for: first?.who.person || null, signin: signin?.who.person || null, social: social.running.size,
+    return reply(200, { ok: true, pid: process.pid, waiting: waiting.length + social.waiting.length, running: first?.task || null, for: first?.who.person || null, signin: signin?.who.person || null, social: social.running.size, browsers: session.browserCount(),
       lanes: Object.fromEntries([...lanes].map(([p, l]) => [p, l.task])), max: LANES }); }   // instant, not queued
   let raw = '';
   req.on('data', (c) => { raw += c; });

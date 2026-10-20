@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { totalmem } from 'node:os';
 
 const { chromium } = createRequire(process.env.PW_DIR || '/opt/pw/')('playwright');
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,19 +15,24 @@ const OWNER = { person: 'owner', data: join(ROOT, 'data'), agent: process.env.AG
 export const who = () => person.getStore() || OWNER;
 const sessions = () => { const d = join(who().data, 'sessions'); mkdirSync(d, { recursive: true }); return d; };
 
-let browser;
-// Close the browser after 4 idle minutes so it is not holding memory and processes between tasks.
-let idleTimer;
-let busy = 0;                                         // tasks in progress: never close the browser under them
-export function begin() { busy++; clearTimeout(idleTimer); }
-export function end() { busy = Math.max(0, busy - 1); touch(); }
+// One Chromium per PERSON on a big machine (the laptop): a crash, a restart or the idle close of one person's browser never
+// touches the other's tasks, and the LinkedIn lookups of one person share only that person's browser. The phone (small RAM)
+// keeps one shared browser. JA_BROWSER_PER_PERSON=0/1 overrides.
+const PER_PERSON = process.env.JA_BROWSER_PER_PERSON ? process.env.JA_BROWSER_PER_PERSON !== '0' : totalmem() > 12e9;
+const slots = new Map();                              // person (or 'shared') -> { browser, launching, idleTimer, busy }
+const slot = () => { const k = PER_PERSON ? who().person : 'shared'; if (!slots.has(k)) slots.set(k, { browser: null, launching: null, idleTimer: null, busy: 0 }); return slots.get(k); };
+// Close a browser after 4 idle minutes so it is not holding memory and processes between tasks.
+export function begin() { const s = slot(); s.busy++; clearTimeout(s.idleTimer); }   // tasks in progress: never close the browser under them
+export function end() { const s = slot(); s.busy = Math.max(0, s.busy - 1); touch(); }
 export function touch() {
-  clearTimeout(idleTimer);
-  if (busy) return;
+  const s = slot();
+  clearTimeout(s.idleTimer);
+  if (s.busy) return;
   if (process.env.KEEP_BROWSER) return;               // Mac handoff: the owner is using the window
-  idleTimer = setTimeout(async () => { const b = browser; browser = null; await b?.close().catch(() => {}); }, 4 * 60e3);
+  s.idleTimer = setTimeout(async () => { const x = s.browser; s.browser = null; await x?.close().catch(() => {}); }, 4 * 60e3);
 }
-export async function closeBrowser() { const b = browser; browser = null; await b?.close().catch(() => {}); }
+export async function closeBrowser() { for (const s of slots.values()) { clearTimeout(s.idleTimer); const x = s.browser; s.browser = null; await x?.close().catch(() => {}); } }
+export const browserCount = () => [...slots.values()].filter((s) => s.browser?.isConnected()).length;
 const LAUNCH = () => chromium.launch({
     headless: false,
     // Few processes: Android 13's phantom-process killer stops Termux when its children pass 32.
@@ -36,9 +42,11 @@ const LAUNCH = () => chromium.launch({
   });
 export async function getBrowser() {
   touch();
-  if (browser?.isConnected()) return browser;
-  browser = await LAUNCH();
-  return browser;
+  const s = slot();
+  if (s.browser?.isConnected()) return s.browser;
+  // Two tasks of one person asking at once (the LinkedIn lane) must not each launch a browser.
+  s.launching ||= LAUNCH().then((x) => { s.browser = x; return x; }).finally(() => { s.launching = null; });
+  return s.launching;
 }
 // A short-lived second browser for a live sign-in, so the person doesn't wait behind a long search. Closed when done.
 export const launchSeparate = () => LAUNCH();
