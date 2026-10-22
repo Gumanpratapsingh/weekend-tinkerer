@@ -290,7 +290,7 @@ export default {
       for (let i = 0; i < 10 && !found; i++) { await page.waitForTimeout(1500); found = await markRoot(page); }
       if (!found) return { status: 'failed', reason: 'Easy Apply form did not open', shot: await snap(page, 'li-noform') };
 
-      let lastStep = '';
+      let lastStep = '', retriedStep = null;
       const steps = [];
       for (let step = 0; step < 15; step++) {
         await page.waitForTimeout(1500 + Math.random() * 1000);
@@ -344,6 +344,26 @@ export default {
         const stepText = (await modal.innerText()).slice(0, 400);
         if (stepText === lastStep) {
           const errs = (await modal.innerText().catch(() => '')).split('\n').filter((l) => /invalid|required|please (enter|select|make)|must be|whole number|decimal/i.test(l)).slice(0, 4);
+          // One self-retry for a number-shaped error ("30 days" rejected by a field that only wants "30"): strip
+          // units/text from any currently-filled numeric-looking field and try Next once more before giving up.
+          if (errs.length && retriedStep !== stepText) {
+            retriedStep = stepText;
+            const stripped = {};
+            for (const f of fields) {
+              const v = answers[f.key];
+              if (v == null || f.options?.length || !/\d/.test(String(v)) || !/[a-z]/i.test(String(v))) continue;
+              if (!/ctc|salary|lpa|years?|experience|notice|tenure|age|days|months|number|how many|gpa|cgpa|percentage/i.test(f.label)) continue;
+              const n = String(v).match(/\d+(\.\d+)?/)?.[0];
+              if (n && n !== String(v)) stripped[f.key] = n;
+            }
+            if (Object.keys(stripped).length) {
+              progress(`LinkedIn: stuck (${errs.join(' | ').slice(0, 120)}) — retrying with numbers only: ${Object.entries(stripped).map(([k, v]) => `"${fields.find((f) => f.key === k)?.label.slice(0, 30)}"=${v}`).join(', ')}`);
+              await fill(page, fields.filter((f) => stripped[f.key] != null), stripped, {});
+              await next.click();
+              await page.waitForTimeout(2000);
+              continue;
+            }
+          }
           return await discard(page, { status: 'failed', reason: `stuck: ${errs.join(' | ').slice(0, 200)}`, shot: await snap(page, 'li-stuck') });
         }
         lastStep = stepText;

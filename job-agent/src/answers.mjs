@@ -274,14 +274,18 @@ function pickOption(answer, options) {
 }
 function coerce(answer, it) {
   if (it.options?.length) return pickOption(answer, it.options) || answer;
-  // Durations: convert between units when the form names one ("1 Month" for "in days" -> 30); keep the unit when it doesn't
-  // ("1 Month" for "Notice period?" stays "1 Month", never a bare "1").
+  // Durations: convert between units when the form names one ("1 Month" for "in days" -> 30); keep the unit when the
+  // field is free-form prose ("Describe your availability" stays "1 Month"). A short question whose own label names a
+  // duration-ish concept (notice/experience/tenure/age) almost always wants a bare number even if typed as a plain
+  // text input: LinkedIn and others validate these as digits-only regardless of the HTML input type (confirmed
+  // 2026-10-22: "what is your notice period" is <input type="text"> but rejects "30 days", only accepts "30").
   const UNIT = { day: 1, week: 7, month: 30, year: 365 };
   const ua = /\b(day|week|month|year)s?\b/i.exec(String(answer))?.[1]?.toLowerCase();
   const ul = /\b(day|week|month|year)s?\b/i.exec(it.label)?.[1]?.toLowerCase();
+  const shortDurationQuestion = it.label.length <= 60 && /notice|tenure|age\b/i.test(it.label);
   if (ua && !/ctc|salary|lpa/i.test(it.label)) {
     const n = parseFloat(String(answer).match(/\d+(\.\d+)?/)?.[0]);
-    if (!ul && it.type !== 'number' && Number.isFinite(n)) return String(answer);
+    if (!ul && !shortDurationQuestion && it.type !== 'number' && Number.isFinite(n)) return String(answer);
     // Compound durations for a field in one unit ("2 years 3 months" for "experience in years"): the total, "2.25".
     const parts = [...String(answer).matchAll(/(\d+(?:\.\d+)?)\s*(day|week|month|year)s?\b/gi)];
     const step = ul === 'year' ? 100 : 1, U = { ...UNIT, month: 365 / 12 };   // exact months; whole days/weeks/months, years to 2 decimals
