@@ -203,9 +203,9 @@
   "min_score": 65,
   "daily_caps": {
     "naukri": 20,
-    "linkedin": 15,
+    "linkedin": 25,
     "ats": 40,
-    "total": 75,
+    "total": 85,
     "per_company": 3
   },
   "whatsapp_quiet_hours": [
