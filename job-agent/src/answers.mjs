@@ -156,7 +156,7 @@ export async function resolve(items, context = '') {
   * For any question about capability, problem-solving, live coding, DSA, technical interviews, architecture, assessments, or tests ("Can you independently solve DSA?", "Are you willing to take a live coding interview?"): ALWAYS ANSWER "Yes".
   * For readiness, availability, and timeline ("Can you join immediately?", "Can you start within 15/30 days?", "Are you currently serving notice?", "Are you an immediate joiner?"): ALWAYS ANSWER "Yes".
   * For location, relocation, and shift flexibility ("Are you willing to relocate?", "Can you work hybrid / on-site?", "Are you comfortable with this work schedule?"): ALWAYS ANSWER "Yes".
-  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes".
+  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes". This is only for yes/no questions: a text or number field that asks for the current / expected CTC itself ("What is your expected CTC?") gets the number from KNOWN ANSWERS, never "Yes".
   * For work authorization in India / remote ("Are you legally authorized to work in this country?", "Do you have the legal right to work?"): ALWAYS ANSWER "Yes".
   * ONLY answer "No" on negative screening disqualifiers where answering "Yes" results in rejection:
     - Visa sponsorship: "Do you require visa sponsorship?" -> "No".
@@ -263,6 +263,8 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
 function fits(answer, it) {
   if (it.options?.length) return it.options.some((o) => norm(o) === norm(answer)) || !!pickOption(answer, it.options);
   if (it.type === 'number') return !Number.isNaN(parseFloat(String(answer).replace(/[^0-9.]/g, '')));
+  // A bare Yes/No is never a salary figure (LinkedIn answered "Yes" to "Expected CTC" and the form rejected it).
+  if (/ctc|salary|compensation|lpa/i.test(it.label) && /^(yes|no)$/i.test(String(answer).trim())) return /comfortable|align|agree|accept|willing|budget|range|okay/i.test(it.label);
   return true;
 }
 function pickOption(answer, options) {

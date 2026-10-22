@@ -142,7 +142,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         const bodyText = await page.innerText('body').catch(() => '');
-        if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired/i.test(bodyText)) return { status: 'closed' };
+        if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired/i.test(bodyText)) return { status: 'closed' };
         // Already applied on the job board (an earlier attempt or by hand): nothing left to do.
         if ((/naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0))
           || (/linkedin\.com/.test(url) && /\bApplied \d+ (seconds?|minutes?|hours?|days?|weeks?|months?) ago\b/i.test(bodyText.slice(0, 4000)))) return { status: 'already_applied' };
