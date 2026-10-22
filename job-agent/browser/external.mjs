@@ -8,7 +8,7 @@ import { isWorkday, applyWorkday } from './workday.mjs';
 import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 
 // Sites that require creating a candidate account before applying.
-const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login/i;
+const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs/i;
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
@@ -143,6 +143,9 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         const bodyText = await page.innerText('body').catch(() => '');
         if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired/i.test(bodyText)) return { status: 'closed' };
+        // Naukri silently bounces an expired/removed listing to its own generic search page (no "expired" text, just
+        // a "<role>-jobs-in-<city>" URL instead of "job-listings-..."): the specific posting is gone either way.
+        if (/naukri\.com\/[a-z0-9-]+-jobs-in-[a-z-]+(\?|$)/i.test(url) && !/\/job-listings-/i.test(url)) return { status: 'closed' };
         // Already applied on the job board (an earlier attempt or by hand): nothing left to do.
         if ((/naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0))
           || (/linkedin\.com/.test(url) && /\bApplied \d+ (seconds?|minutes?|hours?|days?|weeks?|months?) ago\b/i.test(bodyText.slice(0, 4000)))) return { status: 'already_applied' };
