@@ -34,6 +34,13 @@ export async function handleOwner(text, ref) {
   const lc = t.toLowerCase();
 
   if (ref?.ref_kind === 'ncrjob' || ref?.ref_kind === 'ncrsubmit') return ncrAction(ref, t);
+  if (ref?.ref_kind === 'interview') {
+    const job = one('SELECT * FROM jobs WHERE id = ?', ref.ref_id);
+    if (!job) return tell(`No job ${ref.ref_id} on file anymore.`);
+    run("UPDATE jobs SET status_note = status_note || ' (acknowledged)' WHERE id = ?", ref.ref_id);
+    cardDone('interview', ref.ref_id, '✓ Acknowledged');
+    return;
+  }
   if (ref?.ref_kind === 'question') return onAnswered(+ref.ref_id, t);
   if (ref?.ref_kind === 'referral') {
     const { decide } = await import('./referrals.mjs');

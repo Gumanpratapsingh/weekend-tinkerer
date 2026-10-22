@@ -87,8 +87,10 @@ async function handle(mail) {
   const icon = { interview: '🎉 Interview', assessment: '📝 Assessment', offer: '🏆 Offer', question: '❓ Recruiter question', rejection: '✖️ Rejection', confirmation: '📨 Received', other: '✉️ Email' }[c.category] || '✉️ Email';
   if (c.category !== 'confirmation' && c.category !== 'rejection') {
     // A real recruiter reply (interview/assessment/offer/question/other) is the signal that actually matters:
-    // its own chat, apart from the day-to-day apply/skip/manual noise in the main Job agent feed.
-    tell(`${icon} — ${label}\n${c.summary}\nFrom: ${from}`, { urgent: ['interview', 'offer'].includes(c.category) || c.urgent, chat: 'interviews' });
+    // its own chat, apart from the day-to-day apply/skip/manual noise in the main Job agent feed. An Acknowledge
+    // button when it's tied to a job (job_id known) so the owner can mark it handled without typing anything.
+    tell(`${icon} — ${label}\n${c.summary}\nFrom: ${from}`, { urgent: ['interview', 'offer'].includes(c.category) || c.urgent, chat: 'interviews',
+      ...(job ? { refKind: 'interview', refId: job.id } : {}) });
   }
 
   const noReply = /no-?reply|do-?not-?reply|notifications?@|mailer/i.test(from);
