@@ -132,7 +132,7 @@ function convSummary(convId, forUser) {
   const mine = people.find((p) => p.id === forUser.id);
   const unread = one('SELECT count(*) AS n FROM messages WHERE conv_id = ? AND id > ? AND user_id != ?', convId, mine?.last_read || 0, forUser.id).n;
   const other = people.find((p) => p.id !== forUser.id);
-  const title = c.kind === 'group' || (c.kind === 'bot' && c.name === NCR_CHAT) ? c.name : other?.name || 'Chat';
+  const title = c.kind === 'group' || (c.kind === 'bot' && (c.name === NCR_CHAT || c.name === INTERVIEWS_CHAT)) ? c.name : other?.name || 'Chat';
   const set = one('SELECT muted_until, archived FROM members WHERE conv_id = ? AND user_id = ?', convId, forUser.id) || {};
   const pins = all('SELECT m.* FROM pins p JOIN messages m ON m.id = p.msg_id WHERE p.conv_id = ? ORDER BY p.at DESC LIMIT 10', convId).map(rowToMsg);
   return { id: c.id, kind: c.kind, title, people: people.map(({ last_read, ...p }) => ({ ...p, lastRead: last_read })),
@@ -183,7 +183,8 @@ function updateMessage(id, patch) {
 // Every person has their own private bot conversation (the owner's is "S20"; a friend's is their job agent).
 function botConv(user) {
   const b = botId();
-  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ? AND COALESCE(c.name, '') != ?", user.id, NCR_CHAT);
+  const row = one(`SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ?
+    AND COALESCE(c.name, '') NOT IN (?, ?)`, user.id, NCR_CHAT, INTERVIEWS_CHAT);
   if (row) return row.id;
   const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", user.role === 'owner' ? 'S20' : 'Job agent', user.id, Date.now());
   run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, b);
@@ -199,6 +200,16 @@ function ncrConv(user) {
   return Number(id);
 }
 const isNcrConv = (conv) => conv?.kind === 'bot' && conv.name === NCR_CHAT;
+// A third bot chat per person: jobs that got a real recruiter reply (interview, assessment, offer, or a genuine
+// question) — pulled out of the main "Job agent" feed so the signal that actually matters doesn't get buried.
+const INTERVIEWS_CHAT = '🎯 Interviews & Replies';
+function interviewsConv(user) {
+  const row = one("SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND c.name = ? AND m.user_id = ?", INTERVIEWS_CHAT, user.id);
+  if (row) return row.id;
+  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", INTERVIEWS_CHAT, user.id, Date.now());
+  run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, botId());
+  return Number(id);
+}
 // Screenshots a local job agent sends with a message: only its own shots folders, copied into Cupboard media.
 const SHOTS = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?data\/shots\/[\w.-]+\.png$/;
 function shotToMedia(path) {
@@ -801,7 +812,7 @@ createServer(async (req, res) => {
         if (!target) return send(res, 404, { error: `No Cupboard user ${b.to}`, pushable: false });
         if (/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') && target.role !== 'owner') setKv(`agent:${target.id}`, b.agent);
       }
-      const convId = b.chat === 'ncr' ? ncrConv(target) : botConv(target);
+      const convId = b.chat === 'ncr' ? ncrConv(target) : b.chat === 'interviews' ? interviewsConv(target) : botConv(target);
       if (b.chat === 'ncr' && /^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '')) setKv(`ncragent:${target.id}`, b.agent);
       for (const p of (Array.isArray(b.images) ? b.images : []).slice(0, 8)) {    // screenshots first, then the card about them
         const m = shotToMedia(p);

@@ -2451,4 +2451,20 @@ window.addEventListener('message', (e) => {
   if (typeof info?.playerState === 'number') w.frame.dataset.s = String(info.playerState);
 });
 
+// New version deployed: the open tab doesn't know until it checks. Poll occasionally and whenever the tab comes back
+// into view, and reload once it's safe (never cut off a live call — try again next check instead).
+(() => {
+  const myScript = document.querySelector('script[src^="/app.js"]');
+  const myV = myScript ? new URL(myScript.src, location.href).searchParams.get('v') : null;
+  if (!myV) return;
+  async function check() {
+    let html;
+    try { html = await fetch('/', { cache: 'no-store' }).then((r) => r.text()); } catch { return; }   // offline: try again later
+    const m = /\/app\.js\?v=([a-f0-9]+)/.exec(html);
+    if (m && m[1] !== myV && !call) location.reload();
+  }
+  setInterval(check, 5 * 60e3);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+})();
+
 render();

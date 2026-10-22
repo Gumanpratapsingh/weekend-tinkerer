@@ -86,7 +86,9 @@ async function handle(mail) {
 
   const icon = { interview: '🎉 Interview', assessment: '📝 Assessment', offer: '🏆 Offer', question: '❓ Recruiter question', rejection: '✖️ Rejection', confirmation: '📨 Received', other: '✉️ Email' }[c.category] || '✉️ Email';
   if (c.category !== 'confirmation' && c.category !== 'rejection') {
-    tell(`${icon} — ${label}\n${c.summary}\nFrom: ${from}`, { urgent: ['interview', 'offer'].includes(c.category) || c.urgent });
+    // A real recruiter reply (interview/assessment/offer/question/other) is the signal that actually matters:
+    // its own chat, apart from the day-to-day apply/skip/manual noise in the main Job agent feed.
+    tell(`${icon} — ${label}\n${c.summary}\nFrom: ${from}`, { urgent: ['interview', 'offer'].includes(c.category) || c.urgent, chat: 'interviews' });
   }
 
   const noReply = /no-?reply|do-?not-?reply|notifications?@|mailer/i.test(from);
