@@ -316,6 +316,15 @@ export async function checkAccepted() {
   }
 }
 
+// Stale drafts the owner never acted on: delete them (his choice, 2026-10-22) rather than let them pile up
+// as dead cards. Invited/accepted/followup_sent are real outreach already sent and stay.
+export function pruneOldDrafts(days = 5) {
+  const cutoff = now() - days * 24 * 3600e3;
+  const r = run("DELETE FROM referrals WHERE stage IN ('drafted','followup_drafted') AND created_at < ?", cutoff);
+  if (r.changes) activity(`🤝 Referrals: dropped ${r.changes} draft(s) older than ${days} days, never acted on`);
+  return r.changes;
+}
+
 // ---------- Referral offers in LinkedIn posts: verified authors at MNCs, spam filtered ----------
 const OFFER = /\b(i|we)('?ll| can| will| am happy to| would be happy to)? ?(refer|be referring)\b|\breferrals? (are )?(open|available)\b|\bdm (me )?for (a )?referral|\bdrop (your )?(resume|cv)|\bsend (me )?(your )?(resume|cv)\b|\b(is|are|we're|we are) hiring\b|\bhiring for\b|\bopenings? (in|at) (my|our)\b|🚀 ?referral/i;
 const SEEKER = /\b(i am|i'm|im) (actively |currently )?(looking|seeking|searching)\b|open to work|immediate joiner|seeking (new )?opportunit|looking for (my first|a new|new) (job|role|opportunit)|day \d+ of|my .{0,20}journey|please (help|refer) me|need (a )?referral/i;

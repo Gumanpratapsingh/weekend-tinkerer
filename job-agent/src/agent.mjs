@@ -349,6 +349,12 @@ every(60, 'referral acceptances', async () => {
   setKv('ref_check_day', day);
   const { checkAccepted } = await import('./referrals.mjs'); await checkAccepted();
 }, { delay: 20 * 60e3 });
+every(60, 'referral draft cleanup', async () => {               // drafts the owner never acted on: drop after 5 days
+  const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
+  if (n.getUTCHours() < 10 || getKv('ref_prune_day') === day) return;
+  setKv('ref_prune_day', day);
+  const { pruneOldDrafts } = await import('./referrals.mjs'); pruneOldDrafts();
+}, { delay: 22 * 60e3 });
 
 // Thermal guard: the phone runs 24/7 on a charger. Too hot -> pause all browser work and close Chromium; resume when cool.
 every(1, 'thermal guard', async () => {
