@@ -36,18 +36,19 @@ function saveAccount(tenant, email, password) {
   try { writeFileSync(f, JSON.stringify(accs, null, 2)); } catch {}
 }
 
-async function getCandidateEmail(agentUrl) {
+function getCandidateEmail() {
   try {
-    const r = await fetch(`${agentUrl}/internal/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: 'What is my email address?' }),
-      signal: AbortSignal.timeout(4000),
-    }).then((x) => x.json());
-    const m = /[\w.+-]+@[\w-]+\.[\w.-]+/.exec(r?.answer || '');
-    if (m) return m[0];
+    const dir = who().data;
+    const profDir = dir.endsWith('/data') ? join(dir, '..', 'profile') : join(ROOT, 'profile');
+    for (const f of [join(profDir, 'private.json'), join(profDir, 'master.json'), join(ROOT, 'profile', 'private.json')]) {
+      if (existsSync(f)) {
+        const j = JSON.parse(readFileSync(f, 'utf8'));
+        const em = j.mailbox || j.email || j.persona?.email || j.contact?.email;
+        if (em && /@/.test(em)) return em;
+      }
+    }
   } catch {}
-  return 'candidate@example.com';
+  return 'gumanpratapsinghparmar@gmail.com';
 }
 
 async function fetchVerificationCode(agentUrl, tenant) {
@@ -116,7 +117,7 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
       const accounts = getAccounts();
       const existing = accounts[tenant];
       const agentUrl = who().agent;
-      const candidateEmail = existing?.email || await getCandidateEmail(agentUrl);
+      const candidateEmail = existing?.email || getCandidateEmail();
       const password = existing?.password || DEFAULT_PASS;
 
       if (!isCreateAccount && existing) {
