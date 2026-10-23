@@ -141,7 +141,7 @@ export async function tailor(job) {
   const { resume, issues } = validate(await planFor(job, m), m);
   if (issues.length) log(`tailor ${job.id}: kept originals for ${issues.join('; ')}`);
   const safe = `${job.company}-${job.title}`.replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
-  const base = join(DATA, 'resumes', `${safe}-${String(job.id).replace(/[^a-z0-9]/gi, '').slice(-10)}`);
+  const base = join(DATA, 'resumes', safe);
   const html = resumeHtml(resume);
   writeFileSync(`${base}.html`, html);
   await renderPdf(`${base}.html`, `${base}.pdf`);
