@@ -267,7 +267,9 @@ export async function ncrReferrals() {
   const key = `ncr_ref_n:${istDate()}`;                                                              // company lookups today (LinkedIn limits people searches)
   const room = Math.min((config().ncr?.parallel || 3) - inflight, (config().ncr?.lookups_per_day || 20) - Number(getKv(key, 0)));
   if (room <= 0) return;
-  if (one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 12) return;   // plain requests already queued
+  // A backlog of already-queued plain requests pauses new lookups — but never for NCR jobs: the person is moving north,
+  // so those referrals matter even while the general (non-NCR) queue is full.
+  const backlogged = one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 12;
   const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
   const taken = new Set();
   const fresh = (j) => j.company && !asked.has(j.company.toLowerCase()) && !taken.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`);
@@ -275,7 +277,8 @@ export async function ncrReferrals() {
   const rows = all(`SELECT * FROM jobs WHERE status IN ('queued','manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
     Math.max(ncrMin(), 65), Date.now() - 7 * 864e5);
   const picks = [];
-  for (const j of [...(ncrOn() ? rows.filter(isNcr) : []), ...rows]) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
+  for (const j of ncrOn() ? rows.filter(isNcr) : []) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
+  if (!backlogged) for (const j of rows) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
   if (!picks.length) return;
   const { connectForJob } = await import('./referrals.mjs');
   picks.forEach((job, i) => {          // side by side, a few seconds apart: nothing waits for another company, for LinkedIn, or for the applying

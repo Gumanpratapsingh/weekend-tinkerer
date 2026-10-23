@@ -261,7 +261,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
       if (!res.fields) return { status: 'manual', reason: 'no fillable form found', shot };
 
       // Only a Submit the person could actually press (hidden duplicates made clicks time out).
-      const submit = page.locator('button[type="submit"]:visible, input[type="submit"]:visible, button:visible').filter({ hasText: /submit|apply|send application|send/i }).last();
+      const submit = page.locator('button[type="submit"]:visible, input[type="submit"]:visible, button:visible').filter({ hasText: /submit|apply|send application|send|start application/i }).last();
       if (!await submit.count()) return { status: 'manual', reason: 'no submit button found', shot };
       // Submit stays disabled while a required field is empty: name the empty fields instead of clicking in vain.
       if (!await submit.isEnabled().catch(() => true)) {
