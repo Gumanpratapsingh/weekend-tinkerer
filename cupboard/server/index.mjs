@@ -828,7 +828,7 @@ createServer(async (req, res) => {
       if (loud) setKv(`urgent_push:${target.id}`, Date.now());
       const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true || !day || (b.urgent && !loud) ? { pushOnly: [] }
         : loud ? { force: true, pushAs: { title: '🚨 URGENT · NCR job needs you', body: text.replace(/^\S+\s*/, '') } } : {});
-      if ((typeof b.urgent === 'string' || typeof b.urgent === 'number') && b.silent !== true) setKv(`urgent:${msg.id}`, JSON.stringify({ uid: target.id, conv: convId, text: text.slice(0, 120), n: 0, job: typeof b.urgent === 'string' || typeof b.urgent === 'number' ? String(b.urgent) : null, agent: /^http:\/\/127\.0\.0\.1:\d+$/.test(b.urgentAgent || '') ? b.urgentAgent : null, next: Date.now() + URGENT_EVERY }));   // nagged until opened
+      if ((typeof b.urgent === 'string' || typeof b.urgent === 'number') && b.silent !== true) setKv(`urgent:${msg.id}`, JSON.stringify({ uid: target.id, conv: convId, text: text.slice(0, 120), n: 0, job: typeof b.urgent === 'string' || typeof b.urgent === 'number' ? String(b.urgent) : null, agent: /^http:\/\/127\.0\.0\.1:\d+$/.test(b.urgentAgent || '') ? b.urgentAgent : null, next: nextDigest() }));   // digested until opened
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
     if (req.url === '/love') {                          // the server's own sweet notes to her: {text, ask?, partner?}
@@ -865,28 +865,33 @@ createServer(async (req, res) => {
   } catch (e) { send(res, e.status || 500, { error: e.message }); }
 }).listen(INTERNAL, '127.0.0.1', () => log(`cupboard internal on 127.0.0.1:${INTERNAL}`));
 
-// Urgent cards (an NCR job needs the person): push again every 12 minutes, daytime only (8:00-22:00 IST), until the person
-// sends "stop" in the chat or the job is dealt with (the agent says so). One reminder per person per round, however many are waiting; it REPLACES the previous
-// reminder on the phone (same tag), and nothing is added to the chat, so nothing piles up.
-const URGENT_EVERY = 12 * 60e3;
+// Urgent cards (an NCR job needs the person): instead of nagging every 12 minutes (2026-10-23: that was ~70 pushes/day
+// and the person asked for less), one digest push at fixed times a day (9am, 2pm, 7pm IST), summarizing whatever is
+// still open, until the person sends "stop" in the chat or the job is dealt with (the agent says so). One push per
+// person per slot, however many are waiting; it REPLACES the previous reminder on the phone (same tag).
+const DIGEST_HOURS = [9, 14, 19];                             // IST
+function nextDigest(from = Date.now()) {
+  const IST = 330 * 60e3, dayStart = Math.floor((from + IST) / 864e5) * 864e5;
+  for (const hh of DIGEST_HOURS) { const t = dayStart + hh * 3600e3 - IST; if (t > from) return t; }
+  return dayStart + 864e5 + DIGEST_HOURS[0] * 3600e3 - IST;    // tomorrow's first slot
+}
 setInterval(async () => {
-  const h = (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) / 60 % 24;
   const due = new Map();                                    // person -> reminders due this round
   for (const r of all("SELECT k, v FROM kv WHERE k LIKE 'urgent:%'")) {
     const u = JSON.parse(r.v), id = Number(r.k.slice(7));
     if (!one('SELECT 1 FROM messages WHERE id = ?', id)) { run('DELETE FROM kv WHERE k = ?', r.k); continue; }
-    if (Date.now() < u.next || h < 8 || h >= 22) continue;
+    if (Date.now() < u.next) continue;
     if (u.job && u.agent) {                                   // the job was dealt with (applied, skipped, queued, closed): no more reminders
       const st = await fetch(`${u.agent}/internal/urgent-open?job=${encodeURIComponent(u.job)}`, { signal: AbortSignal.timeout(4000) }).then((x) => x.json()).catch(() => null);
       if (st && st.open === false) { run('DELETE FROM kv WHERE k = ?', r.k); continue; }
     }
-    setKv(r.k, JSON.stringify({ ...u, n: u.n + 1, next: Date.now() + URGENT_EVERY }));
+    setKv(r.k, JSON.stringify({ ...u, n: u.n + 1, next: nextDigest() }));
     due.set(u.uid, [...(due.get(u.uid) || []), { u, id }]);
   }
   for (const [uid, list] of due) {
     const first = list[0];
-    push.notify(uid, { title: `🚨 URGENT (reminder): ${list.length} NCR job${list.length > 1 ? 's' : ''} need${list.length > 1 ? '' : 's'} you`,
-      body: `Reply "stop" in the chat to end reminders. ${first.u.text.replace(/^\S+\s*/, '').slice(0, 130)}`, url: `/c/${first.u.conv}`, tag: `urgent-${uid}`, urgent: true });
+    push.notify(uid, { title: `📋 ${list.length} job${list.length > 1 ? 's' : ''} still waiting on you`,
+      body: `Reply "stop" in the chat to end these. ${first.u.text.replace(/^\S+\s*/, '').slice(0, 130)}`, url: `/c/${first.u.conv}`, tag: `urgent-${uid}`, urgent: true });
   }
 }, 60e3);
 
