@@ -12,7 +12,7 @@ const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|bras
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
-const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|your application is on (its|the) way/i;
 
 async function knownAts(url) {
   const m = /(?:boards|job-boards)\.greenhouse\.io\/([\w-]+)\/jobs\/(\d+)|greenhouse\.io\/embed\/job_app\?.*for=([\w-]+).*token=(\d+)/.exec(url);

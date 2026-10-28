@@ -102,11 +102,16 @@ export async function resolve(items, context = '') {
   const asksStudy = labels.some((l) => /school|university|college|degree|discipline|field of study|education/.test(l));
   const onNotice = /present|current/i.test(m0.experience?.[0]?.dates || '');
   const lastDay = new Date(); lastDay.setMonth(lastDay.getMonth() + 1);
+  // A "Current role" box beside the end date (Greenhouse): tick it and leave the end date empty — the form rejects future dates.
+  const currentBox = (it) => it.type === 'checkbox' && /^(current role|current job|i currently work here|currently work(ing)? here)$/.test(norm(it.label));
+  const hasCurrentBox = onNotice && items.some(currentBox);
   for (const it of items) {
+    if (hasCurrentBox && currentBox(it)) { answers[it.key] = 'Yes'; continue; }
     // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it.
     if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label)) continue;
     if (asksWork && !asksStudy && onNotice) {
       const l = norm(it.label);
+      if (hasCurrentBox && /^(end date |end )(month|year)$/.test(l)) continue;
       const v = /^(end date |end )month$/.test(l) ? lastDay.toLocaleString('en-US', { month: 'long' }) : /^(end date |end )year$/.test(l) ? String(lastDay.getFullYear()) : null;
       if (v && fits(v, it)) { answers[it.key] = coerce(v, it); continue; }
     }
