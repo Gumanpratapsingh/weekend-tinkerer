@@ -12,7 +12,7 @@ const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|bras
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
-const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|your application is on (its|the) way/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submit?ted|applied)|your application is on (its|the) way/i;
 
 async function knownAts(url) {
   const m = /(?:boards|job-boards)\.greenhouse\.io\/([\w-]+)\/jobs\/(\d+)|greenhouse\.io\/embed\/job_app\?.*for=([\w-]+).*token=(\d+)/.exec(url);
@@ -284,6 +284,8 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
       if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
       const body = await page.innerText('body').catch(() => '');
       if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done') };
+      // The form filled was the site's job-alert sign-up, not an application (IDFC: "already subscribed for this job", tried 12 times).
+      if (/already subscribed/i.test(body)) return { status: 'manual', reason: 'only a job-alert sign-up form found, not an application', shot: await snap('ext-alert') };
       const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
       return { status: 'failed', reason: errors.filter(Boolean).slice(0, 4).join(' | ') || 'no confirmation seen', shot: await snap('ext-unsure') };
     } finally { if (!keepOpen) await ctx.close().catch(() => {}); }

@@ -107,6 +107,8 @@ export async function resolve(items, context = '') {
   const hasCurrentBox = onNotice && items.some(currentBox);
   for (const it of items) {
     if (hasCurrentBox && currentBox(it)) { answers[it.key] = 'Yes'; continue; }
+    // A lone "the information provided is accurate" box: true of a form filled from the resume (Talemexa: skipped 12 times, never sent).
+    if (it.type === 'checkbox' && it.options?.length <= 1 && /\b(confirm|certify|declare|attest)\b.*\b(information|details)\b.*\b(accurate|true|correct)\b/.test(norm(it.label))) { answers[it.key] = 'Yes'; continue; }
     // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it.
     if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label)) continue;
     if (asksWork && !asksStudy && onNotice) {
