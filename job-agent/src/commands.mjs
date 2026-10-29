@@ -4,7 +4,7 @@ import { answerQuestion, openQuestions } from './asks.mjs';
 import { composeDraft, sendDraft } from './mail.mjs';
 import { todayStats } from './apply.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
-import { ncrOn, isNcr, ncrSweep, ncrNotify, ncrAction, ncrAfterAnswer } from './ncr.mjs';
+import { ncrOn, ncrAuto, ncrAutoOn, isNcr, ncrSweep, ncrNotify, ncrAction, ncrAfterAnswer } from './ncr.mjs';
 import { asideList } from './referrals.mjs';
 
 const HELP = `Job agent commands:
@@ -16,7 +16,7 @@ const HELP = `Job agent commands:
 • forget <Q-number> — delete an answer
 • pause / resume — stop or restart applying
 • go live / dry run — submit for real, or only fill forms
-• ncr — best Gurgaon/Noida jobs · ncr aside — companies with nobody on LinkedIn · ncr referrals on/off — automatic connection requests · ncr on/off — the whole NCR watch (details: type help in the 📍 chat)
+• ncr — best Gurgaon/Noida jobs · ncr aside — companies with nobody on LinkedIn · ncr referrals on/off — automatic connection requests · ncr auto on/off — I apply to NCR jobs myself · ncr on/off — the whole NCR watch (details: type help in the 📍 chat)
 Reply to any ❓ message to answer it, or to a ✍️ draft with ok / no / your own text.`;
 
 export async function onAnswered(qid, text) {
@@ -83,10 +83,12 @@ export async function handleOwner(text, ref) {
       return tell(rows.length ? `🗂 Kept aside (nobody found on LinkedIn):\n${rows.map((r) => `• ${r.company} — ${r.job_title}\n  ${r.job_url}`).join('\n')}` : '🗂 Nothing kept aside yet.');
     }
     case 'ncr off': setKv('ncr_off', '1'); return tell('📍 Gurgaon/Noida watch off: NCR jobs go back to the normal queue (applied automatically).');
+    case 'ncr auto on': { const n = ncrAutoOn(); return tell(`⚡ NCR auto-apply on: I keep searching Gurgaon/Noida and apply to good matches myself, no cards.${n ? ` ${n} waiting card(s) moved to the queue.` : ''} Send "ncr auto off" to get cards again.`, { chat: 'ncr' }); }
+    case 'ncr auto off': setKv('ncr_auto', '0'); return tell('📍 NCR auto-apply off: NCR matches not applied to yet come back here as cards (except ones you queued yourself).', { chat: 'ncr' });
     case 'ncr on': setKv('ncr_off', '0'); ncrSweep(); await ncrNotify(); return tell('📍 Gurgaon/Noida watch on: NCR jobs come here as links, I won\'t apply to them.');
     case 'ncr': {
       const rows = all("SELECT title, company, score, location, apply_url FROM jobs WHERE status = 'manual' ORDER BY score DESC LIMIT 60").filter(isNcr).slice(0, 10);
-      return tell(`${ncrOn() ? '📍 Watch on.' : '📍 Watch off (send "ncr on").'}${rows.length ? `\nBest Gurgaon/Noida jobs to apply to:\n${rows.map((r) => `• ${r.score}% ${r.title} @ ${r.company} (${r.location})\n  ${r.apply_url}`).join('\n')}` : '\nNone waiting right now.'}`);
+      return tell(`${ncrOn() ? `📍 Watch on${ncrAuto() ? ', auto-apply on' : ''}.` : '📍 Watch off (send "ncr on").'}${rows.length ? `\nBest Gurgaon/Noida jobs to apply to:\n${rows.map((r) => `• ${r.score}% ${r.title} @ ${r.company} (${r.location})\n  ${r.apply_url}`).join('\n')}` : '\nNone waiting right now.'}`);
     }
     case 'manual': {
       const rows = all("SELECT title, company, score, apply_url FROM jobs WHERE status = 'manual' ORDER BY found_at DESC LIMIT 8");

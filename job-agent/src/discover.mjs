@@ -10,7 +10,7 @@ import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
 import { fetchAggregators } from './sources/aggregators.mjs';
 import { fetchNaukri, fetchNaukriFresh } from './sources/naukri.mjs';
 import { scoreJob } from './score.mjs';
-import { fetchNcr, ncrOn, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
+import { fetchNcr, ncrOn, ncrAuto, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
 
 export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
   fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr };
@@ -69,9 +69,10 @@ export async function scoreNew(limit = 25) {
     try { s = await scoreJob(job); } catch (e) { if (e.rateLimited) break; log(`score ${job.id}: ${e.message}`); continue; }
     // Gurgaon/Noida (NCR watch): never applied automatically; a good match goes to the person's chat as a link instead.
     const ncr = ncrOn() && isNcr(job) && s.score >= ncrMin();
-    const status = ncr ? 'manual' : s.score < min ? 'scored' : 'queued';   // external sites too: browser/external.mjs
+    // Auto-apply on: the same NCR matches that would have been cards go to the queue (NCR threshold, not the normal one).
+    const status = ncr && !ncrAuto() ? 'manual' : ncr || s.score >= min ? 'queued' : 'scored';   // external sites too: browser/external.mjs
     run('UPDATE jobs SET score = ?, track = ?, score_reasons = ?, status = ?, status_note = ? WHERE id = ?', s.score, s.track, s.reasons, status,
-      ncr ? NCR_NOTE : null, job.id);
+      ncr && !ncrAuto() ? NCR_NOTE : null, job.id);
     if (status === 'queued') queued++;
     await sleep(6000);                                 // stay under the free tier's tokens-per-minute limit
   }

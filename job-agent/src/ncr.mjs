@@ -18,6 +18,8 @@ run('CREATE TABLE IF NOT EXISTS ncr_sent (job_id TEXT PRIMARY KEY, sent_at INTEG
 const N = () => ({ enabled: true, every_min: 30, hours: [7, 23], min_score: 50, queries_per_run: 9, naukri: ['delhi-ncr'],
   linkedin: ['Gurugram, Haryana, India'], ...(config().ncr || {}) });
 export const ncrOn = () => N().enabled !== false && getKv('ncr_off') !== '1';
+// "ncr auto on": the watch keeps searching, but its finds are applied to like any other job instead of becoming cards.
+export const ncrAuto = () => getKv('ncr_auto') === '1';
 export const ncrEvery = () => N().every_min;
 const NCR = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
 export const isNcr = (job) => NCR.test(String(job?.location || ''));
@@ -62,7 +64,7 @@ export async function fetchNcr() {
 // NCR jobs anywhere short of applied: the queue, waiting on a question, failed or stuck on a CAPTCHA, or scored under the
 // apply threshold but above the NCR one (last two weeks). All handed over as links instead of being applied to.
 export function ncrSweep() {
-  if (!ncrOn()) return 0;
+  if (!ncrOn() || ncrAuto()) return 0;
   const rows = all(`SELECT id, location FROM jobs WHERE status IN ('queued','ready','needs_answer')
     OR (found_at >= ? AND (status IN ('failed','captcha') OR (status = 'scored' AND score >= ?)))`, Date.now() - 14 * 864e5, ncrMin()).filter(isNcr).filter((r) => !getKv(`ncrapply:${r.id}`));   // jobs the person asked the agent to apply to stay in the pipeline
   for (const r of rows) {
@@ -76,7 +78,7 @@ export function ncrSweep() {
 // Each unsent NCR match (good matches from the last two weeks) as its own card in the "📍 Delhi NCR jobs" chat, best first:
 // an "Open job" link plus Fill & show me / I applied / Not for me. Ten per run so the chat stays readable.
 export async function ncrNotify() {
-  if (!ncrOn()) return 0;
+  if (!ncrOn() || ncrAuto()) return 0;
   const [from, to] = N().hours, h = istHour();
   if (h < from || h >= to) return 0;                            // found at night: sent in the morning
   if (getKv('ncr_chat_v2') !== 'done') { run('DELETE FROM ncr_sent'); setKv('ncr_chat_v2', 'done'); }   // re-send the earlier text links as cards
@@ -91,6 +93,14 @@ export async function ncrNotify() {
     run('INSERT OR IGNORE INTO ncr_sent(job_id, sent_at) VALUES(?,?)', j.id, Date.now());
   }
   if (rows.length) log(`ncr: sent ${rows.length} card(s)`);
+  return rows.length;
+}
+
+// Auto-apply switched on: the cards still waiting go to the queue, and their buttons close.
+export function ncrAutoOn() {
+  setKv('ncr_auto', '1');
+  const rows = all("SELECT id FROM jobs WHERE status = 'manual' AND status_note = ?", NCR_NOTE);
+  for (const r of rows) { run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'NCR auto-apply' WHERE id = ?", r.id); cardDone('ncrjob', r.id, 'Auto-applying'); }
   return rows.length;
 }
 
@@ -237,6 +247,7 @@ export const NCR_HELP = `📍 This chat is for Delhi NCR jobs. What you can do h
 • ncr: the best Gurgaon/Noida jobs waiting for you
 • ncr aside: companies where nobody came up on LinkedIn (kept aside for you)
 • ncr referrals off / on: stop or restart my automatic connection requests to people who could refer you
+• ncr auto on / off: I apply to NCR jobs myself (the watch keeps searching, no cards) / back to cards for you
 • ncr off / on: stop or restart this whole NCR watch (off: NCR jobs go back to normal auto-apply)
 Each job card has buttons: Fill & show me · Find referral · I applied · Not for me.`;
 
@@ -246,7 +257,7 @@ export async function ncrChat(text) {
   if (urls.length > 1) say(`🖊 ${urls.length} links — filling them one by one, screenshots for each. Nothing is submitted until you tap ✓ Submit.`);
   for (const u of urls) { const job = await jobFromUrl(u); await ncrFill(job.id); }
   if (urls.length) return;
-  if (/^ncr( referrals| aside)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
+  if (/^ncr( referrals| aside| auto)?( on| off)?$/i.test(text.trim())) { const { handleOwner } = await import('./commands.mjs'); return handleOwner(text.trim().toLowerCase()); }
   const qm = /^q(\d+)[:\s]+([\s\S]+)$/i.exec(text.trim());
   if (qm) { const { onAnswered } = await import('./commands.mjs'); return onAnswered(+qm[1], qm[2]); }
   return say(NCR_HELP);
