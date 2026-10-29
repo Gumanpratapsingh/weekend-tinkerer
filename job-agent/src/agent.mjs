@@ -17,6 +17,7 @@ import { handleOwner, onAnswered } from './commands.mjs';
 import { one, run } from './db.mjs';
 
 import { watchdog } from './watchdog.mjs';
+import { health } from './health.mjs';
 import { startCaptcha, captchaDone, liveCaptcha, expireStale } from './captcha.mjs';
 import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin } from './onboard.mjs';
 
@@ -252,7 +253,8 @@ every(5, 'naukri refresh', async () => {
 every(180, 'discover aggregators', step('Searching Adzuna and Jooble (all of India)', () => discover('aggregators')), { delay: 270e3 });
 every(360, 'discover remotive', step('Searching Remotive', () => discover('remotive')), { delay: 240e3 });
 every(10, 'score', step('Scoring new jobs against your resume', () => scoreNew(25)), { delay: 60e3 });
-every(60, 'watchdog', () => watchdog(), { delay: 10 * 60e3 });           // repeated failures -> one urgent alert; button-label answers deleted
+every(60, 'watchdog', () => watchdog(), { delay: 10 * 60e3 });
+every(10, 'health', () => OWNER && health(), { delay: 4 * 60e3, always: true });   // laptop power, S20 standby, browser worker, AI (src/health.mjs)           // repeated failures -> one urgent alert; button-label answers deleted
 every(60, 'stale jobs', () => expireStale(), { delay: 3 * 60e3 });     // CAPTCHA / answer waits that are too old to still be open
 every(1, 'apply', () => applyNext({ dryRun: getKv('dry_run', '1') === '1' }), { delay: 120e3 });   // pacing lives in apply.mjs
 // Security / verification codes: checked every minute (no AI), forwarded to Cupboard once each, so a form can be finished on mobile.
