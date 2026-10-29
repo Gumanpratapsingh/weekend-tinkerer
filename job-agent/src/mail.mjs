@@ -21,6 +21,7 @@ function client() {
 
 export async function checkMail() {
   if (!mailConfigured()) return;
+  try { confirmFromSavedMail(); } catch (e) { log(`mail confirm: ${e.message}`); }
   const imap = client();
   await imap.connect();
   try {
@@ -53,6 +54,31 @@ function linkJob(company, fromAddr) {
       || applied.find((j) => domain.length > 3 && norm(j.company).replace(/ /g, '').includes(domain));
 }
 
+// A company form the agent couldn't confirm on screen ("company form not confirmed", or "no confirmation seen" and waiting
+// to retry): the company's own "we received your application" mail is the proof it went through. Board mail (Naukri,
+// LinkedIn) confirms board applies, and a Greenhouse "security code" is not a confirmation. Only an unambiguous match counts.
+const UNCONFIRMED = "((status = 'manual' AND status_note LIKE 'company form not confirmed%') OR (status IN ('failed','queued') AND status_note = 'no confirmation seen'))";
+function confirmByEmail(company, from, subject, at) {
+  if (/naukri|linkedin|indeed|foundit/i.test(from) || /security code|verification code/i.test(subject)) return null;
+  const domain = (String(from).split('@')[1]?.split('.').slice(-2, -1)[0] || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const c = norm(company || '');
+  const hits = all(`SELECT id, company, title FROM jobs WHERE ${UNCONFIRMED}`).filter((j) =>
+    ((c.length >= 3 && (norm(j.company).includes(c) || c.includes(norm(j.company)))) || (domain.length > 3 && norm(j.company).replace(/ /g, '').startsWith(domain)))
+    && one('SELECT 1 FROM attempts WHERE job_id = ? AND at BETWEEN ? AND ?', j.id, at - 4 * 864e5, at + 3600e3));
+  if (hits.length !== 1) return null;
+  run("UPDATE jobs SET status = 'applied', applied_at = coalesce(applied_at, ?), status_note = ? WHERE id = ?", at, `confirmed by email from ${from}`, hits[0].id);
+  event('applied', `${hits[0].title} @ ${hits[0].company} (confirmed by the company's email)`);
+  log(`mail: ${hits[0].id} confirmed by email from ${from}`);
+  return hits[0];
+}
+const subjectCompany = (s) => /(?:sent to|applying (?:to|for)|application (?:to|with|for)|received your application\s*[–—-])\s*(.{2,60})/i.exec(s || '')?.[1]?.replace(/[.!|].*$/, '').trim() || '';
+
+// Confirmation mail that arrived before its job was marked unconfirmed (the 2026-10-29 review moved 83 jobs): look again.
+export function confirmFromSavedMail() {
+  for (const e of all("SELECT from_addr, subject, at FROM emails WHERE category = 'confirmation' AND direction = 'in' AND at > ?", Date.now() - 14 * 864e5))
+    confirmByEmail(subjectCompany(e.subject), e.from_addr, e.subject, e.at);
+}
+
 async function handle(mail) {
   const id = mail.messageId || `${mail.date?.getTime()}-${mail.subject}`;
   if (one('SELECT 1 FROM emails WHERE id = ?', id)) return;
@@ -82,6 +108,7 @@ async function handle(mail) {
   event(c.category, `${label}: ${c.summary}`);
 
   if (job && ['interview', 'assessment', 'offer'].includes(c.category)) run("UPDATE jobs SET status = 'interview', status_note = ? WHERE id = ?", c.summary, job.id);
+  if (c.category === 'confirmation') confirmByEmail(c.company || subjectCompany(mail.subject), from, mail.subject || '', mail.date?.getTime() || Date.now());
   if (job && c.category === 'rejection') run("UPDATE jobs SET status = 'rejected', status_note = ? WHERE id = ?", c.summary, job.id);
 
   const icon = { interview: '🎉 Interview', assessment: '📝 Assessment', offer: '🏆 Offer', question: '❓ Recruiter question', rejection: '✖️ Rejection', confirmation: '📨 Received', other: '✉️ Email' }[c.category] || '✉️ Email';

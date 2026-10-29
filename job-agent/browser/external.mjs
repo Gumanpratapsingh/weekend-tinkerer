@@ -60,6 +60,25 @@ export async function emailApply(page, job) {
 }
 
 // Form that looks like a job application: has a file input, or an email field plus a few others.
+// The page's fillable form is a contact / demo / job-alert / newsletter form, not a job application: skip it rather than
+// hand someone's details to a sales or alert widget (IDFC: job-alert sign-up filled 24 times). Unclear forms still go ahead.
+async function notApplication(page) {
+  return page.evaluate(() => {
+    const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const inputs = [...document.querySelectorAll('input, textarea, select')].filter((e) => e.type === 'file' || (vis(e) && !['hidden', 'submit', 'button'].includes(e.type)));
+    if (!inputs.length) return false;
+    const fieldText = inputs.map((e) => `${e.labels?.[0]?.innerText || ''} ${e.placeholder || ''} ${e.name || ''} ${e.getAttribute('aria-label') || ''}`).join(' ');
+    // Each field's surroundings: the nearest ancestor with some words in it (a bare <form> often has none).
+    const around = (e) => { let a = e.parentElement; while (a && a !== document.body && (a.innerText || '').trim().length < 60) a = a.parentElement; return a && a !== document.body ? a.innerText.slice(0, 600) : ''; };
+    const formText = [...new Set(inputs.map(around))].join(' ');
+    // Only an email box (a job-alert or newsletter sign-up): no application asks for just that.
+    const emailOnly = inputs.every((e) => e.type === 'email' || /e-?mail/i.test(`${e.name} ${e.placeholder || ''} ${e.labels?.[0]?.innerText || ''}`));
+    const app = inputs.some((e) => e.type === 'file') || /resume|\bcv\b|cover letter|experience|notice period|ctc|salary|linkedin|portfolio|qualification|position|applying|apply|application|candidate/i.test(`${fieldText} ${formText}`);
+    const other = /job alert|tailored job|subscribe|newsletter|book a demo|request a demo|schedule a demo|how can we help|get a quote|talk to (sales|us)|project (budget|details)|contact us|enquiry|inquiry/i.test(`${fieldText} ${formText}`);
+    return emailOnly || (!app && other);
+  }).catch(() => false);
+}
+
 async function formScore(page) {
   return page.evaluate(() => {
     const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
@@ -257,6 +276,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
       }
       if (!keepOpen && await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
 
+      if (await notApplication(page)) return { status: 'manual', reason: 'only a contact / job-alert form here, not an application', shot: await snap('ext-notapp') };
       progress(`Company site: form found on ${new URL(page.url()).hostname}, filling…`);
       const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
       if (keepOpen) return { ...res, status: 'handoff', page };
