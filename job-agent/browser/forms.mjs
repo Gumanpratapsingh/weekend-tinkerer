@@ -28,6 +28,8 @@ function describeFields(rootSel) {
     const by = el.getAttribute('aria-labelledby');
     if (by) { const t = by.split(' ').map((id) => document.getElementById(id)?.innerText).filter(Boolean).join(' '); if (t) return clean(t); }
     if (el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
+    // Zoho Recruit keeps the label on the field's wrapper component (no <label for>): without it every answer slid one box down.
+    const cx = el.closest('[cx-prop-label]')?.getAttribute('cx-prop-label'); if (clean(cx)) return clean(cx);
     const wrap = el.closest('label'); if (wrap && clean(wrap.innerText || wrap.textContent)) return clean(wrap.innerText || wrap.textContent);
     const fs = el.closest('fieldset'); if (fs?.querySelector('legend')) return clean(fs.querySelector('legend').innerText);
     // A label sitting just before the field ("<label>Notice period</label><span><select>"): the nearest one, so a container
@@ -114,7 +116,10 @@ export async function collect(page, rootSel = null) {
 }
 
 const PICKER = /location|city|address|town|where.*based|college|school|university/i;   // autocomplete boxes: a suggestion replaces the typed text
-const isResume = (f) => f.type === 'file' && /resume|cv|curriculum/i.test(`${f.label} ${f.accept}`) || (f.type === 'file' && !/cover/i.test(f.label));
+// Photo and ID-proof slots (an image-only accept list, "Aadhar card photocopy", "Latest Photograph") never get the resume.
+const NOT_RESUME = /cover|photo|picture|image|avatar|aadh?a?r|pan card|passport|id proof|identity/i;
+const isResume = (f) => f.type === 'file' && /resume|cv|curriculum/i.test(`${f.label} ${f.accept}`)
+  || (f.type === 'file' && !NOT_RESUME.test(f.label) && !/^[\s,]*((image\/[\w*+.-]+|\.(bmp|gif|jfif|jpe?g|png|tiff?|webp|heic))[\s,]*)+$/i.test(f.accept || ''));
 const isCover = (f) => f.type === 'file' && /cover/i.test(f.label);
 const filled = (f) => f.value && !['checkbox', 'radio', 'file'].includes(f.type) && !/^(select|choose)/i.test(f.value);
 
@@ -313,6 +318,11 @@ export async function fillForm(page, job, { root = null, resume, dryRun, partial
   let fields = await collect(page, root);
   if (fields.length < 3 && root) fields = [...fields, ...await collect(page, null)];   // root matched the wrong form: whole page
   const { answers, unknown } = await resolveFields(fields, job);
+  // A text CAPTCHA is a human check: never keep an answer for it (the AI typed "YES" into Zoho's), hand it to the person.
+  for (const f of fields.filter((x) => x.type !== 'file' && CAPTCHA_Q.test(x.label))) {
+    delete answers[f.key];
+    if (!unknown.some((u) => u.key === f.key)) unknown.push({ key: f.key, label: f.label, type: f.type, required: true });
+  }
   // Consent boxes are often not marked required but block submission: never submit with one unanswered.
   const blocking = unknown.filter((u) => u.required || /agree|acknowledg|consent|terms|privacy|certify/i.test(u.label));
   const filled = fields.filter((f) => answers[f.key] != null).map((f) => ({ label: f.label, value: String(answers[f.key]) }));
