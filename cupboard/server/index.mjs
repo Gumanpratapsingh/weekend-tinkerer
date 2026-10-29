@@ -60,7 +60,9 @@ function userOf(req) {
   if (!m) return null;
   return one('SELECT u.*, s.token, s.expires FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ? AND u.active = 1', m[1], Date.now()) || null;
 }
-const publicUser = (u) => u && ({ id: u.id, username: u.username, name: u.name, role: u.role, admin: u.admin === 1 });
+// Co-owner (kv coowner:<user id> = '1', set on the server): owner powers over other people, like the owner's.
+const coOwner = (u) => u?.role === 'owner' || getKv(`coowner:${u?.id}`) === '1';
+const publicUser = (u) => u && ({ id: u.id, username: u.username, name: u.name, role: u.role, admin: u.admin === 1, coowner: u.role !== 'owner' && coOwner(u) });
 // The owner, or someone the owner made an admin (Vertika): same management powers. The owner's account itself is protected.
 const isAdmin = (u) => u?.role === 'owner' || u?.admin === 1;
 
@@ -417,10 +419,10 @@ async function api(req, res, path, query) {
     log(`password changed by ${me.username}`);
     return send(res, 200, { ok: true });
   }
-  // Owner only: a one-time reset link for someone who forgot their password (1 hour). Not admins: the link signs
-  // whoever opens it in as that person, which would let an admin read their chats.
+  // Owners only (the owner and co-owners): a one-time reset link for someone who forgot their password (1 hour). Not
+  // plain admins: the link signs whoever opens it in as that person, which would let them read that person's chats.
   if ((m = /^\/api\/users\/(\d+)\/reset$/.exec(path)) && M === 'POST') {
-    if (me.role !== 'owner') throw err(403, 'Only Guman can make password reset links.');
+    if (!coOwner(me)) throw err(403, 'Only the owners can make password reset links.');
     const u = one("SELECT id, role FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
     if (!u) throw err(404, 'No such person.');
     if (u.role === 'owner' && me.role !== 'owner') throw err(403, 'The owner\'s password can only be changed by the owner.');

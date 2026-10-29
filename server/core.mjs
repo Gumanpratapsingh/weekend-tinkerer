@@ -158,9 +158,11 @@ export function sessionOf(req) {
   return m && expOf(sessions[m[1]]) > Date.now() ? m[1] : null;
 }
 // '' for the owner; a person's name (people/<name>/ job agent) for their own login. A person only ever sees their
-// own job agent: only the owner sees everyone's (an old "full" flag on a person's session or login is ignored).
+// own job agent. Only owners see everyone's: the owner, and co-owners marked "owner": true in people-auth.json on
+// the server (read on every request, so taking it away is immediate; an old "full" flag is ignored).
 export const sessionWho = (token) => (typeof sessions[token] === 'object' ? sessions[token].who : '');
-export const sessionFull = (token) => typeof sessions[token] !== 'object';
+export const coOwner = (who) => !!who && readJ(PEOPLE_AUTH)[who]?.owner === true;
+export const sessionFull = (token) => typeof sessions[token] !== 'object' || coOwner(sessions[token].who);
 
 // ---------- people: their own login, set by themselves through a one-time invite link ----------
 const PEOPLE_AUTH = join(HOME, 'tinker', 'people-auth.json');   // {name: {salt, hash, full}}
@@ -172,7 +174,7 @@ export function checkPerson(who, pw) {
   if (!a) return false;
   return timingSafeEqual(scryptSync(String(pw), Buffer.from(a.salt, 'hex'), 64), Buffer.from(a.hash, 'hex'));
 }
-export const personFull = () => false;                    // people never get the owner's view (see sessionFull)
+export const personFull = (who) => coOwner(who);           // only co-owners get the owner's view (see sessionFull)
 export function inviteOf(token) {
   const i = readJ(INVITES)[String(token)];
   return i && i.exp > Date.now() ? i : null;

@@ -2,7 +2,8 @@
 # Makes a one-time link with which a person (people/<name>/ job agent) sets their own hub password.
 # The link works once, for 7 days; the hub then logs them in and shows only their job agent.
 # Usage: ./invite-person.sh <name> [--full] [ssh-host]     prints the link
-#   --full: no longer has any effect: a person only ever sees their own job agent (server/core.mjs sessionFull).
+#   --full: no effect. A person sees only their own job agent unless they are a co-owner: "owner": true for them in
+#   ~/tinker/people-auth.json on the server (server/core.mjs coOwner).
 set -e
 WHO=${1:?usage: invite-person.sh <name> [--full] [ssh-host]}
 FULL=0; [ "$2" = --full ] && { FULL=1; shift; }
