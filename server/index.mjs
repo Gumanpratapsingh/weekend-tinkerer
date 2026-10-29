@@ -23,6 +23,7 @@ import laptop from './modules/laptop.mjs';
 import reels from './modules/reels.mjs';
 import wifi from './modules/wifi.mjs';
 import { smsIngest } from './modules/banksms.mjs';
+import { guestCheck } from './modules/guest.mjs';
 
 const PORT = 8082;
 const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop, reels, wifi];
@@ -207,6 +208,9 @@ createServer(async (req, res) => {
   // CSRF: state-changing requests must come from our own page (custom header can't be sent cross-site
   // without CORS, and SameSite=Strict keeps the cookie off cross-site requests anyway).
   if (req.method !== 'GET' && req.headers['x-hub'] !== '1') return send(res, 403, { error: 'Forbidden' });
+
+  // The public "Try it" page (hub/try/): the only API open to any browser. Capped per visitor and per day, stores nothing.
+  if (key === 'POST /api/guest/check') return guestCheck(req, res);
 
   // Trusted devices only: an unknown browser can use an add-device link or a person's invite link, nothing else.
   const device = deviceOf(req);

@@ -523,6 +523,69 @@ const pages = {
   },
 
   // A one-time add-device link (?t=), made under Devices on a trusted browser: this browser becomes trusted.
+  // Public "Try it" page for people thinking of joining: no login. A live fit check on a job they paste (server/modules/
+  // guest.mjs: capped, nothing stored) and a sample of the chat they would get. Everything in the sample is made up.
+  async '/try'() {
+    const job = h('textarea', { 'aria-label': 'Job description', maxlength: 6000, placeholder: 'Paste a job description: title, requirements, location…' });
+    const me = h('textarea', { 'aria-label': 'About you', maxlength: 1500, style: 'min-height:6rem',
+      placeholder: 'A few lines about you, e.g. "Backend developer, 2 years, Java, Spring Boot, AWS. In Chennai, open to Gurgaon. Notice 30 days."' });
+    const out = h('div', { 'aria-live': 'polite' });
+    const go = h('button', { class: 'btn', type: 'button' }, 'Check this job');
+    const sample = h('button', { class: 'btn ghost', type: 'button', onclick: () => {
+      me.value = 'Full-stack developer, 2 years. React, Next.js, TypeScript, Node.js, SQL Server. Built internal dashboards and an e-commerce app. B.Tech CSE 2024. Based in Chennai, open to Gurgaon or Noida. Notice period 30 days.';
+      if (!job.value) job.value = 'Software Engineer (Frontend), Gurugram. 1-3 years. Build customer-facing web apps in React and TypeScript, work with REST APIs and Node.js services, write tests, collaborate with designers and product. Nice to have: Next.js, AWS, GraphQL. Hybrid, 3 days in office.';
+    } }, 'Use a sample');
+    const VERDICT = { apply: 'It would apply for you', ask: 'It would ask you first, then apply', skip: 'It would skip this one' };
+    go.addEventListener('click', async () => {
+      go.disabled = true; go.textContent = 'Checking…'; out.replaceChildren(h('p', { class: 'loading' }, 'Reading the job'));
+      try {
+        const r = await api('/guest/check', { method: 'POST', body: { job: job.value, me: me.value } });
+        out.replaceChildren(
+          h('div', { class: 'row', style: 'margin-top:1.5rem;gap:1.25rem;align-items:baseline;flex-wrap:wrap' }, h('div', { class: 'score' }, `${r.score}%`), h('p', { class: 'q', style: 'margin:0' }, VERDICT[r.verdict])),
+          r.reasons.length ? h('ul', {}, r.reasons.map((x) => h('li', {}, x))) : null,
+          ...(r.answers.length ? [h('p', { class: 'sec' }, 'Answers it would give on the form'), ...r.answers.map((a) => h('div', { class: 'box' }, h('b', {}, a.q), '\n', a.a))] : []),
+          ...(r.would_ask.length ? [h('p', { class: 'sec' }, 'What it would ask you instead of guessing'), h('ul', {}, r.would_ask.map((x) => h('li', {}, x)))] : []),
+          h('p', { class: 'muted', style: 'font-size:.8rem' }, `${r.left} check${r.left === 1 ? '' : 's'} left today.`));
+      } catch (e) { out.replaceChildren(h('p', { class: 'err' }, e.message)); }
+      go.disabled = false; go.textContent = 'Check this job';
+    });
+
+    // The chat sample: buttons answer locally, so the flow can be felt without any account.
+    const msg = (text, acts = [], extra = null) => {
+      const el = h('div', { class: 'msg' }, h('div', { class: 'who' }, 'Job agent'), h('div', {}, text), extra);
+      if (acts.length) {
+        const row = h('div', { class: 'acts' });
+        for (const [label, done] of acts) row.append(h('button', { type: 'button', onclick: () => row.replaceWith(h('div', { class: 'done' }, done)) }, label));
+        el.append(row);
+      }
+      return el;
+    };
+    const shot = h('div', { class: 'shot', 'aria-label': 'Sample filled form' }, [['Full name', 'Asha Verma'], ['Email', 'asha@example.com'],
+      ['Notice period', '30 days'], ['Authorized to work in India', 'Yes'], ['Resume', 'Asha_Verma_Northwind.pdf']].map(([k, v]) => h('div', {}, h('span', {}, k), h('b', {}, v))));
+    const chat = h('div', { class: 'chat' },
+      msg('📍 Backend Engineer @ Acme Fintech · 82%\nGurugram · posted 2 days ago', [['🖊 Fill & show me', '🖊 Filling… screenshots in a minute (sample)'], ['✓ I applied', 'Marked as applied ✓'], ['✕ Not for me', 'Skipped. I\'ll find fewer like it.']]),
+      msg('📋 Filled Software Engineer @ Northwind. Nothing is sent yet: check the form below.', [['✓ Submit', '🚀 Submitted. You\'ll get "what I sent" next.'], ['✕ Cancel', 'Cancelled: not submitted.']], shot),
+      msg('❓ Q12: How many years have you worked with Kafka?\nI ask once and remember it for every form. I never guess a skill you didn\'t list.', [['2 years', 'Saved Q12. 3 applications back in the queue.'], ['Never used it', 'Saved Q12. I\'ll answer "No" from now on.']]),
+      msg('✅ Applied: Java Developer @ Contoso\nWhat I sent:\n• Full name: Asha Verma\n• Notice period: 30 days\n• Authorized to work in India: Yes\n• Years with Spring Boot: 2\nResume: Asha_Verma_Contoso.pdf'));
+
+    return [
+      h('h1', {}, 'Your own job agent'),
+      h('p', { class: 'lede' }, 'It searches LinkedIn, Naukri and company career sites for jobs that fit you, fills the applications with your real facts, reads every form back before sending, and asks you whenever it isn\'t sure. Try it on a real job: nothing you paste is saved.'),
+      h('p', { class: 'sec' }, '1 · Check a job'),
+      job, h('div', { style: 'height:.6rem' }), me,
+      h('div', { class: 'btns' }, go, sample),
+      h('p', { class: 'muted', style: 'font-size:.75rem;margin-top:.5rem' }, 'What you paste goes to an AI service (Groq) to be scored and is not stored. 3 checks a day.'),
+      out,
+      h('p', { class: 'sec' }, '2 · What your chat looks like'),
+      h('p', { class: 'muted', style: 'font-size:.85rem;margin-top:0' }, 'A sample with made-up jobs. Tap the buttons.'),
+      chat,
+      h('p', { class: 'sec' }, '3 · What keeps it safe'),
+      h('ul', {}, ['Your first two weeks: nothing is sent until you tap ✓ Submit.', 'It never invents a skill, number or fact: anything new is asked once.',
+        'Every form is read back before Submit; if an answer didn\'t stick, it stops and tells you.', 'After each application you see exactly what was sent.'].map((x) => h('li', {}, x))),
+      h('p', { class: 'q', style: 'margin-top:2rem' }, 'Want one? Ask Guman for an invite link.'),
+    ];
+  },
+
   async '/device'() {
     const token = new URLSearchParams(location.search).get('t') || '';
     const ok = await api(`/device?t=${encodeURIComponent(token)}`).then((r) => r.valid).catch(() => false);
@@ -1030,7 +1093,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/wifi': 'Wi-Fi', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/try': 'Try your own job agent', '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/wifi': 'Wi-Fi', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();
@@ -1069,7 +1132,7 @@ async function render() {
   clearInterval(jobsTimer); jobsTimer = null;
   clearInterval(pageTimer); pageTimer = null;
   // An untrusted browser sees nothing but this note (add-device and invite links still work).
-  if (path !== '/device' && path !== '/setup') {
+  if (path !== '/device' && path !== '/setup' && path !== '/try') {        // /try: the public guest page
     me ??= await api('/me').catch(() => null);
     if (me?.device === false) {
       me = null; tabs.hidden = true; logoutBtn.hidden = true; devicesLink.hidden = true; statusEl.hidden = true;
@@ -1077,7 +1140,7 @@ async function render() {
       return;
     }
   }
-  const inside = path !== '/login' && path !== '/setup' && path !== '/device';
+  const inside = path !== '/login' && path !== '/setup' && path !== '/device' && path !== '/try';
   if (inside) {
     me ??= await api('/me').catch(() => null);
     if (limited() && (!path.startsWith('/jobs') || who() !== me.who)) return go(`/jobs?who=${encodeURIComponent(me.who)}`, false);   // only their own agent
