@@ -405,9 +405,10 @@ async function api(req, res, path, query) {
     log(`password changed by ${me.username}`);
     return send(res, 200, { ok: true });
   }
-  // Owner: a one-time reset link for someone who forgot their password (1 hour).
+  // Owner only: a one-time reset link for someone who forgot their password (1 hour). Not admins: the link signs
+  // whoever opens it in as that person, which would let an admin read their chats.
   if ((m = /^\/api\/users\/(\d+)\/reset$/.exec(path)) && M === 'POST') {
-    if (!isAdmin(me)) throw err(403, 'Only the owner or an admin can make reset links.');
+    if (me.role !== 'owner') throw err(403, 'Only Guman can make password reset links.');
     const u = one("SELECT id, role FROM users WHERE id = ? AND active = 1 AND role != 'bot'", Number(m[1]));
     if (!u) throw err(404, 'No such person.');
     if (u.role === 'owner' && me.role !== 'owner') throw err(403, 'The owner\'s password can only be changed by the owner.');

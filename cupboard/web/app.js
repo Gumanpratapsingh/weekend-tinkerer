@@ -672,10 +672,10 @@ const screens = {
         const el = h('button', { type: 'button', class: 'st-row tap' }, h('span', { class: 'st-ic round', style: 'background:#ff2d55' }, (u.name || '?').trim()[0]?.toUpperCase() || '?'),
           h('span', { class: 'st-t' }, h('b', {}, u.name, label ? h('i', { class: 'st-pill' }, label) : null), h('small', {}, '@' + u.username)), canManage(u) ? chev() : null);
         if (canManage(u)) el.addEventListener('click', () => sheet(u.name, [
-          ['Send a password reset link', async () => {
+          isOwner ? ['Send a password reset link', async () => {
             const { path } = await api(`/users/${u.id}/reset`, { method: 'POST' });
             await shareLink(location.origin + path, `Cupboard password reset for ${u.name} (works once, for 1 hour):`, 'Cupboard password reset');
-          }],
+          }] : null,                                                                 // owner only: the server refuses admins
           isOwner ? [u.admin ? 'Remove admin rights' : 'Make admin', async () => { await api(`/users/${u.id}/admin`, { method: 'POST', body: { admin: !u.admin } }); toast(u.admin ? 'No longer an admin' : 'Now an admin'); render(); }] : null,
           ['Remove from Cupboard', async () => {
             if (!confirm(`Remove ${u.name} from Cupboard? They'll be signed out and can't come back without a new invite.`)) return;
@@ -684,7 +684,7 @@ const screens = {
         ]));
         return el;
       };
-      peopleGroup = [group('People', state.users.map(personRow), inviteRow), note(isOwner ? 'Tap a person to reset their password, make them an admin, or remove them. Admins can do everything except touch your account.' : 'Tap a person to send a password reset link or remove them.')];
+      peopleGroup = [group('People', state.users.map(personRow), inviteRow), note(isOwner ? 'Tap a person to reset their password, make them an admin, or remove them. Admins can invite and remove people, never reset passwords or touch your account.' : 'Tap a person to remove them. Password resets come from Guman.')];
     }
 
     // --- Security: change password and devices open inline ---
