@@ -212,6 +212,18 @@ function interviewsConv(user) {
 }
 // Screenshots a local job agent sends with a message: only its own shots folders, copied into Cupboard media.
 const SHOTS = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?data\/shots\/[\w.-]+\.png$/;
+// The resume that went with an application (tailored, or the profile's own): attached so the person can download it.
+const RESUMES = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?(data\/resumes|profile)\/[^/]+\.pdf$/;
+function resumeToMedia(path) {
+  let real;
+  try { real = realpathSync(String(path)); } catch { return null; }
+  if (!RESUMES.test(real)) return null;
+  const buf = readFileSyncFs(real);
+  if (buf.length < 500 || buf.length > 8 * 1048576 || buf.subarray(0, 5).toString() !== '%PDF-') return null;
+  const file = `${randomBytes(12).toString('hex')}.pdf`;
+  writeFileSync(join(MEDIA, file), buf, { mode: 0o600 });
+  return { media: `${file}|application/pdf`, name: real.split('/').pop().replace(/[^\w .()-]/g, '').slice(0, 80) || 'resume.pdf', size: buf.length };
+}
 function shotToMedia(path) {
   let real;
   try { real = realpathSync(String(path)); } catch { return null; }
@@ -818,6 +830,10 @@ createServer(async (req, res) => {
       for (const p of (Array.isArray(b.images) ? b.images : []).slice(0, 8)) {    // screenshots first, then the card about them
         const m = shotToMedia(p);
         if (m) await postMessage(convId, botId(), { kind: 'image', media: m.media, extra: { name: 'screenshot.png', size: m.size, w: m.w, h: m.h } }, { pushOnly: [] });
+      }
+      for (const p of (Array.isArray(b.files) ? b.files : []).slice(0, 2)) {     // the resume for this job, downloadable
+        const f = resumeToMedia(p);
+        if (f) await postMessage(convId, botId(), { kind: 'file', media: f.media, extra: { name: f.name, size: f.size } }, { pushOnly: [] });
       }
       // silent: no phone notification (a batch of job cards pings once, through its own summary message)
       // Phone pushes only 08:00-22:00 IST: at night the card still lands in the chat, silently (the urgent reminders start at 08:00).

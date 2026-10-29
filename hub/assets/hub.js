@@ -560,13 +560,32 @@ const pages = {
       }
       return el;
     };
+    // The tailored resume attached to the job, as the real chat shows it: a document you can download (a made-up sample).
+    const samplePdf = (lines) => {
+      const text = lines.map((l, i) => `BT /F1 ${i ? 11 : 16} Tf 56 ${770 - i * 22} Td (${l.replace(/[()\\]/g, '')}) Tj ET`).join('\n');
+      const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+        `<< /Length ${text.length} >>\nstream\n${text}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+      let pdf = '%PDF-1.4\n'; const at = [];
+      objs.forEach((o, i) => { at.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const x = pdf.length;
+      pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${at.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF`;
+      return new Blob([pdf], { type: 'application/pdf' });
+    };
+    const doc = (name, company) => h('div', { class: 'doc' }, h('span', {}, '📄 ', h('b', {}, name), h('small', {}, ' · PDF · tailored for this job')),
+      h('button', { type: 'button', onclick: () => {
+        const a = h('a', { href: URL.createObjectURL(samplePdf(['Asha Verma (sample resume, made up)', `Tailored for ${company}`, 'Full-stack developer, 2 years: React, Next.js, Node.js, SQL',
+          'Built internal dashboards and an e-commerce app', 'B.Tech CSE 2024', 'In your chat, this is the real PDF that went with the application.'])), download: name });
+        document.body.append(a); a.click(); a.remove();
+      } }, 'Download'));
     const shot = h('div', { class: 'shot', 'aria-label': 'Sample filled form' }, [['Full name', 'Asha Verma'], ['Email', 'asha@example.com'],
       ['Notice period', '30 days'], ['Authorized to work in India', 'Yes'], ['Resume', 'Asha_Verma_Northwind.pdf']].map(([k, v]) => h('div', {}, h('span', {}, k), h('b', {}, v))));
     const chat = h('div', { class: 'chat' },
       msg('📍 Backend Engineer @ Acme Fintech · 82%\nGurugram · posted 2 days ago', [['🖊 Fill & show me', '🖊 Filling… screenshots in a minute (sample)'], ['✓ I applied', 'Marked as applied ✓'], ['✕ Not for me', 'Skipped. I\'ll find fewer like it.']]),
-      msg('📋 Filled Software Engineer @ Northwind. Nothing is sent yet: check the form below.', [['✓ Submit', '🚀 Submitted. You\'ll get "what I sent" next.'], ['✕ Cancel', 'Cancelled: not submitted.']], shot),
+      msg('📋 Filled Software Engineer @ Northwind. Nothing is sent yet: check the form and the resume below.', [['✓ Submit', '🚀 Submitted. You\'ll get "what I sent" next.'], ['✕ Cancel', 'Cancelled: not submitted.']],
+        h('div', {}, shot, doc('Asha_Verma_Northwind.pdf', 'Northwind'))),
       msg('❓ Q12: How many years have you worked with Kafka?\nI ask once and remember it for every form. I never guess a skill you didn\'t list.', [['2 years', 'Saved Q12. 3 applications back in the queue.'], ['Never used it', 'Saved Q12. I\'ll answer "No" from now on.']]),
-      msg('✅ Applied: Java Developer @ Contoso\nWhat I sent:\n• Full name: Asha Verma\n• Notice period: 30 days\n• Authorized to work in India: Yes\n• Years with Spring Boot: 2\nResume: Asha_Verma_Contoso.pdf'));
+      msg('✅ Applied: Java Developer @ Contoso\nWhat I sent:\n• Full name: Asha Verma\n• Notice period: 30 days\n• Authorized to work in India: Yes\n• Years with Spring Boot: 2', [], doc('Asha_Verma_Contoso.pdf', 'Contoso')));
 
     return [
       h('h1', {}, 'Your own job agent'),

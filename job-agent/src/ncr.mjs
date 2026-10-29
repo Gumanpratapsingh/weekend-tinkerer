@@ -172,7 +172,7 @@ export async function ncrFill(jobId, { chat = 'ncr' } = {}) {
       if (!chat) setKv(`review:${job.id}`, Date.now());          // review mode: this card is what the person is reviewing
       const how = job.apply_type === 'naukri' ? 'Naukri applies with your Naukri profile and answers its questions from your memory.' : `Resume: ${resume ? resume.split('/').pop() : 'your profile resume'}.`;
       return say(`📋 Filled ${label(job)} — nothing submitted yet. Check the ${shots.length} screenshot(s) above. ${how}\nSubmit it?`,
-        { refKind: 'ncrsubmit', refId: job.id, images: shots, links: open });
+        { refKind: 'ncrsubmit', refId: job.id, images: shots, links: open, files: job.apply_type !== 'naukri' && resume ? [resume] : null });
     }
     case 'needs_answer': {
       setKv(`ncrwait:${job.id}`, '1');

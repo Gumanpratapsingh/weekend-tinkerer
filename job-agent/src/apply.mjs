@@ -210,7 +210,8 @@ function tellSent(job, res) {
   const resume = job.apply_type === 'naukri' ? 'your Naukri profile resume' : job.resume_path ? basename(job.resume_path) : null;
   tell([`✅ Applied: ${job.title} @ ${job.company}`, lines.length ? `What I sent:\n${lines.join('\n')}` : 'No questions beyond your profile.',
     resume ? `Resume: ${resume}` : ''].filter(Boolean).join('\n'),
-  { images: [res.sent_shot].filter(Boolean), links: [{ label: 'Open job ↗', url: job.apply_url || job.url }].filter((l) => l.url), silent: true });
+  { images: [res.sent_shot].filter(Boolean), links: [{ label: 'Open job ↗', url: job.apply_url || job.url }].filter((l) => l.url), silent: true,
+    files: job.apply_type !== 'naukri' && job.resume_path ? [job.resume_path] : null });
 }
 
 export function todayStats() {
