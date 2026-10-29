@@ -47,7 +47,8 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     if (/security code|verification code was sent|confirm you'?re a human/i.test(await page.innerText('body').catch(() => '')))
       return { status: 'manual', reason: 'captcha (Greenhouse emailed security code)', shot: await snap(page, `${kind}-securitycode`) };
     const body = await page.innerText('body');
-    if (DONE.test(body) || /confirmation|thank/i.test(page.url())) return { status: 'applied', shot: await snap(page, `${kind}-done`) };
+    // filled + sent_shot: what the page held when Submit was pressed, shown to the person ("what I sent").
+    if (DONE.test(body) || /confirmation|thank/i.test(page.url())) return { status: 'applied', shot: await snap(page, `${kind}-done`), filled: res.filled, sent_shot: shot };
     const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
     return { status: 'failed', reason: errors.filter(Boolean).slice(0, 5).join(' | ') || 'no confirmation seen', shot: await snap(page, `${kind}-unsure`) };
   } finally { if (!keepOpen) await ctx.close(); }

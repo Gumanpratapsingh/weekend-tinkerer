@@ -182,9 +182,9 @@ export default {
 
       // Questions drawer: one question at a time, chat-style.
       let lastQ = '', sameQ = 0;
-      const skipped = new Set();
+      const skipped = new Set(), sent = [];                   // sent: each chatbot answer given, for "what I sent"
       for (let i = 0; i < 25; i++) {
-        if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
+        if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done'), filled: sent };
         const drawer = page.locator('.chatbot_DrawerContentWrapper, [class*="chatbot_Drawer"], [class*="chatbot"]').first();
         if (!await drawer.count()) break;
         const q = await currentQuestion(page);
@@ -213,9 +213,10 @@ export default {
           return { status: 'needs_answer', unknown, shot: await snap(page, 'naukri-question') };
         }
         await answer(page, q, answers.a);
+        sent.push({ label: q.label.slice(0, 200), value: String(answers.a).slice(0, 300) });
         await page.waitForTimeout(2500);
       }
-      if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done') };
+      if (await done(page)) return { status: 'applied', shot: await snap(page, 'naukri-done'), filled: sent };
       if (await refused(page)) return { status: 'site_limit', reason: 'Naukri refused the apply: error while processing your request', shot: await snap(page, 'naukri-limit') };
       return { status: 'failed', reason: 'no confirmation seen', shot: await snap(page, 'naukri-unsure') };
     } finally { await c.saveSession().catch(() => {}); await page.close(); }

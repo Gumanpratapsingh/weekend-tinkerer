@@ -307,7 +307,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         return { status: 'manual', reason: 'captcha (emailed security code)', shot: await snap('ext-securitycode') };
       if (await captchaVisible(page)) return { status: 'manual', reason: 'captcha', shot: await snap('ext-captcha') };
       const body = await page.innerText('body').catch(() => '');
-      if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done') };
+      if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done'), filled: res.filled, sent_shot: shot };
       // The form filled was the site's job-alert sign-up, not an application (IDFC: "already subscribed for this job", tried 12 times).
       if (/already subscribed/i.test(body)) return { status: 'manual', reason: 'only a job-alert sign-up form found, not an application', shot: await snap('ext-alert') };
       const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);

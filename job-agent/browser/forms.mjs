@@ -113,6 +113,7 @@ export async function collect(page, rootSel = null) {
   return fields;
 }
 
+const PICKER = /location|city|address|town|where.*based|college|school|university/i;   // autocomplete boxes: a suggestion replaces the typed text
 const isResume = (f) => f.type === 'file' && /resume|cv|curriculum/i.test(`${f.label} ${f.accept}`) || (f.type === 'file' && !/cover/i.test(f.label));
 const isCover = (f) => f.type === 'file' && /cover/i.test(f.label);
 const filled = (f) => f.value && !['checkbox', 'radio', 'file'].includes(f.type) && !/^(select|choose)/i.test(f.value);
@@ -173,7 +174,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
         const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
         await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));
       } else {
-        const isPicker = /location|city|address|town|where.*based|college|school|university/i.test(f.label);
+        const isPicker = PICKER.test(f.label);
         try {
           if (isPicker) { await el.fill(''); await el.pressSequentially(String(v), { delay: 70 }); }   // key by key: pickers only suggest on keystrokes
           else await el.fill(String(v));
@@ -208,6 +209,75 @@ export async function fill(page, fields, answers, { resume } = {}) {
     const el = page.locator(`[data-ja-key="${f.key}"]`).first();
     if (await el.count() && await el.inputValue().catch(() => 'x') === '') await el.fill(String(v)).catch(() => {});
   }
+}
+
+// Runs in the page: what each tagged field holds right now (null: the field is gone, the form re-rendered).
+function readValues(keys) {
+  const out = {};
+  for (const key of keys) {
+    const els = [...document.querySelectorAll(`[data-ja-key="${key}"]`)];
+    const el = els[0];
+    if (!el) out[key] = null;
+    else if (el.type === 'radio') out[key] = els.find((e) => e.checked)?.dataset.jaOpt || '';
+    else if (el.type === 'checkbox') out[key] = els.filter((e) => e.checked).map((e) => e.dataset.jaOpt || 'yes').join('; ');
+    else if (el.tagName === 'SELECT') out[key] = `${el.selectedOptions[0]?.text?.trim() || ''}\n${el.value}`;
+    else if (el.getAttribute('role') === 'combobox' && !el.value) {
+      // React selects show the choice beside the input: the nearest box around it that has text.
+      let box = el.parentElement, t = '';
+      for (let i = 0; !t && box && i < 4; i++, box = box.parentElement) t = (box.innerText || '').trim();
+      out[key] = t;
+    } else out[key] = el.value ?? '';
+  }
+  return out;
+}
+
+const norm = (s) => String(s ?? '').toLowerCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+// Does what the page shows match what we meant to send? Lenient on formatting (phone codes, picker suggestions, dates).
+function sameValue(f, want, got) {
+  if (f.type === 'checkbox' && f.options.length <= 1) return /^(yes|true|agree|i agree|acknowledge)/i.test(want) ? !!got : true;
+  const w = norm(want), g = norm(got);
+  if (!g) return false;
+  if (g === w || g.includes(w)) return true;
+  const digits = (s) => String(s).replace(/\D/g, '');
+  if (/\+/.test(`${want}${got}`) && digits(want).length && digits(want).length <= 4 && digits(want) === digits(got)) return true;   // "(+91)" = "India+91"
+  if (f.type === 'tel') return digits(got).length >= 6 && digits(want).endsWith(digits(got).slice(-10));
+  if (f.type === 'number') return parseFloat(g) === parseFloat(w);
+  if (f.type === 'date') return true;                                   // date pickers reformat: filled is enough
+  if (f.type === 'checkbox') return w.split(/\s*[;|]\s*/).every((x) => g.split('; ').includes(x));
+  if (PICKER.test(f.label) && w.split(',')[0].length >= 3 && g.includes(w.split(',')[0])) return true;   // "Chennai" -> "Chennai, Tamil Nadu, India"
+  return !['radio', 'select', 'combobox'].includes(f.type) && w.includes(g) && g.length >= Math.min(20, w.length / 2);   // text cut by a maxlength
+}
+
+/** Read the form back after fill(): {sent: what the page holds, wrong: answers it doesn't show}. Fields the form re-rendered
+ *  (our marker gone) are found again by their label. */
+export async function checkForm(page, fields, answers) {
+  // Boxes without a real question for a label ("", "Select", a currency code "INR") are skipped: a mismatch there says
+  // nothing about our answers (Keka's read-only currency box flagged every time in the offline test).
+  const meant = fields.filter((f) => !['file'].includes(f.type) && answers[f.key] != null && answers[f.key] !== ''
+    && f.label.trim() && !NOT_A_QUESTION.test(f.label) && !/^[A-Z]{2,4}$/.test(f.label.trim())
+    && !(f.type === 'email' && !/^\S+@\S+\.\S+$/.test(String(answers[f.key]).trim())));   // fill() leaves a non-email empty on purpose
+  const shown = fields.filter((f) => !['file', 'radio', 'checkbox'].includes(f.type) && filled(f));   // prefilled by the site (name, email)
+  const vals = await page.evaluate(readValues, [...meant, ...shown].map((f) => f.key)).catch(() => ({}));
+  const lost = [...meant, ...shown].filter((f) => vals[f.key] == null);
+  if (lost.length) {
+    const again = await page.evaluate(describeFields, null).catch(() => []);
+    const now = await page.evaluate(readValues, again.map((g) => g.key)).catch(() => ({}));
+    for (const f of lost) { const g = again.find((x) => norm(x.label) === norm(f.label) && (x.type === f.type || x.type === 'text')); if (g) vals[f.key] = now[g.key]; }
+  }
+  const show = (f, v) => f.type === 'select' ? String(v ?? '').split('\n')[0] : String(v ?? '');
+  const sent = [...meant, ...shown].filter((f) => vals[f.key]).map((f) => ({ label: f.label, value: show(f, vals[f.key]).slice(0, 300) }));
+  const wrong = meant.filter((f) => !sameValue(f, answers[f.key], vals[f.key])).map((f) => ({ key: f.key, label: f.label, want: String(answers[f.key]), got: vals[f.key] == null ? null : show(f, vals[f.key]) }));
+  return { sent, wrong };
+}
+// Read back, refill what didn't stick once (slow re-renders), read again. Returns {sent, wrong, reason}.
+export async function verifyFilled(page, fields, answers, more = {}) {
+  let check = await checkForm(page, fields, answers);
+  if (check.wrong.length) {
+    await fill(page, fields.filter((f) => check.wrong.some((w) => w.key === f.key)), answers, more);
+    check = await checkForm(page, fields, answers);
+  }
+  const reason = check.wrong.length ? `form check failed, not submitted: ${check.wrong.map((w) => `"${w.label.slice(0, 50)}" shows "${String(w.got ?? 'nothing').slice(0, 30)}" instead of "${w.want.slice(0, 30)}"`).join('; ')}`.slice(0, 450) : null;
+  return { ...check, reason };
 }
 
 export async function captchaVisible(page) {
@@ -251,5 +321,9 @@ export async function fillForm(page, job, { root = null, resume, dryRun, partial
   if (blocking.length && !partial) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
   await fill(page, fields, answers, { resume });                 // partial (owner handoff): fill all we know anyway
   if (blocking.length) return { status: 'needs_answer', unknown: blocking, fields: fields.length, filled };
-  return { status: dryRun ? 'dry_run' : 'filled', fields: fields.length, unknown, filled };
+  // Read the form back before anything is submitted: a field the site emptied or changed after we filled it must never go
+  // out (NETGEAR's Ashby form re-rendered and showed "No" for work authorization while our answer was "Yes").
+  const check = await verifyFilled(page, fields, answers, { resume });
+  if (check.reason) return { status: 'manual', reason: check.reason, fields: fields.length, filled: check.sent };
+  return { status: dryRun ? 'dry_run' : 'filled', fields: fields.length, unknown, filled: check.sent };
 }

@@ -170,7 +170,8 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
       }
     }
 
-    // 4. Stepper Wizard loop (up to 7 steps)
+    // 4. Stepper Wizard loop (up to 7 steps). sent: every step's answers as read back from the page, for "what I sent".
+    const sent = []; let sentShot = null;
     for (let step = 1; step <= 7; step++) {
       await page.waitForTimeout(3000);
 
@@ -196,6 +197,9 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
       const res = await fillForm(page, job, { root: null, resume, dryRun: dryRun || keepOpen, partial: keepOpen });
       if (keepOpen) return { ...res, status: 'handoff', page };
       if (res.status === 'needs_answer') return { ...res, shot: await snap(`wd-step${step}-question`) };
+      // Anything but a clean fill (the read-back found a field that didn't stick, an odd field): stop before Next/Submit.
+      if (!['filled', 'dry_run'].includes(res.status)) return { ...res, filled: [...sent, ...(res.filled || [])], shot: await snap(`wd-step${step}-check`) };
+      sent.push(...(res.filled || []));
 
       // Look for next or submit button
       const nextSel = 'button[data-automation-id="bottom-navigation-next-button"], button:has-text("Save and Continue"), button:has-text("Next"), button[data-automation-id="submit-button"], button:has-text("Submit")';
@@ -212,6 +216,7 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
         return { status: 'dry_run', shot: await snap('wd-dry') };
       }
 
+      if (isFinalSubmit) sentShot = await snap('wd-sent');
       progress(`Workday [${tenant}]: advancing (${btnText || 'Next'})`);
       await nextBtn.scrollIntoViewIfNeeded().catch(() => {});
       await nextBtn.click({ timeout: 10000 }).catch(() => nextBtn.click({ force: true }).catch(() => {}));
@@ -219,13 +224,13 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
 
       const afterText = await page.innerText('body').catch(() => '');
       if (DONE.test(afterText) || /thank|success|confirm/i.test(page.url())) {
-        return { status: 'applied', shot: await snap('wd-done') };
+        return { status: 'applied', shot: await snap('wd-done'), filled: sent, sent_shot: sentShot };
       }
     }
 
     const finalBody = await page.innerText('body').catch(() => '');
     if (DONE.test(finalBody) || /thank|success|confirm/i.test(page.url())) {
-      return { status: 'applied', shot: await snap('wd-done') };
+      return { status: 'applied', shot: await snap('wd-done'), filled: sent, sent_shot: sentShot };
     }
 
     return { status: 'manual', reason: 'wizard completed without final confirmation', shot: await snap('wd-finish') };

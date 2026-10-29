@@ -51,8 +51,24 @@ export async function applyNext({ dryRun = false } = {}) {
       && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && !ncrAuto() && isNcr(j) && !getKv(`ncrapply:${j.id}`));   // NCR: the person applies (or taps Queue / asks for it)
   });
   if (!job) return null;
+  if (!dryRun && reviewOn()) return reviewJob(job);
   noteAttempt(BUCKET[job.apply_type]);
   return applyJob(job, { dryRun });
+}
+
+// Review mode (new people's first two weeks, or "review on"): every application is filled WITHOUT submitting, the person
+// gets the screenshots and answers with ✓ Submit / ✕ Cancel, and only their tap sends it. At most 3 wait at a time, so
+// nothing piles up while they are away; a review left a day is dropped from that count.
+export const reviewOn = () => getKv('review_mode') === '1' || (getKv('review_mode') !== '0' && Date.now() < Number(getKv('review_until', 0)));
+async function reviewJob(job) {
+  const open = all("SELECT value FROM kv WHERE key LIKE 'review:%'").filter((r) => Date.now() - Number(r.value) < 864e5).length;
+  if (open >= 3) return null;
+  noteAttempt(BUCKET[job.apply_type]);
+  run("UPDATE jobs SET status = 'manual', status_note = 'review mode: filling it for you to check' WHERE id = ?", job.id);
+  const { ncrFill } = await import('./ncr.mjs');
+  await ncrFill(job.id, { chat: null });                     // sets review:<id> when the ✓ Submit card goes out
+  if (getKv(`review:${job.id}`)) run("UPDATE jobs SET status_note = 'waiting for your review: tap ✓ Submit' WHERE id = ? AND status = 'manual'", job.id);
+  return { status: 'review' };
 }
 
 export async function applyJob(job, { dryRun = false } = {}) {
@@ -86,7 +102,7 @@ export async function applyJob(job, { dryRun = false } = {}) {
     // The company's own posting (e.g. Workday ".../SW-Engineer_REF087844W"): referral notes cite its requisition ID.
     if (res.company_url) run('UPDATE jobs SET company_url = ? WHERE id = ?', res.company_url, job.id);
     log(`apply ${job.id}: ${JSON.stringify({ ...res, unknown: res.unknown?.length })}`);
-    return settle(job, res);
+    return settle({ ...job, resume_path: resume }, res);
   } catch (e) {
     logError('apply', e, { job: job.id, type: job.apply_type });
     if (e.rateLimited || /AI busy/.test(e.message)) { run("UPDATE jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ?", job.id); return { status: 'later' }; }
@@ -107,12 +123,13 @@ function settle(job, res) {
   const label = `${job.title} @ ${job.company}`;
   // Keep what was filled, so the hub can show "your answers for this form" with copy buttons.
   if (res.filled?.length || res.unknown?.length) run('UPDATE jobs SET form_answers = ? WHERE id = ?',
-    JSON.stringify({ filled: res.filled || [], open: (res.unknown || []).map((u) => u.label) }), job.id);
+    JSON.stringify({ filled: res.filled || [], open: (res.unknown || []).map((u) => u.label), ...(res.sent_shot ? { shot: res.sent_shot } : {}) }), job.id);
   switch (res.status) {
     case 'applied':
       activity(`✅ APPLIED: ${label} (${job.score}%, ${job.source})`);
       run("UPDATE jobs SET status = 'applied', applied_at = ?, status_note = ? WHERE id = ?", Date.now(), res.shot || null, job.id);
       event('applied', `${label} (${job.score}%, ${job.source})`);
+      tellSent(job, res);
       break;
     case 'needs_answer':
       activity(`❓ ${label}: needs your answer to ${res.unknown.length} question(s) — see Needs you on /jobs`);
@@ -183,6 +200,17 @@ function settle(job, res) {
       run("UPDATE jobs SET status = ?, status_note = ? WHERE id = ?", (job.attempts || 0) + 1 >= 3 ? 'failed' : 'queued', (res.reason || res.status || '').slice(0, 300), job.id);
   }
   return res;
+}
+
+// "What I sent": after every application the person sees the answers as the page held them at Submit, the resume that
+// went with it, and a screenshot of the filled form (silent: no ping for each one).
+function tellSent(job, res) {
+  const lines = (res.filled || []).filter((f) => f.label && f.value).slice(0, 30)
+    .map((f) => `• ${f.label.slice(0, 80)}: ${String(f.value).replace(/\s+/g, ' ').slice(0, 120)}`);
+  const resume = job.apply_type === 'naukri' ? 'your Naukri profile resume' : job.resume_path ? basename(job.resume_path) : null;
+  tell([`✅ Applied: ${job.title} @ ${job.company}`, lines.length ? `What I sent:\n${lines.join('\n')}` : 'No questions beyond your profile.',
+    resume ? `Resume: ${resume}` : ''].filter(Boolean).join('\n'),
+  { images: [res.sent_shot].filter(Boolean), links: [{ label: 'Open job ↗', url: job.apply_url || job.url }].filter((l) => l.url), silent: true });
 }
 
 export function todayStats() {

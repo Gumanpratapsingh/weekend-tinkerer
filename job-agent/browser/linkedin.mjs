@@ -1,7 +1,7 @@
 // LinkedIn Easy Apply with the owner's session (data/sessions/linkedin.json, saved by scripts/login.sh on the Mac).
 // Steps through the modal: upload the tailored resume, answer fields from memory, Next/Review/Submit.
 import { siteContext, shotPath, progress, capture } from './session.mjs';
-import { collect, resolveFields, fill, captchaVisible } from './forms.mjs';
+import { collect, resolveFields, fill, verifyFilled, captchaVisible } from './forms.mjs';
 
 // Easy Apply is a pop-up on the old UI and an in-page panel ("Apply to X · 1/5 pages") on the new one.
 // markRoot() tags whichever container holds the form so every step can be scoped to it.
@@ -291,7 +291,7 @@ export default {
       if (!found) return { status: 'failed', reason: 'Easy Apply form did not open', shot: await snap(page, 'li-noform') };
 
       let lastStep = '', retriedStep = null;
-      const steps = [];
+      const steps = [], sent = [];                           // sent: every step's answers as read back, for "what I sent"
       for (let step = 0; step < 15; step++) {
         await page.waitForTimeout(1500 + Math.random() * 1000);
         await markRoot(page);                                // the panel re-renders between steps
@@ -324,6 +324,10 @@ export default {
         if (blocking.length) return await discard(page, { status: 'needs_answer', unknown: blocking, shot: await snap(page, 'li-question') });
         progress(`LinkedIn: ${fields.map((f) => `"${f.label.slice(0, 40)}"${f.type === 'radio' ? `[${f.options.join('/')}]` : ''} = ${answers[f.key] ?? (unknown.some((u) => u.key === f.key) ? '??' : '(prefilled)')}`).join(' · ').slice(0, 380)}`);
         await fill(page, fields, answers, {});
+        // Read the step back before Next/Submit: an answer LinkedIn dropped or changed must never be sent.
+        const check = await verifyFilled(page, fields, answers, {});
+        if (check.reason) return await discard(page, { status: 'manual', reason: check.reason, filled: [...sent, ...check.sent], shot: await snap(page, 'li-check') });
+        sent.push(...check.sent);
         if (dryRun) steps.push(await snap(page, 'li-step'));        // fill-and-show: a screenshot of every step
 
         const follow = modal.locator('input#follow-company-checkbox');
@@ -332,12 +336,13 @@ export default {
         const submit = modal.locator('button[aria-label="Submit application"], button:has-text("Submit application")');
         if (await submit.count()) {
           if (dryRun) { const shot = await snap(page, 'li-dry'); return await discard(page, { status: 'dry_run', shot, shots: [...steps.slice(0, -1), shot] }); }
+          const sentShot = await snap(page, 'li-sent');              // the review step: everything that is about to go out
           await submit.first().click();
           await page.waitForTimeout(5000);
           const ok = await page.locator(':text("application was sent"), :text("Application submitted"), h3:has-text("Your application was sent")').count();
           const shot = await snap(page, ok ? 'li-done' : 'li-unsure');
           await page.locator('button[aria-label="Dismiss"]').first().click().catch(() => {});
-          return ok ? { status: 'applied', shot } : { status: 'failed', reason: 'no confirmation seen', shot };
+          return ok ? { status: 'applied', shot, filled: sent, sent_shot: sentShot } : { status: 'failed', reason: 'no confirmation seen', shot, filled: sent };
         }
         const next = modal.locator('button[aria-label="Continue to next step"], button[aria-label="Review your application"], button:has-text("Next"), button:has-text("Review")').first();
         if (!await next.count()) return await discard(page, { status: 'failed', reason: 'no next button', shot: await snap(page, 'li-stuck') });

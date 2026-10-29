@@ -23,6 +23,9 @@ import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, p
 gate.open = !needsSetup();                          // a new person: only the chat + setup run until their profile exists
 seedKnown();
 run("UPDATE jobs SET status = 'queued' WHERE status = 'applying'");   // interrupted by a restart: try again
+// Someone new (nothing applied yet) starts in review mode for two weeks: each application waits for their ✓ Submit
+// (src/apply.mjs reviewJob). "review off" in their chat ends it early.
+if (PERSON && getKv('review_until') == null && !one('SELECT 1 FROM jobs WHERE applied_at IS NOT NULL LIMIT 1')) setKv('review_until', Date.now() + 14 * 864e5);
 
 createServer((req, res) => {
   const chunks = [];

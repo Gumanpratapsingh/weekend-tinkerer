@@ -16,6 +16,7 @@ const HELP = `Job agent commands:
 • forget <Q-number> — delete an answer
 • pause / resume — stop or restart applying
 • go live / dry run — submit for real, or only fill forms
+• review on / off — show me each filled application first, sent only when you tap ✓ Submit
 • ncr — best Gurgaon/Noida jobs · ncr aside — companies with nobody on LinkedIn · ncr referrals on/off — automatic connection requests · ncr auto on/off — I apply to NCR jobs myself · ncr on/off — the whole NCR watch (details: type help in the 📍 chat)
 Reply to any ❓ message to answer it, or to a ✍️ draft with ok / no / your own text.`;
 
@@ -66,6 +67,8 @@ export async function handleOwner(text, ref) {
     case 'help': return tell(HELP);
     case 'go live': setKv('dry_run', '0'); run("UPDATE jobs SET status = 'queued' WHERE status = 'ready'"); return tell('🚀 Live: I will now submit applications (fit ≥ min score, within daily caps).');
     case 'dry run': setKv('dry_run', '1'); return tell('🧪 Dry run: I fill forms but never submit.');
+    case 'review on': setKv('review_mode', '1'); return tell('👀 Review on: I fill each application and send you the screenshots and answers first. Nothing is sent until you tap ✓ Submit.');
+    case 'review off': setKv('review_mode', '0'); return tell('🚀 Review off: I submit applications myself again (you still get "what I sent" after each one).');
     case 'pause': setKv('paused', '1'); return tell('⏸ Paused applying. I still watch your mail. Send "resume" to restart.');
     case 'resume': setKv('paused', '0'); return tell('▶️ Applying again.');
     case 'status': case 'today': {

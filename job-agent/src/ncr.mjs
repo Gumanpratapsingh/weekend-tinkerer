@@ -140,7 +140,10 @@ async function jobFromUrl(url) {
 
 // Fill-and-show: fill the form WITHOUT submitting, send the screenshots, submit only on "✓ Submit". The answers used are kept
 // (kv fillans:<job>) so the real submit types exactly what the screenshots show.
-export async function ncrFill(jobId) {
+// chat: 'ncr' (the NCR chat) or null (the person's main chat: review mode for new people, see apply.mjs reviewJob).
+export async function ncrFill(jobId, { chat = 'ncr' } = {}) {
+  const say = (text, more = {}) => tell(text, { chat, ...more });
+  setKv(`fillchat:${jobId}`, chat || '');
   let job = one('SELECT * FROM jobs WHERE id = ?', jobId);
   if (!job) return say('I can\'t find that job any more.');
   if (job.status === 'applied') return say(`✅ Already applied: ${label(job)}.`);
@@ -166,13 +169,14 @@ export async function ncrFill(jobId) {
   switch (res.status) {
     case 'dry_run': {
       const shots = (res.shots?.length ? res.shots : [res.shot]).filter(Boolean).slice(0, 8);
+      if (!chat) setKv(`review:${job.id}`, Date.now());          // review mode: this card is what the person is reviewing
       const how = job.apply_type === 'naukri' ? 'Naukri applies with your Naukri profile and answers its questions from your memory.' : `Resume: ${resume ? resume.split('/').pop() : 'your profile resume'}.`;
       return say(`📋 Filled ${label(job)} — nothing submitted yet. Check the ${shots.length} screenshot(s) above. ${how}\nSubmit it?`,
         { refKind: 'ncrsubmit', refId: job.id, images: shots, links: open });
     }
     case 'needs_answer': {
       setKv(`ncrwait:${job.id}`, '1');
-      for (const u of res.unknown || []) askOwner(u.label, { jobId: job.id, context: `${label(job)} application`, kind: u.type, options: u.options?.length ? u.options : null, chat: 'ncr' });
+      for (const u of res.unknown || []) askOwner(u.label, { jobId: job.id, context: `${label(job)} application`, kind: u.type, options: u.options?.length ? u.options : null, chat });
       return say(`❓ ${label(job)} asks ${(res.unknown || []).length} question(s) I don't know yet (above). Answer them and I'll fill it again automatically.`,
         { images: res.shot ? [res.shot] : [], links: open, urgent: job.id });
     }
@@ -180,19 +184,22 @@ export async function ncrFill(jobId) {
     case 'closed': run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id); return say(`🚫 ${label(job)} is closed.`);
     case 'email': return say(`✉️ ${label(job)} takes applications by email: ${res.email}.`, { links: open });
     default:
-      if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
+      if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, chat);
       return say(`🖐 Couldn't fill ${label(job)}: ${String(res.reason || res.status).slice(0, 200)}. Apply on the site yourself.`, { images: res.shot ? [res.shot] : [], links: open, urgent: job.id });
   }
 }
 
 // CAPTCHA: same handoff as the queue (apply.mjs): the job waits in the CAPTCHA list and scripts/finish.sh on the Mac opens it prefilled.
-function captchaHandoff(job, res) {
+function captchaHandoff(job, res, chat = 'ncr') {
   run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
-  return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat: 'ncr', images: res.shot ? [res.shot] : null, urgent: job.id }));
+  return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat, images: res.shot ? [res.shot] : null, urgent: job.id }));
 }
 
 // "✓ Submit" after the screenshots: the real application, same answers, then the confirmation screenshot.
 export async function ncrSubmit(jobId) {
+  const chat = getKv(`fillchat:${jobId}`, 'ncr') || null;
+  const say = (text, more = {}) => tell(text, { chat, ...more });
+  run('DELETE FROM kv WHERE key = ?', `review:${jobId}`);
   const job = one('SELECT * FROM jobs WHERE id = ?', jobId);
   if (!job) return say('I can\'t find that job any more.');
   if (job.status === 'applied') return say(`✅ Already applied: ${label(job)}.`);
@@ -202,8 +209,8 @@ export async function ncrSubmit(jobId) {
   run('DELETE FROM kv WHERE key = ?', `fillans:${job.id}`);
   const shots = res.shot ? [res.shot] : [];
   if (res.status === 'applied') return say(`✅ Applied: ${label(job)}.`, { images: shots });
-  if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res);
-  if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", NCR_NOTE, job.id);
+  if (/captcha/i.test(res.reason || '')) return captchaHandoff(job, res, chat);
+  if (res.status !== 'needs_answer') run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", chat === 'ncr' ? NCR_NOTE : String(res.reason || res.status).slice(0, 300), job.id);
   return say(`⚠️ ${label(job)} didn't go through: ${String(res.reason || res.status).slice(0, 200)}. ${res.status === 'needs_answer' ? 'Answer the question(s) and tap Fill again.' : 'Apply on the site yourself.'}`,
     { images: shots, links: [{ label: 'Open job ↗', url: job.apply_url || job.url }], urgent: job.id });
 }
@@ -227,6 +234,7 @@ export async function ncrAction(ref, value) {
   if (ref.ref_kind === 'ncrsubmit') {
     if (v === 'submit') { done('Submitting…'); ncrSubmit(id).catch((e) => log(`ncr submit ${id}: ${e.message}`)); return; }
     run('DELETE FROM kv WHERE key = ?', `fillans:${id}`);
+    if (getKv(`review:${id}`)) { run('DELETE FROM kv WHERE key = ?', `review:${id}`); run("UPDATE jobs SET status = 'skipped', status_note = 'not submitted: you cancelled it after review' WHERE id = ?", id); }
     return done('Cancelled — not submitted');
   }
 }
@@ -237,7 +245,7 @@ export async function ncrAfterAnswer() {
     const id = r.key.slice('ncrwait:'.length);
     if (one("SELECT 1 FROM asks WHERE job_id = ? AND status = 'open'", id)) continue;
     run('DELETE FROM kv WHERE key = ?', r.key);
-    await ncrFill(id);
+    await ncrFill(id, { chat: getKv(`fillchat:${id}`, 'ncr') || null });
   }
 }
 
