@@ -28,7 +28,8 @@ async function applyAts(kind, { job, resume, dryRun = false, keepOpen = false })
     await page.waitForTimeout(2500);
     await site.open(page);
     await page.waitForTimeout(1500);
-    if (/no longer (accepting|available)|job (has been )?closed|position has been filled/i.test(await page.innerText('body')))
+    // A taken-down Greenhouse job shows only "Sorry, but we can't find that page" (Razorpay: 9 Submit-click timeouts).
+    if (/no longer (accepting|available)|job (has been )?closed|position has been filled|can.t find that page|page (was )?not found|job not found/i.test(await page.innerText('body')))
       return { status: 'closed' };
 
     progress(`${kind}: reading the form…`);

@@ -77,6 +77,8 @@ export async function applyJob(job, { dryRun = false } = {}) {
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
     }
+    // Tried before: Naukri then shows "Applied" for my own "Apply on company site" click, not for a sent form.
+    job.tried = !!one('SELECT 1 FROM attempts WHERE job_id = ? LIMIT 1', job.id);
     const t0 = Date.now();
     const res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun }, 30 * 60e3)   // may wait behind a search task
       .catch((e) => { record(job, t0, { status: 'error', reason: e.message }); throw e; });

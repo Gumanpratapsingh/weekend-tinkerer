@@ -12,7 +12,7 @@ const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|bras
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
-const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submit?ted|applied)|your application is on (its|the) way/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submit?ted|applied)|your application is on (its|the) way|thanks? (you )?for submitting/i;
 
 async function knownAts(url) {
   const m = /(?:boards|job-boards)\.greenhouse\.io\/([\w-]+)\/jobs\/(\d+)|greenhouse\.io\/embed\/job_app\?.*for=([\w-]+).*token=(\d+)/.exec(url);
@@ -147,7 +147,11 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         // a "<role>-jobs-in-<city>" URL instead of "job-listings-..."): the specific posting is gone either way.
         if (/naukri\.com\/[a-z0-9-]+-jobs-in-[a-z-]+(\?|$)/i.test(url) && !/\/job-listings-/i.test(url)) return { status: 'closed' };
         // Already applied on the job board (an earlier attempt or by hand): nothing left to do.
-        if ((/naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0))
+        // Naukri marks a job "Applied" as soon as "Apply on company site" is clicked: on a retry that badge is my own earlier
+        // click, not a sent form (Sneh, Intech: company form failed, then the retry recorded them as applied).
+        const naukriBadge = /naukri\.com/.test(url) && await page.locator('#already-applied, button:has-text("Applied"):visible').count().catch(() => 0);
+        if (naukriBadge && job.tried) return { status: 'manual', reason: 'company form not confirmed (Naukri only shows my company-site click as Applied)', shot: await snap('ext-unconfirmed') };
+        if (naukriBadge
           || (/linkedin\.com/.test(url) && /\bApplied \d+ (seconds?|minutes?|hours?|days?|weeks?|months?) ago\b/i.test(bodyText.slice(0, 4000)))) return { status: 'already_applied' };
         // LinkedIn's search listed it as an outside apply, but the job page offers Easy Apply: that flow (linkedin.mjs) handles it.
         if (/linkedin\.com\/jobs\/view/.test(url) && await page.locator('button:visible').filter({ hasText: /^\s*easy apply\s*$/i }).count().catch(() => 0))
