@@ -58,6 +58,8 @@ function describeFields(rootSel) {
     if (el.dataset.jaKey || !visible(el) || el.disabled || el.readOnly && el.getAttribute('role') !== 'combobox') continue;
     const t = (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT') ? 'combobox' : (el.type || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(t)) continue;
+    // "Autofill from resume" boxes (Ashby): an upload there re-renders the form and wipes our answers (NETGEAR: Email empty).
+    if (t === 'file' && el.closest('[class*="autofill" i]')) continue;
     const required = el.required || el.getAttribute('aria-required') === 'true' || /\*/.test(el.closest('div, fieldset')?.querySelector('label, legend')?.innerText || '');
     if (t === 'radio' || t === 'checkbox') {
       // The question's container: nearest fieldset/group, else the nearest ancestor holding 2+ options of this type.
