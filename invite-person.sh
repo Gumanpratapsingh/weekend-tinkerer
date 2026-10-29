@@ -7,7 +7,7 @@
 set -e
 WHO=${1:?usage: invite-person.sh <name> [--full] [ssh-host]}
 FULL=0; [ "$2" = --full ] && { FULL=1; shift; }
-HOST=${2:-s20phone}
+HOST=${2:-laptop-server}
 ssh "$HOST" "WHO='$WHO' FULL=$FULL node -e '
 const fs = require(\"fs\"), c = require(\"crypto\"), f = process.env.HOME + \"/tinker/invites.json\";
 if (!/^[a-z0-9_-]{1,30}\$/.test(process.env.WHO) || !fs.existsSync(process.env.HOME + \"/jobagent/people/\" + process.env.WHO + \"/port\")) { console.error(\"no such person\"); process.exit(1); }
