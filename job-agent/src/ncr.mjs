@@ -154,16 +154,18 @@ export async function ncrFill(jobId, { chat = 'ncr' } = {}) {
     try { const t = job.description ? await tailor(job) : await baseResume(job.track || 'backend'); resume = t.pdf; run('UPDATE jobs SET resume_path = ? WHERE id = ?', resume, job.id); }
     catch (e) { log(`ncr fill resume: ${e.message}`); resume = resumeFile(); }
   }
-  let res = await browserTask(`apply_${job.apply_type}`, { job, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
+  // A retry: Naukri's Applied badge may be only my own earlier company-site click (the queue sets the same flag in apply.mjs).
+  const tried = !!one('SELECT 1 FROM attempts WHERE job_id = ? LIMIT 1', job.id);
+  let res = await browserTask(`apply_${job.apply_type}`, { job: { ...job, tried }, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
   if (job.apply_type === 'linkedin' && res.status === 'manual' && /company site|not Easy Apply/i.test(res.reason || '')) {
     run("UPDATE jobs SET apply_type = 'external' WHERE id = ?", job.id); job = one('SELECT * FROM jobs WHERE id = ?', job.id);
-    res = await browserTask('apply_external', { job, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
+    res = await browserTask('apply_external', { job: { ...job, tried }, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
   }
   // LinkedIn's search listed it as an outside apply, but the job page offers Easy Apply (apply.mjs does the same switch for the queue):
   // use the Easy Apply flow. This was the "is Easy Apply. Apply on the site yourself" message on Fill & show me.
   if (job.apply_type === 'external' && job.source === 'linkedin' && res.status === 'manual' && /is Easy Apply/i.test(res.reason || '')) {
     run("UPDATE jobs SET apply_type = 'linkedin' WHERE id = ?", job.id); job = one('SELECT * FROM jobs WHERE id = ?', job.id);
-    res = await browserTask('apply_linkedin', { job, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
+    res = await browserTask('apply_linkedin', { job: { ...job, tried }, resume, dryRun: true }, 30 * 60e3).catch((e) => ({ status: 'error', reason: e.message }));
   }
   const open = [{ label: 'Open job ↗', url: job.apply_url || job.url }];
   switch (res.status) {

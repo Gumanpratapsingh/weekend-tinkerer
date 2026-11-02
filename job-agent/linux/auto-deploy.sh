@@ -22,6 +22,8 @@ JA=$(echo "$CHANGED" | grep -c '^job-agent/'); CB=$(echo "$CHANGED" | grep -c '^
 [ -f "$PENDING" ] || date +%s > "$PENDING"
 WAITED=$(( $(date +%s) - $(cat "$PENDING") ))
 if [ "$JA" -gt 0 ] && [ "$WAITED" -lt 900 ] && ! curl -s -m 5 127.0.0.1:8084/health | grep -q '"running":null'; then exit 0; fi
+# The prod users' browser too: a restart mid-application or mid-sign-in loses it.
+if [ "$JA" -gt 0 ] && [ "$WAITED" -lt 900 ] && curl -s -m 5 127.0.0.1:8184/health | grep -qE '"running":"|"signin":"'; then exit 0; fi
 if [ "$CB" -gt 0 ] && curl -s -m 5 -X POST -H 'Content-Type: application/json' -d '{}' 127.0.0.1:8086/calls-active | grep -qv '"active":0'; then exit 0; fi
 
 install_tree() {   # $1 = commit
