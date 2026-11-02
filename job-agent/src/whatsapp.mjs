@@ -3,7 +3,7 @@
 // Meta only allows free-form messages within 24h of the owner's last message; outside that window the
 // agent sends the pre-approved hello_world template plus an ntfy push, and holds messages until the owner replies.
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { secret, log, ntfy, istHour, config, OWNER, PERSON, AGENT_URL, privateProfile } from './core.mjs';
+import { secret, log, ntfy, istHour, config, OWNER, PERSON, AGENT_URL, CUPBOARD_URL, privateProfile } from './core.mjs';
 import { getKv, setKv, all, run } from './db.mjs';
 
 const API = 'https://graph.facebook.com/v21.0';
@@ -62,7 +62,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
     : refKind === 'interview' ? [{ id: 'ack', label: '✓ Acknowledge', value: 'ack', style: 'go' }]
     : refKind === 'question' && options?.length ? options.slice(0, 6).map((o, i) => ({ id: `o${i}`, label: String(o).slice(0, 30), value: String(o) })) : [];
   try {
-    const r = await fetch('http://127.0.0.1:8086/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
+    const r = await fetch(`${CUPBOARD_URL}/notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
       body: JSON.stringify({ title: 'Job agent', text: body.slice(0, 3900), ref: toOwner && !more.mirror ? null : ref, actions: toOwner && !more.mirror ? [] : actions,
         replyTo: ref && (!toOwner || more.mirror) ? `${AGENT_URL}/internal/cupboard${more.mirror ? '?by=owner' : ''}` : null, ...(to ? { to, agent: AGENT_URL } : {}), ...(link ? { link } : {}),
         ...(more.chat && !toOwner ? { chat: more.chat, agent: AGENT_URL } : {}), ...(more.links?.length ? { links: more.links } : {}), ...(more.images?.length ? { images: more.images } : {}), ...(more.files?.length ? { files: more.files } : {}), ...(more.urgent ? { urgent: more.urgent, urgentAgent: AGENT_URL } : {}), ...(more.silent ? { silent: true } : {}) }) });
@@ -77,7 +77,7 @@ async function toCupboard(body, refKind, refId, options, toOwner = false, link =
 export function cardDone(kind, id, text) {
   const msg = getKv(`cupcard:${kind}:${id}`);
   if (!msg) return;
-  fetch('http://127.0.0.1:8086/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
+  fetch(`${CUPBOARD_URL}/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(4000),
     body: JSON.stringify({ id: Number(msg), done: String(text).slice(0, 60) }) }).catch(() => {});
 }
 

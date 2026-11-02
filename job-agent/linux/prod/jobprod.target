@@ -1,0 +1,5 @@
+[Unit]
+Description=Everything in the prod users' environment (Cupboard, browser worker, their agents)
+
+[Install]
+WantedBy=multi-user.target

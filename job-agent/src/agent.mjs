@@ -1,7 +1,7 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
 import { createServer } from 'node:http';
-import { log, logError, every, istHour, config, activity, ROOT, HOME, PROFILE, DATA, PORT, OWNER, PERSON, resumeFile, hasSession, gate } from './core.mjs';
+import { log, logError, every, istHour, config, activity, ROOT, HOME, PROFILE, DATA, PORT, OWNER, PERSON, resumeFile, hasSession, gate, WORKER_URL } from './core.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserTask } from './browser.mjs';
@@ -110,7 +110,7 @@ createServer((req, res) => {
         if (!['linkedin', 'naukri', 'captcha'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
         const cjob = site === 'captcha' ? (url.searchParams.get('job') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').job) : null;
         const json = (x, code = 200) => reply(code, JSON.stringify(x), 'application/json');
-        const health = await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => ({}));
+        const health = await fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => ({}));
         const mine = health.signin === (PERSON || 'owner');
         const what = url.pathname.slice('/internal/signin/'.length);
         if (what === 'status') return json(site === 'captcha'
@@ -126,7 +126,7 @@ createServer((req, res) => {
         if (what === 'input' && req.method === 'POST') {
           if (!mine) return json({ error: 'The sign-in page is not open on the phone yet.' }, 409);
           const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          const r = await fetch('http://127.0.0.1:8084/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
+          const r = await fetch(`${WORKER_URL}/input`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
             body: JSON.stringify({ kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key, _who: { person: PERSON || 'owner', port: PORT } }) }).catch(() => null);
           return json(r ? await r.json() : { error: 'phone browser not reachable' }, r?.status || 502);
         }
@@ -385,7 +385,7 @@ every(1, 'thermal guard', async () => {
 // Watchdog: the browser worker answers /health instantly; two misses in a row -> restart it.
 let workerMisses = 0;
 if (OWNER) every(2, 'worker watchdog', async () => {     // the shared worker is the owner agent's to restart
-  const ok = await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(15000) }).then((r) => r.ok).catch(() => false);
+  const ok = await fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(15000) }).then((r) => r.ok).catch(() => false);
   workerMisses = ok ? 0 : workerMisses + 1;
   if (workerMisses < 2) return;
   workerMisses = 0;

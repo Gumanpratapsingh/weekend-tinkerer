@@ -1,0 +1,12 @@
+[Unit]
+Description=Stop the prod user reaching the private services' local ports (8080-8099)
+Before=jobprod.target
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -C OUTPUT -d 127.0.0.0/8 -p tcp -m owner --uid-owner prod -m multiport --dports 8080:8099 -j REJECT 2>/dev/null || iptables -I OUTPUT -d 127.0.0.0/8 -p tcp -m owner --uid-owner prod -m multiport --dports 8080:8099 -j REJECT'
+
+[Install]
+WantedBy=multi-user.target

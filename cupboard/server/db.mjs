@@ -7,6 +7,8 @@ import { join } from 'node:path';
 export const HOME = homedir();
 export const DATA = join(HOME, 'cupboard', 'data');
 export const MEDIA = join(DATA, 'media');
+// The owner's own job agent. The prod environment sets CB_OWNER_AGENT empty: it has no owner agent and never reaches the private one.
+export const OWNER_AGENT = process.env.CB_OWNER_AGENT ?? 'http://127.0.0.1:8083';
 mkdirSync(MEDIA, { recursive: true, mode: 0o700 });
 
 export const db = new DatabaseSync(join(DATA, 'cupboard.db'));

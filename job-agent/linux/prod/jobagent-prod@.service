@@ -1,0 +1,20 @@
+[Unit]
+Description=Job agent for prod user %i
+After=network-online.target jobworker-prod.service cupboard-prod.service
+Wants=network-online.target jobworker-prod.service cupboard-prod.service
+PartOf=jobprod.target
+StartLimitIntervalSec=0
+
+[Service]
+User=prod
+WorkingDirectory=/home/prod/jobagent
+Environment=HOME=/home/prod JA_PERSON=%i JA_WORKER_PORT=8184 JA_CUPBOARD_URL=http://127.0.0.1:8186
+ExecStart=/bin/sh -c 'JA_PORT=$$(cat /home/prod/jobagent/people/%i/port) exec /usr/local/bin/node /home/prod/jobagent/src/agent.mjs'
+StandardOutput=append:/home/prod/jobagent/people/%i/data/agent.out
+StandardError=append:/home/prod/jobagent/people/%i/data/agent.out
+Restart=always
+TimeoutStopSec=15
+RestartSec=10
+
+[Install]
+WantedBy=jobprod.target

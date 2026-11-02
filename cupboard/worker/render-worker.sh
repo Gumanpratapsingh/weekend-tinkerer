@@ -3,5 +3,6 @@
 # paste into the Cloudflare dashboard editor for the "cupboard" Worker.
 set -e
 ORIGIN=$(cat ~/.tinker-origin)
-sed "s/__ORIGIN__/$ORIGIN/" "$(dirname "$0")/cupboard.js" | pbcopy
+PREFIX=/cupboard; [ "$1" = prod ] && PREFIX=/cupboard-prod   # ./render-worker.sh prod: the prod environment's Worker
+sed "s/__ORIGIN__/$ORIGIN/; s#__PREFIX__#$PREFIX#" "$(dirname "$0")/cupboard.js" | pbcopy
 echo "Cupboard Worker copied (origin filled in). Paste it into the cupboard Worker and deploy."

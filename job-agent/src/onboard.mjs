@@ -5,7 +5,7 @@
 // Any login step can be skipped and done later by sending "login linkedin" / "login naukri" / "login gmail".
 import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { ROOT, PROFILE, OWNER, HOME, PERSON, AGENT_URL, log, logError, secret, readJson, privateProfile, llm, gate, hasSession } from './core.mjs';
+import { ROOT, PROFILE, OWNER, HOME, PERSON, AGENT_URL, CUPBOARD_URL, log, logError, secret, readJson, privateProfile, llm, gate, hasSession } from './core.mjs';
 import { browserTask } from './browser.mjs';
 import { getKv, setKv } from './db.mjs';
 import { tell } from './whatsapp.mjs';
@@ -157,7 +157,7 @@ const SITES = { linkedin: 'LinkedIn', naukri: 'Naukri' };
 async function signinCard(site) {
   let link = null;
   try {
-    const r = await fetch('http://127.0.0.1:8086/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+    const r = await fetch(`${CUPBOARD_URL}/signin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
       body: JSON.stringify({ to: privateProfile().cupboard_user, agent: AGENT_URL, site }) });
     link = (await r.json()).path;
   } catch (e) { log(`signin link: ${e.message}`); }
@@ -207,7 +207,7 @@ async function saveGmail(text, msgId) {
 // Replace a message that carried a secret with a placeholder (Cupboard keeps chat history).
 function hide(msgId) {
   if (!msgId) return;
-  fetch('http://127.0.0.1:8086/redact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+  fetch(`${CUPBOARD_URL}/redact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
     body: JSON.stringify({ id: Number(msgId), text: '🔒 (hidden: saved securely on the phone)' }) }).catch(() => {});
 }
 

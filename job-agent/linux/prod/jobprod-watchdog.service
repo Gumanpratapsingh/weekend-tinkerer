@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart the prod browser worker after two failed health checks
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'curl -sf -m 15 127.0.0.1:8184/health >/dev/null || { sleep 60; curl -sf -m 15 127.0.0.1:8184/health >/dev/null || systemctl restart jobworker-prod; }'

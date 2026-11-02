@@ -48,6 +48,8 @@ install_tree() {   # $1 = commit
 log "deploying $OLD -> $NEW (job-agent=$JA cupboard=$CB)"
 if install_tree "$NEW"; then
   echo "$NEW" > "$STATE"; rm -f "$PENDING"; log "ok $NEW"
+  # The prod users' environment (linux/prod/) runs the same code from its own home.
+  if [ -x /usr/local/sbin/jobprod-sync ]; then sudo -n /usr/local/sbin/jobprod-sync "$REPO" 2>>"$D/log" || log "prod sync failed"; fi
   notify "Deployed $(git log -1 --format=%s "$NEW" | cut -c1-120) ($(echo "$NEW" | cut -c1-7))" true
 else
   RC=$?; log "FAILED rc=$RC, rolling back to $OLD"

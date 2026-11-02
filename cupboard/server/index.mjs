@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync, realpathSync, readFileSync as readFileSyncFs } from 'node:fs';
 import { join } from 'node:path';
-import { db, one, all, run, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
+import { db, one, all, run, MEDIA, botId, owner, getKv, setKv, OWNER_AGENT } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
@@ -17,7 +17,7 @@ import { install as installLove } from './lovenotes.mjs';
 import { install as installCalls } from './calls.mjs';
 import { install as installMonitor } from './monitor.mjs';
 
-const PORT = 8085, INTERNAL = 8086;
+const PORT = Number(process.env.CB_PORT) || 8085, INTERNAL = Number(process.env.CB_INTERNAL) || 8086;
 const SESSION_DAYS = 90;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -241,7 +241,7 @@ const botSay = async (text, extra = null, user = owner()) => {
   return postMessage(botConv(user), botId(), { kind: extra ? 'card' : 'text', text, extra });
 };
 // The local job agent that serves a given person (set when that agent first messages them). Owner: the main agent.
-const agentFor = (user) => (user.role === 'owner' ? 'http://127.0.0.1:8083' : getKv(`agent:${user.id}`));
+const agentFor = (user) => (user.role === 'owner' && OWNER_AGENT ? OWNER_AGENT : getKv(`agent:${user.id}`));
 const FILES = { 'application/pdf': 'pdf' };
 // Shared lists, calendar and reminders (together.mjs).
 const together = installTogether({ postMessage, updateMessage, emit, memberIds, canSee, readJson, send, err, log, botConv,
@@ -790,7 +790,7 @@ async function api(req, res, path, query) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  const path = url.pathname.replace(/^\/cupboard/, '');
+  const path = url.pathname.replace(/^\/cupboard(-prod)?(?=\/)/, '');
   try { await api(req, res, path, Object.fromEntries(url.searchParams)); }
   catch (e) {
     if (!e.expose) log(`${req.method} ${path}: ${e.stack || e.message}`);

@@ -2,7 +2,7 @@
 // It only reads the phone's own files and talks to localhost or the owner's private ntfy topics.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HOME } from './db.mjs';
+import { HOME, OWNER_AGENT } from './db.mjs';
 
 const read = (p) => { try { return JSON.parse(readFileSync(join(HOME, p), 'utf8')); } catch { return null; } };
 const rupees = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -80,7 +80,7 @@ export async function botReply({ text, msgId, user, agent, replyTo, say, update 
   if (sp) { const p = sp[1] || 'today'; const v = spent(p === 'today' ? 1 : p === 'week' ? 7 : 'month'); return say(v ? `Spent ${p === 'today' ? 'today' : `this ${p}`}: ${v}` : 'No expense data yet.'); }
   if (/^₹?\s*\d+(\.\d+)?\s+\S/.test(t)) { await ntfy('-exp', t.replace(/^₹\s*/, '')); return say('Logging it… you\'ll get a confirmation in a moment.'); }
   // Anything else: ask the job agent's assistant (answers from its live data with the free AI).
-  const answer = await askAgent(agent || 'http://127.0.0.1:8083', t);
+  const answer = await askAgent(agent || OWNER_AGENT, t);
   return say(answer || `I couldn't reach the job agent just now. ${HELP}`);
 }
 async function askAgent(base, question) {

@@ -2,7 +2,7 @@
 // Plain node:http, not fetch: fetch gives up after 5 minutes without response headers, and a full Naukri
 // search takes ~20 minutes (that silently threw away every search result until 2026-10-10).
 import { request } from 'node:http';
-import { PERSON, PORT } from './core.mjs';
+import { PERSON, PORT, WORKER_PORT } from './core.mjs';
 import { held, holdOff } from './holdoff.mjs';
 
 // Searches on a site that answered "too many requests" are not sent for 12-18 hours (src/holdoff.mjs).
@@ -13,7 +13,7 @@ export function browserTask(name, body = {}, timeoutMs = 300000) {
   if (site && held(site)) return Promise.resolve({ status: 'rate_limited', jobs: [] });
   const payload = JSON.stringify({ ...body, _who: { person: PERSON || 'owner', port: PORT } });   // whose logins and folders to use
   return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port: 8084, path: `/${name}`, method: 'POST',
+    const req = request({ host: '127.0.0.1', port: WORKER_PORT, path: `/${name}`, method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (res) => {
       let raw = '';
       res.on('data', (c) => { raw += c; });

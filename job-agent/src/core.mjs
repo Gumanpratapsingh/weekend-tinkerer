@@ -16,6 +16,10 @@ export const PROFILE = join(BASE, 'profile');         // resume facts, config, a
 export const DATA = join(BASE, 'data');              // db, tailored resumes, screenshots — never in git
 export const PORT = Number(process.env.JA_PORT || 8083);
 export const AGENT_URL = `http://127.0.0.1:${PORT}`;
+// The browser worker and Cupboard this agent uses. Defaults: the private environment; the prod one sets its own (linux/prod/).
+export const WORKER_PORT = Number(process.env.JA_WORKER_PORT || 8084);
+export const WORKER_URL = `http://127.0.0.1:${WORKER_PORT}`;
+export const CUPBOARD_URL = process.env.JA_CUPBOARD_URL || 'http://127.0.0.1:8086';
 const SECRETS = join(HOME, OWNER ? '.jobagent' : `.jobagent-${PERSON}`);
 mkdirSync(join(DATA, 'resumes'), { recursive: true, mode: 0o700 });
 mkdirSync(join(DATA, 'shots'), { recursive: true, mode: 0o700 });

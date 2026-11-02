@@ -1,0 +1,10 @@
+#!/bin/sh
+# Installs the code from the auto-deploy checkout ($1) into the prod user's home and restarts what runs it.
+# Called by linux/auto-deploy.sh after each good deploy. Never touches data/, people/, profile/ or secrets.
+set -e
+R=${1:-/home/gpsingh/auto-deploy/repo}; P=/home/prod
+rsync -a --chown=prod:prod --exclude node_modules --exclude data --exclude people --exclude profile --exclude .git --exclude .primary-host --exclude STANDBY "$R/job-agent/" "$P/jobagent/"
+rsync -a --chown=prod:prod --exclude node_modules --exclude data "$R/cupboard/server/" "$P/cupboard/server/"
+cd "$P/jobagent" && { cmp -s package.json .deps-installed 2>/dev/null || { sudo -u prod HOME=$P npm install --omit=dev --no-audit --no-fund >/dev/null && sudo -u prod cp package.json .deps-installed; }; }
+cd "$P/cupboard/server" && { cmp -s package.json .installed.json 2>/dev/null || { sudo -u prod HOME=$P npm install --omit=dev --no-audit --no-fund --silent && sudo -u prod cp package.json .installed.json; }; }
+systemctl try-restart cupboard-prod jobworker-prod 'jobagent-prod@*'

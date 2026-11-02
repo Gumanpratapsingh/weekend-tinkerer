@@ -336,4 +336,4 @@ createServer((req, res) => {
     } };
     if (SOCIAL_TASKS.has(name)) { social.waiting.push(entry); pumpSocial(); } else { waiting.push(entry); pump(); }
   });
-}).listen(8084, '127.0.0.1', () => console.log('browser worker on 127.0.0.1:8084'));
+}).listen(Number(process.env.JA_WORKER_PORT || 8084), '127.0.0.1', () => console.log(`browser worker on 127.0.0.1:${process.env.JA_WORKER_PORT || 8084}`));

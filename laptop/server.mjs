@@ -60,6 +60,8 @@ function disk(path) {
 const SERVICES = () => ['phone-link', 'jobworker', 'jobagent', 'jobsync.timer', 'laptop-api',
   ...(existsSync(join(J, 'people')) ? readdirSync(join(J, 'people')).filter((n) => existsSync(join(J, 'people', n, 'port'))).map((n) => `jobagent@${n}`) : [])];
 const AGENTS = () => SERVICES().filter((s) => s === 'jobagent' || s.startsWith('jobagent@'));
+// The prod users' environment (job-agent/linux/prod/) stops and starts with the private agents when the laptop overheats.
+const PROD = () => (existsSync('/etc/systemd/system/jobprod.target') ? ['jobprod.target'] : []);
 
 async function services() {
   const names = SERVICES(), r = await run('systemctl', ['is-active', ...names]);
@@ -98,10 +100,10 @@ async function stopGently(maxWaitMs) {
   resumePorts = [...new Set([...resumePorts, ...running])];
   const until = Date.now() + maxWaitMs;
   while (Date.now() < until && (temps().cpu ?? 0) < CRITICAL_C && await busyBrowser()) await sleep(5000);
-  return run('sudo', ['systemctl', 'stop', ...AGENTS(), 'jobworker']);
+  return run('sudo', ['systemctl', 'stop', ...AGENTS(), 'jobworker', ...PROD()]);
 }
 async function startAndResume() {
-  const r = await run('sudo', ['systemctl', 'start', 'jobworker', ...AGENTS()]);
+  const r = await run('sudo', ['systemctl', 'start', 'jobworker', ...AGENTS(), ...PROD()]);
   for (const p of resumePorts) {                     // the agents need a few seconds to come up
     for (let i = 0; i < 12; i++) { if (await agentApi(p, '/internal/action', { action: 'resume' })) break; await sleep(5000); }
   }

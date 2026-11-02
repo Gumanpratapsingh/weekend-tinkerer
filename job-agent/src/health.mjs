@@ -3,7 +3,7 @@
 // One urgent alert per problem, repeated at most every 6 hours while it lasts, and a short "OK again" when it clears.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HOME, DATA, log } from './core.mjs';
+import { HOME, DATA, WORKER_URL, log } from './core.mjs';
 import { all, getKv, setKv } from './db.mjs';
 import { tell } from './whatsapp.mjs';
 
@@ -22,8 +22,8 @@ async function problems() {
   if (age > 30 * 60) out.push(['phone', `📵 The S20 standby hasn't reported for ${Number.isFinite(age) ? ago(age) : 'a long time'} (last battery ${ph?.battery ?? '?'}%). If the laptop fails there is no backup: check it is on, charging and on Wi-Fi (its IP may have changed).`]);
   else if (ph?.battery < 20 && /discharg/i.test(ph.batteryStatus || '')) out.push(['phonebattery', `🪫 The S20 standby is at ${ph.battery}% and not charging.`]);
   // Without the browser worker nothing is searched or applied to.
-  if (!await fetch('http://127.0.0.1:8084/health', { signal: AbortSignal.timeout(5000) }).then((r) => r.ok).catch(() => false))
-    out.push(['worker', '🧩 The browser worker (127.0.0.1:8084) is not answering: no applications or searches until it is back (sudo systemctl restart jobworker).']);
+  if (!await fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(5000) }).then((r) => r.ok).catch(() => false))
+    out.push(['worker', '🧩 The browser worker is not answering: no applications or searches until it is back (sudo systemctl restart jobworker).']);
   // Free AI tiers: every provider rate-limited or failing, again and again in the last hour.
   const since = Date.now() - 3600e3;
   const ai = (read(join(DATA, 'errors.jsonl')) || '').split('\n').slice(-400).filter((l) => {

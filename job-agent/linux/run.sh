@@ -8,7 +8,7 @@ J=$HOME/jobagent
 people() { for d in "$J"/people/*/; do [ -f "$d/port" ] && echo "jobagent@$(basename "$d")"; done; }
 case "$1" in
   stop) sudo systemctl stop jobagent $(people) jobworker ;;
-  worker) sudo systemctl restart jobworker ;;                   # the owner agent's watchdog
+  worker) sudo systemctl restart jobworker ;;                   # the owner agent's watchdog (prod has its own: linux/prod/)
   people) sudo systemctl restart $(people) ;;
   restart) sudo systemctl restart phone-link jobworker jobagent $(people) ;;
   *) sudo systemctl start phone-link jobworker jobagent $(people) ;;

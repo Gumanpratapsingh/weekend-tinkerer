@@ -2,7 +2,7 @@
 // page (same screen/tap/type plumbing as the sign-in page): they solve the CAPTCHA and press Submit themselves.
 // Nothing here reads or solves a CAPTCHA.
 import { existsSync } from 'node:fs';
-import { AGENT_URL, log, logError, privateProfile } from './core.mjs';
+import { AGENT_URL, CUPBOARD_URL, log, logError, privateProfile } from './core.mjs';
 import { one, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
@@ -13,7 +13,7 @@ const label = (j) => `${j.title} @ ${j.company}`;
 export async function captchaCard(job, { chat = null, images = null, urgent = false } = {}) {
   let link = null;
   try {
-    const r = await fetch('http://127.0.0.1:8086/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+    const r = await fetch(`${CUPBOARD_URL}/signin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
       body: JSON.stringify({ to: privateProfile().cupboard_user, agent: AGENT_URL, site: 'captcha', job: job.id }) });
     link = (await r.json()).path;
   } catch (e) { log(`captcha link: ${e.message}`); }

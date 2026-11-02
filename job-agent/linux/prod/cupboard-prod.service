@@ -1,0 +1,20 @@
+[Unit]
+Description=Cupboard for prod users (127.0.0.1:8185, internal 8186): its own database, apart from the private Cupboard
+After=network-online.target
+Wants=network-online.target
+PartOf=jobprod.target
+StartLimitIntervalSec=0
+
+[Service]
+User=prod
+WorkingDirectory=/home/prod
+Environment=HOME=/home/prod CB_PORT=8185 CB_INTERNAL=8186 CB_OWNER_AGENT=
+ExecStart=/usr/local/bin/node --no-warnings /home/prod/cupboard/server/index.mjs
+StandardOutput=append:/home/prod/cupboard/server.out
+StandardError=append:/home/prod/cupboard/server.out
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=jobprod.target
