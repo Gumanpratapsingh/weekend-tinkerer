@@ -120,6 +120,9 @@ export async function collect(page, rootSel = null) {
   return fields;
 }
 
+// A lone checkbox: the answer means "tick it" if it agrees, or simply names the box's own label (Okta's "I acknowledge").
+const saysYes = (f, v) => /^(yes|true|(i\s+)?(agree|acknowledge|accept|consent|confirm|understand|certify|have read))/i.test(String(v).trim())
+  || (f.options?.length === 1 && String(v).trim().toLowerCase() === String(f.options[0]).trim().toLowerCase() && !/^no\b/i.test(String(v).trim()));
 const PICKER = /location|city|address|town|where.*based|college|school|university/i;   // autocomplete boxes: a suggestion replaces the typed text
 // Photo and ID-proof slots (an image-only accept list, "Aadhar card photocopy", "Latest Photograph") never get the resume.
 const NOT_RESUME = /cover|photo|picture|image|avatar|aadh?a?r|pan card|passport|id proof|identity/i;
@@ -183,7 +186,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
         const tick = async (loc) => { if (await loc.isChecked().catch(() => false)) return;
           await loc.evaluate((e) => (e.labels?.[0] || e.closest('label') || e).click()).catch(() => {});
           if (!await loc.isChecked().catch(() => true)) await loc.check({ force: true }).catch(() => {}); };
-        if (f.options.length <= 1) { if (/^(yes|true|agree|i agree|acknowledge)/i.test(v)) await tick(el.first()); }   // a lone box has no option list
+        if (f.options.length <= 1) { if (saysYes(f, v)) await tick(el.first()); }   // a lone box has no option list
         else for (const w of wanted) await tick(page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first());
       } else if (f.type === 'date') {
         const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
@@ -249,7 +252,7 @@ function readValues(keys) {
 const norm = (s) => String(s ?? '').toLowerCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
 // Does what the page shows match what we meant to send? Lenient on formatting (phone codes, picker suggestions, dates).
 function sameValue(f, want, got) {
-  if (f.type === 'checkbox' && f.options.length <= 1) return /^(yes|true|agree|i agree|acknowledge)/i.test(want) ? !!got : true;
+  if (f.type === 'checkbox' && f.options.length <= 1) return saysYes(f, want) ? !!got : true;
   const w = norm(want), g = norm(got);
   if (!g) return false;
   if (g === w || g.includes(w)) return true;
