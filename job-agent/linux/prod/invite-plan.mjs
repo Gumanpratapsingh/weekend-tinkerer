@@ -62,7 +62,7 @@ console.log(JSON.stringify({
     ] },
     { heading: 'Who can see your data', items: [
       'It runs on a laptop at Guman\'s home. Chats and data are stored there and are not end-to-end encrypted.',
-      `${runBy} run${/ and /.test(runBy) ? '' : 's'} this and can see your applications, answers, agent chat and stored logins. Other users can't.`,
+      `${runBy} run${/ and /.test(runBy) ? '' : 's'} this and can see your applications, answers, agent chat, sign-ins, activity in the app, and stored logins. Other users can't.`,
       `Your resume details and job descriptions are sent to Gemini and Groq, under ${c.keys_by_owner ? 'keys Guman provides' : 'your own keys'}, for scoring and tailoring.`,
       'Want out? Ask Guman and your agent and data get deleted. Also remove the Gmail app password yourself.',
     ] },
