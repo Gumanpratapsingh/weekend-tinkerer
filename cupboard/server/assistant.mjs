@@ -63,7 +63,7 @@ export function install({ postMessage, emit, memberIds, together, log }) {
     log(`assistant chat ${conv} created`);
     return conv;
   }
-  ensureConv();
+  if (process.env.CB_PROD !== '1') ensureConv();     // the owners' shared chat: it does not exist in the prod environment
   const isAssistant = (convId) => Number(getKv('assistant_conv')) === convId;
   // Health & glow chats: the personal wellness chat each person has. Photos get feedback; a question (ends with ?) or
   // a message starting with "@ai" gets an answer; everything else is left alone (it is mostly reminders).
