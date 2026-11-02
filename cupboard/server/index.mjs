@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync, realpathSync, readFileSync as readFileSyncFs } from 'node:fs';
 import { join } from 'node:path';
-import { db, one, all, run, MEDIA, botId, owner, getKv, setKv, OWNER_AGENT } from './db.mjs';
+import { db, one, all, run, MEDIA, botId, owner, getKv, setKv, OWNER_AGENT, BOT_NAME } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
@@ -188,7 +188,7 @@ function botConv(user) {
   const row = one(`SELECT c.id FROM convs c JOIN members m ON m.conv_id = c.id WHERE c.kind = 'bot' AND m.user_id = ?
     AND COALESCE(c.name, '') NOT IN (?, ?)`, user.id, NCR_CHAT, INTERVIEWS_CHAT);
   if (row) return row.id;
-  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", user.role === 'owner' ? 'S20' : 'Job agent', user.id, Date.now());
+  const { lastInsertRowid: id } = run("INSERT INTO convs(kind, name, created_by, created) VALUES('bot', ?, ?, ?)", user.role === 'owner' ? BOT_NAME : 'Job agent', user.id, Date.now());
   run('INSERT INTO members(conv_id, user_id) VALUES(?,?), (?,?)', id, user.id, id, b);
   return Number(id);
 }
@@ -365,7 +365,7 @@ async function api(req, res, path, query) {
     run('UPDATE invites SET used_by = ? WHERE token = ?', uid, inv.token);
     const u = one('SELECT * FROM users WHERE id = ?', uid);
     log(`new ${role}: ${u.username}`);
-    if (role === 'owner') { botConv(u); await botSay('Hi Guman 👋 I\'m your S20. I\'ll message you here when I need something. Type "help" to see what I can do.'); }
+    if (role === 'owner') { botConv(u); await botSay(`Hi Guman 👋 I'm your ${BOT_NAME}. I'll message you here when I need something. Type "help" to see what I can do.`); }
     else {
       const o = owner();
       if (o) { const dm = openDm(o.id, u.id); await postMessage(dm, u.id, { text: `👋 ${u.name} joined Cupboard` }); }
@@ -376,7 +376,7 @@ async function api(req, res, path, query) {
 
   // ----- signed in -----
   const me = userOf(req);
-  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
+  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
   if (!me) throw err(401, 'Sign in first.');
   if (M === 'POST' && path === '/api/logout') { run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 

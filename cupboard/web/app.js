@@ -107,7 +107,7 @@ async function api(path, { method = 'GET', body, raw, headers = {} } = {}) {
   else if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let r;
   try { r = await fetch('/api' + path, opts); }
-  catch { await new Promise((ok) => setTimeout(ok, 1200)); try { r = await fetch('/api' + path, opts); } catch { throw new Error('Could not reach your S20. Check your connection.'); } }
+  catch { await new Promise((ok) => setTimeout(ok, 1200)); try { r = await fetch('/api' + path, opts); } catch { throw new Error(`Could not reach your ${state.bot || 'S20'}. Check your connection.`); } }
   const data = await r.json().catch(() => ({}));
   if (r.status === 401 && !path.startsWith('/login') && !path.startsWith('/invite') && path !== '/me') { state.me = null; go('/login'); throw new Error('Sign in again.'); }
   if (!r.ok || data.error) throw new Error(data.error || `Error ${r.status}`);
@@ -306,7 +306,7 @@ async function render() {
   if (!state.me) {
     const me = await api('/me').catch(() => ({}));
     if (me.device === false) return screens.untrusted();
-    state.vapid = me.vapid; state.push = me.push;
+    state.vapid = me.vapid; state.push = me.push; state.bot = me.bot;
     if (!me.user) return screens.login();
     state.me = me.user; connect(); presence(); await loadConvs().catch(() => {}); checkCall();
   }
@@ -786,7 +786,7 @@ function drawList(target) {
   else if (isStandalone() && !state.push && 'Notification' in window && Notification.permission !== 'denied') {
     const b = h('button', { class: 'btn', type: 'button' }, 'Turn on notifications');
     b.addEventListener('click', async () => { try { await enablePush(); toast('Notifications on'); drawList(); } catch (e) { toast(e.message, true); } });
-    banners.push(h('div', { class: 'banner' }, h('b', {}, 'Get notified'), 'So the S20 and your friends can reach you.', h('div', {}, b)));
+    banners.push(h('div', { class: 'banner' }, h('b', {}, 'Get notified'), `So the ${state.bot || 'S20'} and your friends can reach you.`, h('div', {}, b)));
   }
   const showArchived = !target && route().name === 'archived';        // (the sidebar always lists the live chats)
   const shown = state.convs.filter((c) => !!c.archived === showArchived);
@@ -889,7 +889,7 @@ function drawHeader() {
   if (!bar || !c) return;
   const t = state.typing[c.id];
   const sub = t && t.until > Date.now() ? h('small', { class: 'typing' }, c.kind === 'group' ? `${t.name} is typing…` : 'typing…')
-    : h('small', {}, isNcrChat(c) ? 'paste a job link · I fill, you approve' : c.kind === 'bot' ? 'your phone server' : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
+    : h('small', {}, isNcrChat(c) ? 'paste a job link · I fill, you approve' : c.kind === 'bot' ? (state.bot && state.bot !== 'S20' ? 'your assistant' : 'your phone server') : c.kind === 'group' ? c.people.map((p) => (p.id === state.me.id ? 'you' : p.name.split(' ')[0])).join(', ') : '@' + (c.people.find((p) => p.id !== state.me.id)?.username || ''));
   const title = h('button', { class: 't tbtn', type: 'button', 'aria-label': 'Chat options' }, h('b', {}, chatTitle(c), c.muted ? ic('bellOff', 'mini') : null), sub);
   title.addEventListener('click', () => chatMenu(state.cur));
   const more = h('button', { class: 'icon', type: 'button', 'aria-label': 'Chat options' }, ic('more'));
@@ -1076,7 +1076,7 @@ function drawMessages(stick, typingOnly) {
     if (d !== lastDay) { nodes.push(h('div', { class: 'day' }, d)); lastDay = d; prev = null; }
     nodes.push(bubble(m, prev)); prev = m;
   }
-  if (!state.msgs.length) nodes.push(h('p', { class: 'empty' }, state.cur.kind === 'bot' ? `Type "help" to see what ${state.me.role === 'owner' ? 'your S20' : 'I'} can do.` : 'Say hi 👋'));
+  if (!state.msgs.length) nodes.push(h('p', { class: 'empty' }, state.cur.kind === 'bot' ? `Type "help" to see what ${state.me.role === 'owner' ? `your ${state.bot || 'S20'}` : 'I'} can do.` : 'Say hi 👋'));
   if (state.newer) { const b = h('button', { class: 'more', type: 'button' }, 'Latest messages ↓'); b.addEventListener('click', () => openConv(state.cur.id, true)); nodes.push(b); }
   const t = state.typing[state.cur.id];
   if (t && t.until > Date.now()) nodes.push(h('div', { class: 'typing-dots', 'aria-label': `${t.name} is typing` }, h('i'), h('i'), h('i')));
@@ -1131,7 +1131,7 @@ function drawComposer() {
     send.addEventListener('click', () => stopRec(true));
     parts.push(h('div', { class: 'compose' }, cancel, h('div', { class: 'rec' }, h('i'), h('span', { id: 'rect' }, '0:00'), h('div', { class: 'lvl' }, h('b', { id: 'recl' }))), send));
   } else {
-    const ta = h('textarea', { rows: '1', placeholder: isNcrChat(c) ? 'Paste a job link…' : c.kind === 'bot' ? (state.me.role === 'owner' ? 'Message S20…' : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
+    const ta = h('textarea', { rows: '1', placeholder: isNcrChat(c) ? 'Paste a job link…' : c.kind === 'bot' ? (state.me.role === 'owner' ? `Message ${state.bot || 'S20'}…` : 'Message your job agent…') : state.editing ? 'Edit message' : 'Message', enterkeyhint: 'send', 'aria-label': 'Message' });
     if (state.editing) setTimeout(() => { ta.value = state.editing?.text || ''; sync(); ta.focus(); }, 0);
     else if (state.draft) { ta.value = state.draft; state.draft = ''; }
     const btn = h('button', { class: 'send mic', type: 'button', 'aria-label': 'Record a voice note' }, ic('mic'));

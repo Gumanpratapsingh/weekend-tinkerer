@@ -5,7 +5,7 @@
 //   ~/.cupboard_gemini_key (Google AI Studio, preferred: also reads photos) and/or ~/.cupboard_groq_key.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { one, all, run, HOME, MEDIA, botId, owner, getKv, setKv } from './db.mjs';
+import { one, all, run, HOME, MEDIA, botId, owner, getKv, setKv, BOT_NAME } from './db.mjs';
 import { fmt } from './together.mjs';
 
 const IST = 5.5 * 3600e3;
@@ -160,7 +160,7 @@ When they send photos: say what you actually see in each (for nails: shape and l
 what is visible), what is already good, and the 2-3 most useful things to do next. If earlier photos are attached for comparison, say what changed. If one hand or angle is missing, ask for it.
 Never diagnose: for yellow, thick, painful, very dark or sudden changes, an infection (redness, swelling, pus), or anything that worries you, tell them to see a dermatologist.
 Be kind and specific, never harsh about looks.`;
-    const system = `${coach ? COACH + '\n' : ''}You are the assistant inside Cupboard, the private chat app of ${Object.values(names).filter((n) => n !== 'S20').join(' and ')}. ${getKv('assistant_context') || ''}
+    const system = `${coach ? COACH + '\n' : ''}You are the assistant inside Cupboard, the private chat app of ${Object.values(names).filter((n) => n !== BOT_NAME).join(' and ')}. ${getKv('assistant_context') || ''}
 It is now ${istNow()} in India (IST). You are talking with ${names[me.id]}.
 Help with anything: wedding prep, skin, hair, nails, grooming, outfits, fitness, food, planning, everyday questions. Be warm, practical and short
 (under 120 words unless they ask for detail); plain text, simple "- " lists are fine. Skin, health and diet advice is general wellness, not medical:

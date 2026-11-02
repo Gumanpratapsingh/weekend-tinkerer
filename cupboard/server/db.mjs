@@ -9,6 +9,8 @@ export const DATA = join(HOME, 'cupboard', 'data');
 export const MEDIA = join(DATA, 'media');
 // The owner's own job agent. The prod environment sets CB_OWNER_AGENT empty: it has no owner agent and never reaches the private one.
 export const OWNER_AGENT = process.env.CB_OWNER_AGENT ?? 'http://127.0.0.1:8083';
+// The bot's display name. Its username stays s20 (other code looks it up by that).
+export const BOT_NAME = process.env.CB_BOT_NAME || 'S20';
 mkdirSync(MEDIA, { recursive: true, mode: 0o700 });
 
 export const db = new DatabaseSync(join(DATA, 'cupboard.db'));
@@ -72,7 +74,7 @@ export const setKv = (k, v) => run('INSERT INTO kv(k, v) VALUES(?, ?) ON CONFLIC
 
 // The server itself is a user ("S20"), so its messages look like any other chat.
 if (!one("SELECT 1 FROM users WHERE role = 'bot'")) {
-  run("INSERT INTO users(username, name, role, created) VALUES('s20', 'S20', 'bot', ?)", Date.now());
+  run("INSERT INTO users(username, name, role, created) VALUES('s20', ?, 'bot', ?)", BOT_NAME, Date.now());
 }
 export const botId = () => one("SELECT id FROM users WHERE role = 'bot'").id;
 export const owner = () => one("SELECT * FROM users WHERE role = 'owner' AND active = 1");
