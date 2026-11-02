@@ -1,5 +1,7 @@
 // Cupboard web app. One page; the path picks the screen. Messages and names are always inserted as text.
 const app = document.getElementById('app');
+// An index.html cached from before themes has no theme.js: load it, or dark mode would never switch on.
+if (!document.documentElement.hasAttribute('data-theme')) document.head.append(Object.assign(document.createElement('script'), { src: '/theme.js' }));
 // On a laptop (wide screen) Cupboard is a website: a sidebar (sections + chat list) beside the page. On a phone it stays an app:
 // one screen at a time with the tab bar at the bottom.
 let shell = document.getElementById('shell'), side = document.getElementById('side');
@@ -661,6 +663,11 @@ const screens = {
     // --- App ---
     const notifRow = row('bell', '#ff3b30', 'Notifications', state.push ? 'On for this device' : 'Off for this device',
       sw(!!state.push, async (on) => { if (on) await enablePush(); else await disablePush(); toast(on ? 'Notifications on' : 'Notifications off'); render(); return false; }));
+    const themeOf = () => { try { return localStorage.getItem('cb_theme') || 'auto'; } catch { return 'auto'; } };
+    const themeSel = h('select', { class: 'st-select', 'aria-label': 'Appearance' }, ...[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v }, l)));
+    themeSel.value = themeOf();
+    themeSel.addEventListener('change', () => { try { if (themeSel.value === 'auto') localStorage.removeItem('cb_theme'); else localStorage.setItem('cb_theme', themeSel.value); } catch { /* private mode */ } window.cbApplyTheme?.(); });
+    const themeRow = row('moon', '#5856d6', 'Appearance', 'Auto follows this device', themeSel);
     const popRow = row('chat', '#ff9f0a', 'Message sound', 'A soft pop while Cupboard is open', sw(flag('cb_pop'), (on) => { setFlag('cb_pop', on); if (on) Ring.pop(); }));
     const ringRow = row('phone', '#34c759', 'Call ring', 'Rings while Cupboard is open', sw(flag('cb_ring'), (on) => { setFlag('cb_ring', on); if (on) { Ring.start('in'); setTimeout(() => Ring.stop(), 2600); } }));
     const installRow = !isStandalone() ? row('plus', '#5856d6', 'Install the app', isIOS() ? 'Safari → Share → Add to Home Screen' : 'Browser menu → Install app / Add to Dock', chev(),
@@ -752,7 +759,7 @@ const screens = {
       h('div', { class: 'page' }, h('div', { class: 'st' },
         h('div', { class: 'st-me' }, h('span', { class: 'st-ic round big', style: 'background:linear-gradient(135deg,#ff9f0a,#ff375f)' }, (me.name || '?').trim()[0]?.toUpperCase() || '?'),
           h('span', { class: 'st-t' }, h('b', {}, me.name), h('small', {}, '@' + me.username, isOwner ? h('i', { class: 'st-pill' }, 'Owner') : me.admin ? h('i', { class: 'st-pill' }, 'Admin') : null))),
-        group('App', notifRow, popRow, ringRow, installRow),
+        group('App', themeRow, notifRow, popRow, ringRow, installRow),
         activityGroup, peopleGroup, securityGroup, state.noTogether ? null : monitorGroup, aboutGroup, watchNote,
         h('div', { class: 'st-grp st-outgrp' }, out))),
       tabbar('settings'));

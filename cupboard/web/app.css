@@ -1,6 +1,6 @@
 /* Cupboard: Swiss style (matches the Tinker hub). Bold type, hairlines, one red accent. Light and dark. */
 :root{--bg:#fff;--ink:#111;--soft:#707070;--line:#e5e5e5;--accent:#e2231a;--tint:#f6f6f6;--bub:#fff;--ok:#1faa59;--c3:#a9a9a9}
-@media (prefers-color-scheme:dark){:root{--bg:#0f0f0f;--ink:#f2f2f2;--soft:#9a9a9a;--line:#262626;--tint:#161616;--bub:#1b1b1b;--c3:#6d6d6d}}
+:root:where([data-theme="dark"]){--bg:#0f0f0f;--ink:#f2f2f2;--soft:#9a9a9a;--line:#262626;--tint:#161616;--bub:#1b1b1b;--c3:#6d6d6d}
 *{box-sizing:border-box}
 html,body{height:100%}
 html{-webkit-text-size-adjust:100%}
@@ -27,7 +27,7 @@ a{color:inherit}
 .av.sm{width:2.1rem;height:2.1rem;font-size:.72rem}
 .av.bot{background:var(--accent)}
 .av.k1{background:#555}.av.k2{background:#8a8a8a}.av.k3{background:#2b2b2b}
-@media (prefers-color-scheme:dark){.av{color:#0f0f0f;background:#f2f2f2}.av.k1{background:#bdbdbd}.av.k2{background:#8a8a8a}.av.k3{background:#e0e0e0}.av.bot{background:var(--accent);color:#fff}}
+:where(:root[data-theme="dark"]) .av{color:#0f0f0f;background:#f2f2f2}:where(:root[data-theme="dark"]) .av.k1{background:#bdbdbd}:where(:root[data-theme="dark"]) .av.k2{background:#8a8a8a}:where(:root[data-theme="dark"]) .av.k3{background:#e0e0e0}:where(:root[data-theme="dark"]) .av.bot{background:var(--accent);color:#fff}
 
 /* ---------- chat list ---------- */
 .scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
@@ -312,7 +312,7 @@ mark{background:none;color:var(--accent);font-weight:700}
    Layered over the rules above so the whole app shares it.
    ===================================================================================================== */
 :root{--bg:#fff;--ink:#1c1c1e;--soft:#8a8a8e;--line:#e5e5ea;--fill:#f2f2f7;--accent:#0071e3;--danger:#ff3b30;--tint:#f2f2f7;--bub:#f2f2f7;--ok:#2f9e4f;--c3:#c7c7cc}
-@media (prefers-color-scheme:dark){:root{--bg:#000;--ink:#f2f2f7;--soft:#98989f;--line:#2c2c2e;--fill:#1c1c1e;--accent:#2997ff;--danger:#ff453a;--tint:#1c1c1e;--bub:#262629;--ok:#32d74b;--c3:#636366}}
+:root:where([data-theme="dark"]){--bg:#000;--ink:#f2f2f7;--soft:#98989f;--line:#2c2c2e;--fill:#1c1c1e;--accent:#2997ff;--danger:#ff453a;--tint:#1c1c1e;--bub:#262629;--ok:#32d74b;--c3:#636366}
 body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,"Segoe UI",Roboto,sans-serif;font-size:16px}
 button,input,textarea,select{font-family:inherit}
 .ic{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
@@ -341,10 +341,10 @@ button,input,textarea,select{font-family:inherit}
 .t-purple{background:rgba(175,82,222,.14);color:#7b3fc4}
 .t-teal{background:rgba(50,173,230,.16);color:#0a7aa8}
 .t-pink{background:rgba(255,45,85,.13);color:#c4204a}
-@media (prefers-color-scheme:dark){
-  .t-red{background:rgba(255,69,58,.2);color:#ff6961}.t-blue{background:rgba(10,132,255,.22);color:#64b0ff}.t-green{background:rgba(48,209,88,.2);color:#5fe088}
-  .t-orange{background:rgba(255,159,10,.2);color:#ffb340}.t-purple{background:rgba(191,90,242,.22);color:#d594f7}.t-teal{background:rgba(100,210,255,.2);color:#7fd8ff}.t-pink{background:rgba(255,55,95,.2);color:#ff7a97}
-}
+
+  :where(:root[data-theme="dark"]) .t-red{background:rgba(255,69,58,.2);color:#ff6961}:where(:root[data-theme="dark"]) .t-blue{background:rgba(10,132,255,.22);color:#64b0ff}:where(:root[data-theme="dark"]) .t-green{background:rgba(48,209,88,.2);color:#5fe088}
+  :where(:root[data-theme="dark"]) .t-orange{background:rgba(255,159,10,.2);color:#ffb340}:where(:root[data-theme="dark"]) .t-purple{background:rgba(191,90,242,.22);color:#d594f7}:where(:root[data-theme="dark"]) .t-teal{background:rgba(100,210,255,.2);color:#7fd8ff}:where(:root[data-theme="dark"]) .t-pink{background:rgba(255,55,95,.2);color:#ff7a97}
+
 
 /* chat list screen */
 .lhead{flex:none;display:flex;justify-content:flex-end;align-items:center;padding:calc(.5rem + env(safe-area-inset-top)) .8rem 0}
@@ -713,3 +713,5 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
 .src-linkedin{background:#e1f5ee;color:#085041}
 .src-company{background:#faeeda;color:#633806}
 .rules-qa .rules-head p{margin:0}
+
+.st-select{font:inherit;font-size:.88rem;color:var(--ink);background:var(--fill);border:0;border-radius:8px;padding:.3rem .5rem}

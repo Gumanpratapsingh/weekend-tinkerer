@@ -3,12 +3,15 @@
 # Called by linux/auto-deploy.sh after each good deploy. Never touches data/, people/, profile/ or secrets.
 set -e
 R=${1:-/home/gpsingh/auto-deploy/repo}; P=/home/prod
-rsync -a --chown=prod:prod --exclude node_modules --exclude data --exclude people --exclude profile --exclude .git --exclude .primary-host --exclude STANDBY "$R/job-agent/" "$P/jobagent/"
-rsync -a --chown=prod:prod --exclude node_modules --exclude data "$R/cupboard/server/" "$P/cupboard/server/"
+# -i lists what changed, so a change elsewhere doesn't restart an agent in the middle of a search or an application.
+J=$(rsync -ai --chown=prod:prod --exclude node_modules --exclude data --exclude people --exclude profile --exclude .git --exclude .primary-host --exclude STANDBY "$R/job-agent/" "$P/jobagent/" | grep -c '^>f' || true)
+C=$(rsync -ai --chown=prod:prod --exclude node_modules --exclude data "$R/cupboard/server/" "$P/cupboard/server/" | grep -c '^>f' || true)
 cd "$P/jobagent" && { cmp -s package.json .deps-installed 2>/dev/null || { sudo -u prod HOME=$P npm install --omit=dev --no-audit --no-fund >/dev/null && sudo -u prod cp package.json .deps-installed; }; }
 cd "$P/cupboard/server" && { cmp -s package.json .installed.json 2>/dev/null || { sudo -u prod HOME=$P npm install --omit=dev --no-audit --no-fund --silent && sudo -u prod cp package.json .installed.json; }; }
 # The units carry the prod settings (CB_PROD): keep them in step with the code, and this script with itself.
 install -m 644 "$R"/job-agent/linux/prod/*.service "$R"/job-agent/linux/prod/*.target "$R"/job-agent/linux/prod/*.timer /etc/systemd/system/
 install -m 755 "$R/job-agent/linux/prod/jobprod-sync" /usr/local/sbin/jobprod-sync
 systemctl daemon-reload
-systemctl try-restart cupboard-prod jobworker-prod 'jobagent-prod@*'
+[ "$C" -gt 0 ] && systemctl try-restart cupboard-prod
+[ "$J" -gt 0 ] && systemctl try-restart jobworker-prod 'jobagent-prod@*'
+true
