@@ -58,7 +58,7 @@ console.log(JSON.stringify({
       m ? 'Your resume: Guman already added it. You\'ll review it in chat.' : 'Your resume, as a PDF.',
       ...(c.keys_by_owner ? [] : ['Two free AI keys, one from Google Gemini and one from Groq. You create them; no card needed.']),
       'A Gmail app password for your job mailbox (mail access only, you can delete it anytime).',
-      'LinkedIn and Naukri sign-in: you type into the real site and only the signed-in session is kept, not your password.',
+      'LinkedIn and Naukri sign-in: you type into the real site and only the signed-in session is kept, not your password. If that doesn\'t work, Guman may ask for your login and any OTP to sign in for you. Change your password afterwards; the session stays signed in.',
     ] },
     { heading: 'Who can see your data', items: [
       'It runs on a laptop at Guman\'s home. Chats and data are stored there and are not end-to-end encrypted.',
