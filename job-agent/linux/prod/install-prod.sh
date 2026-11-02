@@ -20,6 +20,16 @@ rsync -a --chown=prod:prod "$G/.cache/ms-playwright/" "$P/.cache/ms-playwright/"
 sudo -u prod cp "$P/jobagent/package.json" "$P/jobagent/.deps-installed"
 sudo -u prod cp "$P/cupboard/server/package.json" "$P/cupboard/server/.installed.json"
 
+# The settings template new people's config starts from (src/onboard.mjs), without the owner's personal parts.
+python3 - "$REPO/job-agent/profile/config.json" "$P/jobagent/profile/config.json" <<'PY'
+import json, os, sys
+c = json.load(open(sys.argv[1]))
+for k in ('tracks', 'naukri_headlines', 'naukri_resume', 'career_switch'): c.pop(k, None)
+c['referrals'] = {**c.get('referrals', {}), 'companies': [], 'school': ''}
+json.dump(c, open(sys.argv[2], 'w'), indent=2)
+PY
+chown prod:prod "$P/jobagent/profile/config.json"; chmod 600 "$P/jobagent/profile/config.json"
+
 for u in cupboard-prod.service jobworker-prod.service 'jobagent-prod@.service' jobprod.target jobprod-firewall.service jobprod-watchdog.service jobprod-watchdog.timer; do
   install -m 644 "$SRC/$u" /etc/systemd/system/
 done

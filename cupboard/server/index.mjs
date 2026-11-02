@@ -353,7 +353,7 @@ async function api(req, res, path, query) {
   }
   if ((m = /^\/api\/invite\/([a-f0-9]{32})$/.exec(path))) {
     const inv = one('SELECT i.*, u.name AS by FROM invites i LEFT JOIN users u ON u.id = i.created_by WHERE i.token = ? AND i.used_by IS NULL AND i.expires > ?', m[1], Date.now());
-    if (M === 'GET') return send(res, 200, inv ? { valid: true, by: inv.by || 'Guman', owner: inv.role === 'owner' } : { valid: false });
+    if (M === 'GET') return send(res, 200, inv ? { valid: true, by: inv.by || 'Guman', owner: inv.role === 'owner', plan: inv.plan ? JSON.parse(inv.plan) : null } : { valid: false });
     if (!inv) throw err(410, 'This invite has expired or was already used.');
     const ip = visitorIp(req);
     if (locked(ip)) throw err(429, 'Too many attempts. Try again in 15 minutes.');

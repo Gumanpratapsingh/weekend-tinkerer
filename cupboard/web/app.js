@@ -343,7 +343,8 @@ const screens = {
     const user = h('input', { autocomplete: 'username', autocapitalize: 'none', autocorrect: 'off', required: true, maxlength: '20', placeholder: 'e.g. rahul_k' });
     const pass = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: '8' });
     const err = h('p', { class: 'err' });
-    const b = h('button', { class: 'btn full', type: 'submit' }, inv.owner ? 'Create my account' : 'Join Cupboard');
+    const plan = inv.plan;                                // a job agent invite: everything the agent will do, shown before they join
+    const b = h('button', { class: 'btn full', type: 'submit' }, inv.owner ? 'Create my account' : plan ? plan.accept : 'Join Cupboard');
     const f = h('form', {}, h('label', { class: 'field' }, h('span', {}, 'Your name'), name), h('label', { class: 'field' }, h('span', {}, 'Username (to sign in)'), user),
       h('label', { class: 'field' }, h('span', {}, 'Password (at least 8 characters)'), pass), b, err);
     f.addEventListener('submit', async (e) => {
@@ -352,7 +353,10 @@ const screens = {
       catch (x) { err.textContent = x.message; } finally { b.disabled = false; }
     });
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
-      h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
+      plan ? h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, plan.title), h('p', { class: 'lede' }, plan.intro)),
+        ...plan.sections.map((x) => h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), h('ul', {}, ...x.items.map((t) => h('li', {}, t))), x.note ? h('p', { class: 'st-note' }, x.note) : null)),
+        h('div', { class: 'sec' }, 'Create your account'), f)
+      : h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
         h('p', { class: 'lede' }, inv.owner ? 'Set up the owner account for your phone server.' : 'Cupboard is a private chat that runs on Guman\'s phone server. Messages are stored on that phone (not end-to-end encrypted).')), f));
   },
 

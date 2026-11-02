@@ -673,3 +673,10 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
   .jd{max-width:60rem;margin-inline:auto}
   .jtabs{justify-content:center}
 }
+
+/* A job agent invite: what the agent will do, before the person joins */
+.plan-sec{margin:0 0 1.15rem}
+.plan-sec h3{font-size:1rem;font-weight:700;margin:0 0 .4rem}
+.plan-sec ul{margin:0;padding:0 0 0 1.1rem;color:var(--ink);font-size:.92rem;line-height:1.45}
+.plan-sec li{margin:.2rem 0}
+.plan-sec .st-note{margin:.4rem 0 0}

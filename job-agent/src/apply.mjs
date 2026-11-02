@@ -45,6 +45,13 @@ export async function applyNext({ dryRun = false } = {}) {
   const caps = config().daily_caps;
   if (!dryRun && appliedToday() >= caps.total) return null;
   const queued = all("SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT 200");
+  // config.exclude_companies: never apply here (the person's current employer, say).
+  const excluded = (config().exclude_companies || []).map((c) => c.toLowerCase());
+  for (let i = queued.length - 1; i >= 0; i--) {
+    if (!excluded.some((c) => String(queued[i].company || '').toLowerCase().includes(c))) continue;
+    run("UPDATE jobs SET status = 'skipped', status_note = 'company excluded in config' WHERE id = ?", queued[i].id);
+    queued.splice(i, 1);
+  }
   const job = queued.find((j) => {
     const b = BUCKET[j.apply_type];
     return b && siteReady(b) && (dryRun || appliedToday(b) < caps[b]) && companyToday(j.company) < caps.per_company

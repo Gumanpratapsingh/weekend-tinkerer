@@ -38,8 +38,10 @@ umask 077; mkdir -p "$HOME/.jobagent-$N"
 echo "agent folder: ~prod/jobagent/people/$N (port $(cat "$P/port"))"
 cd ~/cupboard/server && node --no-warnings -e '
 import("./db.mjs").then(({ run, owner }) => {
-  const t = require("crypto").randomBytes(16).toString("hex"), url = require("fs").readFileSync(process.env.HOME + "/cupboard/public-url", "utf8").trim();
-  run("INSERT INTO invites(token, created_by, expires) VALUES(?,?,?)", t, owner()?.id ?? null, Date.now() + 7 * 86400e3);
+  const fs = require("fs"), t = require("crypto").randomBytes(16).toString("hex"), url = fs.readFileSync(process.env.HOME + "/cupboard/public-url", "utf8").trim();
+  // What their agent will do, shown on the invite page before they join (built from their real settings).
+  const plan = require("child_process").execFileSync("node", ["--no-warnings", process.env.HOME + "/jobagent/linux/prod/invite-plan.mjs", process.env.N], { encoding: "utf8" });
+  run("INSERT INTO invites(token, created_by, expires, plan) VALUES(?,?,?,?)", t, owner()?.id ?? null, Date.now() + 7 * 86400e3, plan);
   console.log("\nProd Cupboard invite (works once, 7 days), send it to them:\n" + url + "/invite/" + t);
 })'
 EOF_STEP1
