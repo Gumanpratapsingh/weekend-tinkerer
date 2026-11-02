@@ -9,7 +9,7 @@ if (!shell || !side) {                                       // an older cached 
 }
 const desktopMq = window.matchMedia('(min-width: 64rem)');
 const isDesktop = () => desktopMq.matches;
-const SECTION = { chat: 'chats', list: 'chats', archived: 'chats', search: 'chats', new: 'chats', group: 'chats', media: 'chats', together: 'together', tlist: 'together', jobs: 'jobs', signin: 'jobs', me: 'settings', monitor: 'settings', activity: 'settings' };
+const SECTION = { chat: 'chats', list: 'chats', archived: 'chats', search: 'chats', new: 'chats', group: 'chats', media: 'chats', together: 'together', tlist: 'together', jobs: 'jobs', signin: 'jobs', me: 'settings', monitor: 'settings', activity: 'settings', rules: 'rules' };
 
 // ---------- helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -288,7 +288,7 @@ function route() {
   if ((m = /^\/activity(?:\/(\d+))?$/.exec(p))) return { name: 'activity', id: m[1] ? Number(m[1]) : null };
   if ((m = /^\/together(\/calendar)?$/.exec(p))) return { name: 'together', tab: m[1] ? 'cal' : 'lists' };
   if ((m = /^\/together\/list\/(\d+)$/.exec(p))) return { name: 'tlist', id: Number(m[1]) };
-  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/monitor': 'monitor', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
+  return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/monitor': 'monitor', '/rules': 'rules', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
 }
 // What a person's job agent will do, the same on the invite and first-password pages.
 const planNodes = (plan) => plan.sections.map((x) => h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), h('ul', {}, ...x.items.map((t) => h('li', {}, t))), x.note ? h('p', { class: 'st-note' }, x.note) : null));
@@ -766,7 +766,7 @@ function tabbar(active, cls = 'tabbar') {
   const tab = (id, href, icon, label, badge) => h('a', { class: 'tab' + (id === active ? ' on' : ''), href, 'data-link': true, 'aria-label': label },
     h('span', { class: 'ti' }, ic(icon), badge ? h('i', { class: 'tb' }, badge > 99 ? '99+' : String(badge)) : null), h('span', {}, label));
   return h('nav', { class: cls, 'aria-label': 'Sections' },
-    tab('chats', '/', 'chat', 'Chats', unread), state.noTogether ? null : tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), tab('settings', '/me', 'sliders', 'Settings'));
+    tab('chats', '/', 'chat', 'Chats', unread), state.noTogether ? null : tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), state.noTogether && state.me?.role !== 'owner' ? tab('rules', '/rules', 'list', 'Rules') : null, tab('settings', '/me', 'sliders', 'Settings'));
 }
 // The desktop sidebar: brand, the four sections, search, and the chat list (never the archived view: that opens on the right).
 function drawSide() {
@@ -1510,6 +1510,16 @@ function upsertEvent(e) {
   redrawTogether();
 }
 function dropEvent(id) { if (state.tg) { state.tg.events = state.tg.events.filter((e) => e.id !== id); redrawTogether(); } }
+
+// On what basis the person's job agent applies: their live settings, in plain words.
+screens.rules = async () => {
+  const page = h('div', { class: 'page' }, h('p', { class: 'loading' }, 'Loading…'));
+  app.replaceChildren(h('div', { class: 'bar' }, back('/'), h('div', { class: 't' }, h('b', {}, 'Rules'), h('small', {}, 'on what basis your agent applies'))), page, tabbar('rules'));
+  try {
+    const b = await api('/jobs/basis');
+    page.replaceChildren(h('p', { class: 'rules-status' }, b.status), ...planNodes(b), h('p', { class: 'st-note' }, b.note));
+  } catch (x) { page.replaceChildren(h('p', { class: 'lede' }, x.message)); }
+};
 
 // Prod, owner only: everyone's activity. The server refuses anyone else.
 screens.activity = async (r) => {

@@ -760,7 +760,7 @@ async function api(req, res, path, query) {
         'X-Task': r.headers.get('x-task') || '', 'X-Url': r.headers.get('x-url') || '' });
       return res.end(buf);
     }
-    if (M === 'GET' && ['summary', 'list', 'detail', 'memory', 'referrals', 'log'].includes(name)) {
+    if (M === 'GET' && ['summary', 'basis', 'list', 'detail', 'memory', 'referrals', 'log'].includes(name)) {
       const qs = new URLSearchParams(Object.entries(query).filter(([k]) => ['status', 'q', 'page', 'id', 'since'].includes(k)).map(([k, v]) => [k, String(v).slice(0, 200)]));
       const r = await fetch(`${agent}/internal/dash/${name}?${qs}`, { signal: AbortSignal.timeout(20000) }).catch(() => null);
       if (!r) throw err(503, 'Your job agent is not responding. It may be restarting.');

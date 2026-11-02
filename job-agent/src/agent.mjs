@@ -153,7 +153,7 @@ createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'image/jpeg', 'X-Task': encodeURIComponent(s.meta.task || ''), 'X-Url': encodeURIComponent(String(s.meta.url || '').slice(0, 200)) });
           return res.end(s.image);
         }
-        const fn = { summary: dash.summary, list: dash.list, detail: dash.detail, memory: dash.memory, referrals: dash.referrals, log: dash.log }[name];
+        const fn = { summary: dash.summary, basis: dash.basis, list: dash.list, detail: dash.detail, memory: dash.memory, referrals: dash.referrals, log: dash.log }[name];
         if (!fn) return reply(404, '{"error":"not found"}', 'application/json');
         const out = fn(qs);
         return out ? reply(200, JSON.stringify(out), 'application/json') : reply(404, '{"error":"Not found."}', 'application/json');

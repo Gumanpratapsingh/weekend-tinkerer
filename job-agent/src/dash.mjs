@@ -36,6 +36,40 @@ export function summary() {
   };
 }
 
+// "On what basis do you apply for me?": the person's live settings in plain words (Cupboard's Rules page).
+export function basis() {
+  const c = config(), L = c.locations || {}, caps = c.daily_caps || {};
+  const pretty = (t) => String(t).trim().split(/\s+/).map((w) => ({ aws: 'AWS', gcp: 'GCP', sre: 'SRE', devops: 'DevOps', qa: 'QA', vp: 'VP', sde: 'SDE' })[w.toLowerCase()] || w[0].toUpperCase() + w.slice(1)).join(' ');
+  const searched = (L.naukri || []).map((x) => x.location).filter(Boolean);
+  const cities = searched.filter((x) => x !== 'remote').map(pretty), remote = searched.includes('remote');
+  const dry = (getKv('dry_run') ?? '1') === '1', until = Number(getKv('review_until', 0));
+  const review = getKv('review_mode') === '1' || (getKv('review_mode') !== '0' && Date.now() < until);
+  const day = until ? new Date(until + 5.5 * 3600e3).toISOString().slice(0, 10) : '';
+  const on = (x) => (x ? 'connected' : 'not connected');
+  return {
+    status: getKv('paused') === '1' ? 'Paused: nothing is being submitted. Send "resume" to restart.'
+      : dry ? 'Dry run: it fills forms but submits nothing. Send "go live" when you are ready.'
+        : review ? `Review mode${day ? ` until ${day}` : ''}: every application waits for you to tap Submit.` : 'Live: it submits on its own, within the limits below.',
+    sections: [
+      { heading: 'Roles it looks for', items: (c.tracks?.backend?.queries || []).map(pretty) },
+      { heading: 'Where the job must be', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'] },
+      { heading: 'Which jobs it applies to', items: [
+        `AI fit score of ${c.min_score ?? 65}% or higher, comparing the job with your resume.`,
+        c.min_salary_lpa ? `Skips jobs that state less than ${c.min_salary_lpa} LPA.` : 'No minimum salary set.',
+        ...(c.experience_years ? [`Skips jobs clearly asking for far more than your ${c.experience_years} years.`] : []),
+        ...((c.title_exclude || []).length ? [`Skips job titles with: ${c.title_exclude.map(pretty).join(', ')}.`] : []),
+        ...((c.exclude_companies || []).length ? [`Never applies to: ${c.exclude_companies.map(pretty).join(', ')}.`] : []),
+      ] },
+      { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day (${on(hasSession('linkedin'))}).`, `Naukri: up to ${caps.naukri} a day (${on(hasSession('naukri'))}).`, `Company career sites: up to ${caps.ats} a day.`,
+        `At most ${caps.total} a day and ${caps.per_company} per company.`] },
+      { heading: 'What it sends', items: ['Only facts from your resume and answers you gave. Anything it does not know, it asks you in chat.',
+        `For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`, 'On Naukri it uses your resume as uploaded.',
+        `Job emails: ${on(!!secret('gmail_app_password'))}. Recruiter replies and referral messages go out only after you approve them.`] },
+    ],
+    note: 'Open any job in the Jobs tab to see its score and the reasons for it. To change anything here, ask in your Job agent chat.',
+  };
+}
+
 export function list({ status = 'matches', q = '', page = 0 }) {
   const term = `%${String(q).slice(0, 60)}%`;
   const where = status === 'all' ? '1' : status === 'matches' ? 'score IS NOT NULL' : 'status = ?';

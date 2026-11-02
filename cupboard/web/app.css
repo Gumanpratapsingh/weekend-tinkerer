@@ -692,3 +692,5 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
 .act-msg.mine{align-self:flex-end;border:1px solid var(--accent)}
 .act-msg small{color:var(--soft);font-size:.72rem}
 .act-msg p{margin:.15rem 0 0;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.rules-status{background:var(--fill);border-radius:12px;padding:.65rem .8rem;font-size:.92rem;margin:0 0 1.1rem}
