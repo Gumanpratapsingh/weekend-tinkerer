@@ -278,7 +278,7 @@ createServer((req, res) => {
     req.on('end', async () => {
       let w, b;
       try { b = JSON.parse(raw || '{}'); w = whoOf(b); } catch (e) { return reply(400, { error: e.message }); }
-      if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'Someone else is signing in on the phone right now. Try again in a few minutes.' });
+      if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'Someone else is signing in right now. Try again in a few minutes.' });
       if (!['linkedin', 'naukri'].includes(b.site)) return reply(400, { error: 'bad site' });
       const limit = setTimeout(() => signin?.browser.close().catch(() => {}), 17 * 60e3);
       try { reply(200, await session.person.run(w, () => runSignin(w, b.site))); }
@@ -292,7 +292,7 @@ createServer((req, res) => {
     req.on('end', async () => {
       let w, b;
       try { b = JSON.parse(raw || '{}'); w = whoOf(b); } catch (e) { return reply(400, { error: e.message }); }
-      if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'The phone browser is busy with someone else right now. Try again in a few minutes.' });
+      if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'The browser is busy with someone else right now. Try again in a few minutes.' });
       if (!b.job?.apply_url) return reply(400, { error: 'no job' });
       try { reply(200, await session.person.run(w, () => runCaptcha(w, b))); }
       catch (e) { console.error(`[${w.person}] captcha`, e?.message); session.person.run(w, () => session.workerError('captcha', e)); reply(500, { error: e?.message || String(e) }); }

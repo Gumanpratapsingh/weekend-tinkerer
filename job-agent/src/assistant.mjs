@@ -2,7 +2,7 @@
 // Read-only: it explains and reports; it never changes anything.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { llm, config, DATA, HOME } from './core.mjs';
+import { llm, config, DATA, HOME, OWNER } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
 
 const HOW = `How the job agent works (for explaining "why" questions):
@@ -15,6 +15,13 @@ const HOW = `How the job agent works (for explaining "why" questions):
 - A thermal guard pauses the browser if the phone gets hot. Inbox is checked every few hours; recruiter replies are drafted and need his OK.
 - Referral outreach drafts LinkedIn invites/messages that always wait for his Send.
 Statuses: new (unscored), scored (below threshold), queued, applying, ready (dry run), needs_answer, captcha, manual (apply yourself), claimed, applied, interview, rejected, failed, skipped, filtered.`;
+// Everyone else's agent: the same explanation without the owner's own setup, and true to their resume setting.
+const HOW_PERSON = () => HOW.replace("Runs on the owner's S20 phone 24/7.", 'Runs 24/7 on a server.')
+  .replace(/Naukri uses his original profile resume; LinkedIn and company sites get a tailored resume \(facts only\)\./, config().original_resume_only
+    ? 'Naukri uses the Naukri profile resume; LinkedIn and company sites get the resume exactly as the person gave it, never edited.'
+    : 'Naukri uses the Naukri profile resume; LinkedIn and company sites get a tailored resume (facts only).')
+  .replace(/wait for him to finish on the Mac \(scripts\/finish\.sh\)/, 'wait for the person to finish them')
+  .replace('if the phone gets hot', 'if the server gets hot').replace(/\bhim\b/g, 'the person').replace(/\bhis\b/g, 'their');
 
 function context() {
   const day = Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
@@ -49,13 +56,13 @@ function context() {
 
 export async function ask(question) {
   const out = await llm([
-    { role: 'system', content: `You are "S20", the owner's assistant inside his private chat app, running on his phone. You answer questions about
-his job agent (and his phone) using ONLY the CONTEXT and HOW below. Be direct and short (2-6 sentences or a few bullets), use the actual
+    { role: 'system', content: `${OWNER ? `You are "S20", the owner's assistant inside his private chat app, running on his phone. You answer questions about
+his job agent (and his phone)` : `You are the assistant inside this person's job agent chat. You answer questions about their job agent`} using ONLY the CONTEXT and HOW below. Be direct and short (2-6 sentences or a few bullets), use the actual
 numbers and names from the context, and explain causes in plain words. If the context doesn't contain the answer, say exactly what is
-missing and where he can look (hub pages: /jobs, /jobs/live, /jobs/errors, /jobs/referrals, /jobs/memory). Never invent jobs, numbers or errors.
+missing and where ${OWNER ? 'he can look (hub pages: /jobs, /jobs/live, /jobs/errors, /jobs/referrals, /jobs/memory)' : 'they can look (the Jobs and Rules tabs)'}. Never invent jobs, numbers or errors.
 
 HOW:
-${HOW}` },
+${OWNER ? HOW : HOW_PERSON()}` },
     { role: 'user', content: `CONTEXT:\n${context()}\n\nQUESTION: ${question}` },
   ], { maxTokens: 700, temperature: 0.2, why: 'answering your question in Cupboard' });
   return String(out || '').trim() || "I couldn't work that out from what I can see right now.";

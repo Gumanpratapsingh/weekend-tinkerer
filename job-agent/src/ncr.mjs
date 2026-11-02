@@ -3,7 +3,7 @@
 // automatically (the person applies themselves). "ncr off" in the chat stops it; "ncr on" starts it again.
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { config, log, logError, activity, istHour, istDate, hasSession, resumeFile, sleep } from './core.mjs';
+import { config, log, logError, activity, istHour, istDate, hasSession, resumeFile, sleep, OWNER } from './core.mjs';
 import { one, all, run, getKv, setKv, dedupeKey } from './db.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
 import { browserTask } from './browser.mjs';
@@ -194,7 +194,7 @@ export async function ncrFill(jobId, { chat = 'ncr' } = {}) {
 
 // CAPTCHA: same handoff as the queue (apply.mjs): the job waits in the CAPTCHA list and scripts/finish.sh on the Mac opens it prefilled.
 function captchaHandoff(job, res, chat = 'ncr') {
-  run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
+  run("UPDATE jobs SET status = 'captcha', status_note = ? WHERE id = ?", OWNER ? 'CAPTCHA: run ./scripts/finish.sh on the Mac' : 'needs you to finish a human check', job.id);
   return import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { chat, images: res.shot ? [res.shot] : null, urgent: job.id }));
 }
 

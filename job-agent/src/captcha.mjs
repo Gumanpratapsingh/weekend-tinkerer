@@ -2,7 +2,7 @@
 // page (same screen/tap/type plumbing as the sign-in page): they solve the CAPTCHA and press Submit themselves.
 // Nothing here reads or solves a CAPTCHA.
 import { existsSync } from 'node:fs';
-import { AGENT_URL, CUPBOARD_URL, log, logError, privateProfile } from './core.mjs';
+import { AGENT_URL, CUPBOARD_URL, OWNER, log, logError, privateProfile } from './core.mjs';
 import { one, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
@@ -17,7 +17,7 @@ export async function captchaCard(job, { chat = null, images = null, urgent = fa
       body: JSON.stringify({ to: privateProfile().cupboard_user, agent: AGENT_URL, site: 'captcha', job: job.id }) });
     link = (await r.json()).path;
   } catch (e) { log(`captcha link: ${e.message}`); }
-  const text = `🧩 ${label(job)} needs a CAPTCHA. ${link ? 'Tap "Fill and open": I fill the form, you type the CAPTCHA and press Submit.\nOn the Mac it also opens by itself.' : 'Run ./scripts/finish.sh on the Mac, solve it, press Submit.'}`;
+  const text = `🧩 ${label(job)} needs a CAPTCHA. ${link ? 'Tap "Fill and open": I fill the form, you type the CAPTCHA and press Submit.' + (OWNER ? '\nOn the Mac it also opens by itself.' : '') : OWNER ? 'Run ./scripts/finish.sh on the Mac, solve it, press Submit.' : 'Open the job and finish it there yourself.'}`;
   return tell(text, { chat, images, urgent, ...(link ? { refKind: 'captcha', refId: job.id, link: { label: 'Fill and open', path: link } } : {}) });
 }
 

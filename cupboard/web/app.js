@@ -334,7 +334,7 @@ const screens = {
       catch (x) { err.textContent = x.message; } finally { b.disabled = false; }
     });
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
-      h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, 'Cupboard'), h('p', { class: 'lede' }, 'Private chat, served from a phone in a cupboard. Invite only.')), f));
+      h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, 'Cupboard'), h('p', { class: 'lede' }, state.noTogether ? 'Sign in to your job agent.' : 'Private chat, served from a phone in a cupboard. Invite only.')), f));
   },
 
   async invite(token) {
@@ -420,8 +420,8 @@ const screens = {
     const captcha = info.site === 'captcha';
     const site = captcha ? (info.title ? `${info.title.title} @ ${info.title.company}` : 'the application') : { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
     const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back'));
-    const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the phone browser…');
-    const img = h('img', { class: 'screen', alt: `${site} on the phone's browser`, draggable: 'false' });
+    const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the browser…');
+    const img = h('img', { class: 'screen', alt: `${site} in the browser`, draggable: 'false' });
     const box = h('input', { type: 'text', autocapitalize: 'none', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false', placeholder: 'Type here, then Send' });
     const show = h('label', { class: 'show' }, h('input', { type: 'checkbox' }), ' hide what I type');
     show.firstChild.addEventListener('change', () => { box.type = show.firstChild.checked ? 'password' : 'text'; });
@@ -434,7 +434,7 @@ const screens = {
       const rect = img.getBoundingClientRect();
       input({ kind: 'tap', x: Math.round((e.clientX - rect.left) * (img.naturalWidth / rect.width)), y: Math.round((e.clientY - rect.top) * (img.naturalHeight / rect.height)) });
     });
-    app.replaceChildren(h('div', { class: 'bar' }, back, h('div', { class: 't' }, h('h1', {}, captcha ? 'CAPTCHA' : `${site} sign-in`), h('small', {}, captcha ? site : 'on your job agent\'s phone browser'))),
+    app.replaceChildren(h('div', { class: 'bar' }, back, h('div', { class: 't' }, h('h1', {}, captcha ? 'CAPTCHA' : `${site} sign-in`), h('small', {}, captcha ? site : 'in your job agent\'s browser'))),
       h('div', { class: 'scroll signin' }, status, img, h('div', { class: 'srow' }, box, sendBtn), h('div', { class: 'srow' }, ...keys, show),
         h('p', { class: 'note' }, captcha ? 'The form is already filled. Tap the CAPTCHA box and type it below, check the details, then tap Submit on the screen. I only watch for the confirmation.' : `Tap the screen to click. What you type goes straight into ${site}'s page; your job agent keeps only the signed-in session, never your password.`)));
     await api(`${base}/start`, { method: 'POST' }).catch((e) => toast(e.message, true));
@@ -473,7 +473,7 @@ const screens = {
     app.replaceChildren(
       h('div', { class: 'lhead' }, h('a', { class: 'icon', href: '/new', 'data-link': true, 'aria-label': 'New chat', title: 'New chat' }, ic('compose'))),
       h('div', { class: 'scroll' },
-        h('div', { class: 'ltitle' }, h('h1', {}, 'Chats'), h('small', { id: 'phone' }, 'served from home')),
+        h('div', { class: 'ltitle' }, h('h1', {}, 'Chats'), h('small', { id: 'phone' }, state.noTogether ? '' : 'served from home')),
         h('a', { class: 'lsearch', href: '/search', 'data-link': true, 'aria-label': 'Search messages' }, ic('search'), 'Search'),
         h('div', { id: 'list' })),
       tabbar('chats'));
@@ -1415,10 +1415,10 @@ const jobTabs = {
       ...(rows.length ? rows.map(card) : [h('p', { class: 'soft' }, 'None yet. They start once LinkedIn is connected.')])));
   },
   async live(box) {
-    const img = h('img', { class: 'screen', alt: 'Phone browser', hidden: true });
+    const img = h('img', { class: 'screen', alt: 'Browser', hidden: true });
     const cap = h('p', { class: 'soft' }, 'The phone\'s browser shows up here while it works on one of your applications.');
     const term = h('pre', { class: 'term' });
-    box.replaceChildren(sec('Phone browser', cap, img), sec('What your agent is doing', term));
+    box.replaceChildren(sec('Browser', cap, img), sec('What your agent is doing', term));
     let offset;
     const tick = async () => {
       if (route().name !== 'jobs' || route().tab !== 'live') return;

@@ -125,11 +125,11 @@ createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(readFileSync(join(DATA, 'live-signin.jpg')));
         }
         if (what === 'input' && req.method === 'POST') {
-          if (!mine) return json({ error: 'The sign-in page is not open on the phone yet.' }, 409);
+          if (!mine) return json({ error: 'The sign-in page is not open yet.' }, 409);
           const b = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           const r = await fetch(`${WORKER_URL}/input`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
             body: JSON.stringify({ kind: b.kind, x: b.x, y: b.y, text: b.text, key: b.key, _who: { person: PERSON || 'owner', port: PORT } }) }).catch(() => null);
-          return json(r ? await r.json() : { error: 'phone browser not reachable' }, r?.status || 502);
+          return json(r ? await r.json() : { error: 'browser not reachable' }, r?.status || 502);
         }
         return reply(404, 'not found');
       }
@@ -412,7 +412,7 @@ if (OWNER) every(2, 'worker watchdog', async () => {     // the shared worker is
   workerMisses = ok ? 0 : workerMisses + 1;
   if (workerMisses < 2) return;
   workerMisses = 0;
-  activity('🔧 Phone browser was down: restarting it');
+  activity('🔧 Browser was down: restarting it');
   const { spawn } = await import('node:child_process');
   spawn('sh', [join(ROOT, 'scripts', 'run.sh'), 'worker'], { detached: true, stdio: 'ignore' }).unref();
 }, { delay: 90e3 });

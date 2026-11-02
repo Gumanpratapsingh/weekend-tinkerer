@@ -167,8 +167,8 @@ function settle(job, res) {
       }
       // CAPTCHA: act the same day: the posting may close within days (see expireStale in captcha.mjs). The Mac helper (scripts/finish.sh) opens it prefilled for the owner to solve and submit.
       if (/captcha/i.test(res.reason || '')) {
-        run("UPDATE jobs SET status = 'captcha', status_note = 'CAPTCHA: run ./scripts/finish.sh on the Mac' WHERE id = ?", job.id);
-        activity(`🧩 ${label}: CAPTCHA — prefilled for you via ./scripts/finish.sh`);
+        run("UPDATE jobs SET status = 'captcha', status_note = ? WHERE id = ?", OWNER ? 'CAPTCHA: run ./scripts/finish.sh on the Mac' : 'needs you to finish a human check', job.id);
+        activity(`🧩 ${label}: ${OWNER ? 'CAPTCHA — prefilled for you via ./scripts/finish.sh' : 'needs you to finish a human check'}`);
         import('./captcha.mjs').then(({ captchaCard }) => captchaCard(job, { urgent: job.id })).catch((e) => logError('captcha card', e, { job: job.id }));
         break;
       }

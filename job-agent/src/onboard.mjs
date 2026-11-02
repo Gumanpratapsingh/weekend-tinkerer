@@ -211,7 +211,7 @@ async function saveGmail(text, msgId) {
 function hide(msgId) {
   if (!msgId) return;
   fetch(`${CUPBOARD_URL}/redact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
-    body: JSON.stringify({ id: Number(msgId), text: '🔒 (hidden: saved securely on the phone)' }) }).catch(() => {});
+    body: JSON.stringify({ id: Number(msgId), text: '🔒 (hidden: saved securely)' }) }).catch(() => {});
 }
 
 /** "login linkedin" / "login naukri" / "login gmail" at any time. Returns true if handled. */
