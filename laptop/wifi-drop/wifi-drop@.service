@@ -1,0 +1,6 @@
+[Unit]
+Description=Add WiFi from pendrive %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wifi-drop /dev/%i
