@@ -42,7 +42,7 @@ f = '/etc/nginx/nginx.conf'; s = open(f).read()
 if '/cupboard-prod/' in s: sys.exit(0)
 blocks = re.findall(r'^[ \t]*location[^\n{]*/cupboard/[^\n{]*\{.*?^[ \t]*\}\n', s, flags=re.S | re.M)
 if len(blocks) < 2: sys.exit('nginx: could not find the /cupboard blocks')
-prod = ''.join(blocks).replace('/cupboard/', '/cupboard-prod/').replace('127.0.0.1:8085', '127.0.0.1:8185')
+prod = re.sub(r'(?<!gpsingh)/cupboard/', '/cupboard-prod/', ''.join(blocks)).replace('127.0.0.1:8085', '127.0.0.1:8185')   # the static root stays the shared app
 shutil.copy(f, f'{f}.before-prod-{int(time.time())}')
 open(f, 'w').write(s.replace(blocks[0], prod + blocks[0], 1))
 PY
