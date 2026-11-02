@@ -12,6 +12,9 @@ const c = { ...read(join(J, 'profile', 'config.json'), {}), ...read(join(P, 'con
 const m = read(join(P, 'master.json'), null);
 let runBy = 'Guman'; try { runBy = readFileSync(join(homedir(), 'cupboard', 'run-by'), 'utf8').trim() || runBy; } catch { /* just the owner */ }
 
+// Search terms are lowercase in the settings: show them as people write them.
+const SPECIAL = { aws: 'AWS', gcp: 'GCP', sre: 'SRE', devops: 'DevOps', qa: 'QA', vp: 'VP', sde: 'SDE' };
+const nice = (t) => t.trim().split(/\s+/).map((w) => SPECIAL[w.toLowerCase()] || w[0].toUpperCase() + w.slice(1)).join(' ');
 const first = m?.name ? m.name.split(/\s+/)[0].toLowerCase().replace(/^./, (x) => x.toUpperCase()) : '';
 const roles = c.tracks?.backend?.queries || [];
 const caps = c.daily_caps || { naukri: 25, linkedin: 10, ats: 20, total: 55, per_company: 3 };
@@ -23,14 +26,14 @@ console.log(JSON.stringify({
   intro: 'Guman is setting up a job agent for you. It finds jobs and applies from your own accounts, so please read what it will do before you join. Nothing is submitted until you say so.',
   accept: 'I understand, create my account',
   sections: [
-    { heading: 'Roles it will apply to', items: roles.length ? roles : ['Chosen from your resume during setup.'], note: 'You can change this list during setup.' },
+    { heading: 'Roles it will apply to', items: roles.length ? roles.map(nice) : ['Chosen from your resume during setup.'], note: 'You can change this list during setup.' },
     { heading: 'Which jobs it picks', items: [
       cities ? `Cities: ${cities.join(', ')}.` : 'Cities: you choose during setup (any Indian city, specific ones, and/or remote).',
       'Salary: you set your minimum during setup. Jobs that state less are skipped.',
       c.experience_years ? `Experience: matched to your ${c.experience_years} years. Jobs clearly asking for much more are skipped.` : 'Experience: matched to your resume.',
       `Fit: AI scores each job against your resume and only applies at ${min}% or higher.`,
-      ...(skip.length ? [`Titles it skips: ${skip.map((s) => s.trim()).join(', ')}.`] : []),
-      ...(no.length ? [`Companies it never applies to: ${no.join(', ')}.`] : []),
+      ...(skip.length ? [`Job titles it skips: ${skip.map(nice).join(', ')}.`] : []),
+      ...(no.length ? [`Companies it never applies to: ${no.map(nice).join(', ')}.`] : []),
     ] },
     { heading: 'Where it applies, and how much', items: [
       `LinkedIn: up to ${caps.linkedin} a day, from your account.`,
