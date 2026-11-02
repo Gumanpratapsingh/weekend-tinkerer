@@ -19,7 +19,7 @@ import { one, run } from './db.mjs';
 import { watchdog } from './watchdog.mjs';
 import { health } from './health.mjs';
 import { startCaptcha, captchaDone, liveCaptcha, expireStale } from './captcha.mjs';
-import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin, setPreference } from './onboard.mjs';
+import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin, setPreference, connectGmail } from './onboard.mjs';
 import { locationOk, titleOk, maxSalaryLpa } from './sources/common.mjs';
 
 gate.open = !needsSetup();                          // a new person: only the chat + setup run until their profile exists
@@ -177,13 +177,17 @@ createServer((req, res) => {
             return ok();
           }
           case 'set_pref': {                                  // the Rules page; jobs already queued must follow the new roles and cities
-            const r = setPreference(String(b.id), b.answer);
+            const r = String(b.id) === 'gmail' ? await connectGmail(b.answer) : setPreference(String(b.id), b.answer);
             if (r.error) return ok({ ok: false, error: r.error });
             let dropped = 0;
             for (const j of all("SELECT id, title, location, description FROM jobs WHERE status = 'queued'")) {
               const lpa = maxSalaryLpa(j.description), floor = config().min_salary_lpa || 0;
-              const out = String(b.id) === 'cities' ? !locationOk(j.location, j.description) : String(b.id) === 'roles' ? !titleOk(j.title) : lpa != null && lpa < floor;
+              const out = String(b.id) === 'cities' ? !locationOk(j.location, j.description) : ['roles', 'title_exclude'].includes(String(b.id)) ? !titleOk(j.title) : String(b.id) !== 'salary' ? false : lpa != null && lpa < floor;
               if (out) { run("UPDATE jobs SET status = 'filtered', status_note = ? WHERE id = ?", `no longer matches your ${b.id}`, j.id); dropped++; }
+            }
+            if (String(b.id) === 'min_score') {               // a new bar applies to jobs already scored, both ways
+              run("UPDATE jobs SET status = 'scored' WHERE status = 'queued' AND score < ?", config().min_score);
+              run("UPDATE jobs SET status = 'queued' WHERE status = 'scored' AND score >= ?", config().min_score);
             }
             return ok({ dropped });
           }

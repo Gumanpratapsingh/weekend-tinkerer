@@ -5,9 +5,13 @@ import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
 
-const COLS = 'id, source, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
+const COLS = 'id, source, apply_type, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
 const n = (sql, ...p) => one(sql, ...p)?.n || 0;
+
+// Where a job was found, in the words people use. Anything that isn't a job site or a job board is a company's own career page.
+const BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok'];
+const sourceGroup = (s) => (s === 'naukri' ? 'Naukri' : s === 'linkedin' ? 'LinkedIn' : BOARDS.includes(s) ? 'Job boards' : 'Company career sites');
 
 export function summary() {
   const today = dayStart(), min = config().min_score || 65;
@@ -28,6 +32,11 @@ export function summary() {
     total: { found: n('SELECT count(*) n FROM jobs'), applied: n('SELECT count(*) n FROM jobs WHERE applied_at IS NOT NULL'),
       interviews: byStatus.interview || 0, learned: n('SELECT count(*) n FROM questions WHERE answer IS NOT NULL') },
     byStatus,
+    bySource: Object.values(all('SELECT source, count(*) found, sum(score >= ?) matched, sum(applied_at IS NOT NULL) applied FROM jobs GROUP BY source', min).reduce((o, r) => {
+      const g = sourceGroup(r.source), x = (o[g] ??= { source: g, found: 0, matched: 0, applied: 0 });
+      x.found += r.found; x.matched += r.matched || 0; x.applied += r.applied || 0;
+      return o;
+    }, {})),
     days: all(`SELECT date((applied_at / 1000) + 19800, 'unixepoch') d, count(*) n FROM jobs WHERE applied_at >= ? GROUP BY d ORDER BY d`, today - 13 * 864e5),
     questions: all(`SELECT q.id, q.question, q.options FROM questions q JOIN asks a ON a.question_id = q.id WHERE a.status = 'open' GROUP BY q.id ORDER BY q.id`),
     attention: all(`SELECT ${COLS} FROM jobs WHERE status IN ('captcha','manual','claimed','needs_answer','interview')
@@ -56,30 +65,31 @@ export function basis() {
       { heading: 'Roles it looks for', items: (c.tracks?.backend?.queries || []).map(pretty), edit: { kind: 'roles', value: (c.tracks?.backend?.queries || []).join(', '), hint: 'Separate roles with commas (up to 12).' } },
       { heading: 'Cities', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'], edit: { kind: 'cities', value: L.only_listed ? searched.join(', ') : 'anywhere', hint: 'Separate cities with commas. Add "remote" for remote jobs, or write "anywhere".' } },
       { heading: 'Minimum salary', items: [c.min_salary_lpa ? `${c.min_salary_lpa} LPA. Jobs that state less are skipped.` : 'No minimum set.'], edit: { kind: 'salary', value: String(c.min_salary_lpa ?? 0), hint: 'A number in LPA. Use 0 for no minimum.' } },
-      { heading: 'Accounts', items: [`Job mailbox: ${privateProfile().mailbox || 'not set'}.`, `Gmail: ${on(!!secret('gmail_app_password'))}.`, `LinkedIn: ${on(hasSession('linkedin'))}.`, `Naukri: ${on(hasSession('naukri'))}.`] },
+      { heading: 'Job mailbox', items: [privateProfile().mailbox || 'Not set.'], edit: { kind: 'mailbox', value: privateProfile().mailbox || '', hint: 'A Gmail address. It receives your recruiter replies and interview invites.' } },
+      { heading: 'Accounts', items: [], accounts: [{ key: 'linkedin', label: 'LinkedIn', connected: hasSession('linkedin') }, { key: 'naukri', label: 'Naukri', connected: hasSession('naukri') }, { key: 'gmail', label: 'Gmail', connected: !!secret('gmail_app_password') }] },
       { heading: 'Your answers for applications', items: [], answers },
-      { heading: 'Which jobs it applies to', items: [
-        `AI fit score of ${c.min_score ?? 65}% or higher, comparing the job with your resume.`,
-        ...(c.experience_years ? [`Skips jobs clearly asking for far more than your ${c.experience_years} years.`] : []),
-        ...((c.title_exclude || []).length ? [`Skips job titles with: ${c.title_exclude.map(pretty).join(', ')}.`] : []),
-        ...((c.exclude_companies || []).length ? [`Never applies to: ${c.exclude_companies.map(pretty).join(', ')}.`] : []),
-      ] },
+      { heading: 'Minimum fit score', items: [`${c.min_score ?? 65}%. AI compares each job with your resume and applies only at this score or higher.`], edit: { kind: 'min_score', value: String(c.min_score ?? 65), hint: 'A number from 40 to 95. Lower means more applications but weaker matches.' } },
+      { heading: 'Your experience', items: [`${c.experience_years ?? 0} years. Jobs clearly asking for far more are skipped.`], edit: { kind: 'experience', value: String(c.experience_years ?? 0), hint: 'Total years, as a whole number.' } },
+      { heading: 'Job titles it skips', items: [(c.title_exclude || []).map(pretty).join(', ') || 'None.'], edit: { kind: 'title_exclude', value: (c.title_exclude || []).map((x) => x.trim()).join(', '), hint: 'Separate words with commas. A job whose title contains one is skipped.' } },
+      { heading: 'Companies it never applies to', items: [(c.exclude_companies || []).map(pretty).join(', ') || 'None.'], edit: { kind: 'exclude_companies', value: (c.exclude_companies || []).join(', '), hint: 'Separate company names with commas.' } },
       { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day.`, `Naukri: up to ${caps.naukri} a day.`, `Company career sites: up to ${caps.ats} a day.`,
         `At most ${caps.total} a day and ${caps.per_company} per company.`] },
       { heading: 'What it sends', items: ['Only facts from your resume and answers you gave. Anything it does not know, it asks you in chat.',
         `For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`, 'On Naukri it uses your resume as uploaded.',
         `Recruiter replies and referral messages go out only after you approve them.`] },
     ],
-    note: 'Open any job in the Jobs tab to see its score and the reasons for it. To change anything else here, ask in your Job agent chat.',
+    note: 'Open any job in the Jobs tab to see its score and the reasons for it. Daily limits are fixed to keep your accounts safe.',
   };
 }
 
-export function list({ status = 'matches', q = '', page = 0 }) {
+export function list({ status = 'matches', q = '', page = 0, source = '' }) {
   const term = `%${String(q).slice(0, 60)}%`;
   const where = status === 'all' ? '1' : status === 'matches' ? 'score IS NOT NULL' : 'status = ?';
   const params = ['all', 'matches'].includes(status) ? [] : [String(status)];
   const order = status === 'applied' ? 'applied_at DESC' : ['matches', 'queued', 'ready'].includes(status) ? 'score DESC' : 'found_at DESC';
-  return { jobs: all(`SELECT ${COLS} FROM jobs WHERE ${where} AND (title LIKE ? OR company LIKE ?) ORDER BY ${order} LIMIT 40 OFFSET ?`,
+  const boards = BOARDS.map((b) => `'${b}'`).join(',');
+  const from = { naukri: " AND source = 'naukri'", linkedin: " AND source = 'linkedin'", boards: ` AND source IN (${boards})`, company: ` AND source NOT IN ('naukri','linkedin',${boards})` }[source] || '';
+  return { jobs: all(`SELECT ${COLS} FROM jobs WHERE ${where}${from} AND (title LIKE ? OR company LIKE ?) ORDER BY ${order} LIMIT 40 OFFSET ?`,
     ...params, term, term, Math.max(0, Number(page) || 0) * 40) };
 }
 

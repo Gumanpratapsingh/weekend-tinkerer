@@ -761,7 +761,7 @@ async function api(req, res, path, query) {
       return res.end(buf);
     }
     if (M === 'GET' && ['summary', 'basis', 'list', 'detail', 'memory', 'referrals', 'log'].includes(name)) {
-      const qs = new URLSearchParams(Object.entries(query).filter(([k]) => ['status', 'q', 'page', 'id', 'since'].includes(k)).map(([k, v]) => [k, String(v).slice(0, 200)]));
+      const qs = new URLSearchParams(Object.entries(query).filter(([k]) => ['status', 'q', 'page', 'id', 'since', 'source'].includes(k)).map(([k, v]) => [k, String(v).slice(0, 200)]));
       const r = await fetch(`${agent}/internal/dash/${name}?${qs}`, { signal: AbortSignal.timeout(20000) }).catch(() => null);
       if (!r) throw err(503, 'Your job agent is not responding. It may be restarting.');
       return send(res, r.status, await r.json().catch(() => ({})));
@@ -769,7 +769,7 @@ async function api(req, res, path, query) {
     if (M === 'POST' && name === 'action') {
       const b = await readJson(req, 4000);
       if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies', 'set_pref', 'set_answer'].includes(b.action)) throw err(400, 'Unknown action.');
-      track(me, b.action === 'set_pref' ? `Changed ${b.id}: ${String(b.answer).slice(0, 150)}` : b.action === 'set_answer' ? `Changed answer to question ${b.id}` : `Job agent: ${b.action}`);
+      track(me, b.action === 'set_pref' ? (b.id === 'gmail' ? 'Connected Gmail' : `Changed ${b.id}: ${String(b.answer).slice(0, 150)}`) : b.action === 'set_answer' ? `Changed answer to question ${b.id}` : `Job agent: ${b.action}`);
       const r = await fetch(`${agent}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ action: b.action, id: b.id, answer: typeof b.answer === 'string' ? b.answer.slice(0, 4000) : b.answer }) }).catch(() => null);
       if (!r?.ok) throw err(503, 'Your job agent is not responding. It may be restarting.');

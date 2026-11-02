@@ -253,8 +253,37 @@ export function setPreference(kind, text) {
     const n = Number((/\d+(\.\d+)?/.exec(t) || [])[0]);
     if (!Number.isFinite(n) || n > 500) return { error: 'Enter the number in LPA, or 0 for no minimum.' };
     c.min_salary_lpa = n;
+  } else if (kind === 'min_score') {
+    const n = Math.round(Number(t));
+    if (!Number.isFinite(n) || n < 40 || n > 95) return { error: 'Enter a number from 40 to 95.' };
+    c.min_score = n;
+  } else if (kind === 'experience') {
+    const n = Math.round(Number(t));
+    if (t === '' || !Number.isFinite(n) || n < 0 || n > 50) return { error: 'Enter your years of experience as a number.' };
+    c.experience_years = n;
+  } else if (kind === 'title_exclude' || kind === 'exclude_companies') {
+    c[kind] = [...new Set(t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))].slice(0, 60);
+  } else if (kind === 'mailbox') {
+    if (!/^[^\s@]+@gmail\.com$/i.test(t)) return { error: 'Enter a Gmail address (…@gmail.com).' };
+    const priv = privateProfile(); priv.mailbox = t.toLowerCase();
+    writeFileSync(join(PROFILE, 'private.json'), JSON.stringify(priv, null, 2));
+    return {};
   } else return { error: 'Unknown setting.' };
   writeFileSync(path, JSON.stringify(c, null, 2));
+  return {};
+}
+
+// The Rules page's Gmail box: same check as the chat's, no message to hide because nothing is stored in a chat.
+export async function connectGmail(text) {
+  const code = String(text ?? '').replace(/\s+/g, '');
+  if (!/^[a-z]{16}$/i.test(code)) return { error: 'That should be 16 letters (spaces are fine).' };
+  const { ImapFlow } = await import('imapflow');
+  const imap = new ImapFlow({ host: 'imap.gmail.com', port: 993, secure: true, logger: false, auth: { user: privateProfile().mailbox, pass: code } });
+  try { await imap.connect(); await imap.logout(); }
+  catch { return { error: `Gmail didn't accept that code for ${privateProfile().mailbox}. Check the address and create a new code.` }; }
+  const dir = join(HOME, `.jobagent-${PERSON}`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, 'gmail_app_password'), code, { mode: 0o600 });
   return {};
 }
 

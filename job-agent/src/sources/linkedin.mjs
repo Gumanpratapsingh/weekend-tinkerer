@@ -21,7 +21,7 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
     for (let start = 0; start < (pages || (fresh ? 1 : c.linkedin_pages || 3)) * 25; start += 25) {
       // f_TPR=r86400: last 24h; f_AL=true: Easy Apply (false: all jobs, applied on the company's site); f_E=2,3: entry + associate
       const url = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(q)}`
-        + `&location=${encodeURIComponent(loc)}&f_TPR=${window || (fresh ? 'r3600' : 'r86400')}${easy ? '&f_AL=true' : ''}&f_E=${levels || '2%2C3'}${remote ? '&f_WT=2' : ''}&start=${start}`;
+        + `&location=${encodeURIComponent(loc)}&f_TPR=${window || (fresh ? 'r3600' : 'r86400')}${easy ? '&f_AL=true' : ''}&f_E=${levels || c.linkedin_levels || '2%2C3'}${remote ? '&f_WT=2' : ''}&start=${start}`;
       let html;
       try { html = await getText(url); }
       catch (e) {
@@ -42,7 +42,7 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
         // Easy Apply jobs are applied on LinkedIn; the rest go through their company site (browser/external.mjs).
         out.push({ fresh, id: `linkedin:${id}`, source: 'linkedin', apply_type: easy ? 'linkedin' : 'external',
           url: `https://www.linkedin.com/jobs/view/${id}/`, apply_url: `https://www.linkedin.com/jobs/view/${id}/`,
-          title, company, location, posted_at: pick(card, /datetime="([^"]+)"/) });
+          title, company, location: remote ? `Remote · ${location}` : location, posted_at: pick(card, /datetime="([^"]+)"/) });
       }
       await sleep(7000 + Math.random() * 6000);
     }

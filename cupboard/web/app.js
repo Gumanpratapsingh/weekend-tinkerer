@@ -1345,6 +1345,7 @@ const jobTabs = {
     if (s.setup) kids.push(h('p', { class: 'warn' }, '👋 Setup isn\'t finished yet. Open your "Job agent" chat to continue.'));
     kids.push(sec('Status', h('p', { class: 'mode' }, mode), s.now?.text ? h('p', { class: 'soft' }, `Now: ${s.now.text}`) : null, h('div', { class: 'btns' }, modeBtns)));
     kids.push(h('div', { class: 'stats' }, stat(s.today.found, 'found today'), stat(s.today.matched, `fit ≥ ${s.minScore}%`), stat(s.today.applied, 'applied today'), stat(s.total.applied, 'applied total'), stat(s.total.interviews, 'interviews')));
+    if (s.bySource?.length) kids.push(sec('Where your jobs come from', ...s.bySource.map((x) => h('div', { class: 'conn' }, h('span', {}, x.source), h('span', { class: 'soft' }, `${x.found} found · ${x.matched} fit · ${x.applied} applied`)))));
     kids.push(sec('Applied, last 14 days', h('div', { class: 'bars' }, days.map((d) => h('i', { title: `${d.d}: ${d.n}`, style: `height:${Math.round((d.n / max) * 100)}%` })))));
     if (s.questions.length) kids.push(sec(`Questions for you (${s.questions.length})`, ...s.questions.slice(0, 5).map(qCard), s.questions.length > 5 ? h('a', { href: '/jobs/questions', 'data-link': true, class: 'more' }, 'All questions →') : null));
     if (s.drafts) kids.push(sec('Referrals', h('a', { href: '/jobs/referrals', 'data-link': true, class: 'more' }, `${s.drafts} draft(s) waiting for your OK →`)));
@@ -1354,21 +1355,24 @@ const jobTabs = {
   },
   async jobs(box) {
     const filters = [['matches', 'Matches'], ['queued', 'Queue'], ['applied', 'Applied'], ['needs_answer', 'Waiting'], ['manual', 'Apply yourself'], ['interview', 'Interview'], ['failed', 'Failed'], ['all', 'All']];
-    let status = 'matches', q = '', page = 0;
+    let status = 'matches', q = '', page = 0, source = '';
+    const froms = [['', 'All sources'], ['naukri', 'Naukri'], ['linkedin', 'LinkedIn'], ['company', 'Company sites'], ['boards', 'Job boards']];
     const listEl = h('div', {});
     const search = h('input', { type: 'search', placeholder: 'Search title or company', class: 'jsearch' });
     const chips = h('div', { class: 'chips flat' }, filters.map(([k, l]) => { const b = h('button', { type: 'button', class: k === status ? 'on' : '' }, l);
       b.addEventListener('click', () => { status = k; page = 0; [...chips.children].forEach((c) => c.classList.toggle('on', c === b)); load(); }); return b; }));
+    const fromChips = h('div', { class: 'chips flat' }, froms.map(([k, l]) => { const b = h('button', { type: 'button', class: k === source ? 'on' : '' }, l);
+      b.addEventListener('click', () => { source = k; page = 0; [...fromChips.children].forEach((c) => c.classList.toggle('on', c === b)); load(); }); return b; }));
     let t; search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { q = search.value; page = 0; load(); }, 300); });
     const more = h('button', { class: 'btn ghost full', type: 'button' }, 'Load more');
     more.addEventListener('click', () => { page++; load(true); });
     async function load(append) {
-      const { jobs } = await api(`/jobs/list?status=${status}&q=${encodeURIComponent(q)}&page=${page}`);
+      const { jobs } = await api(`/jobs/list?status=${status}&q=${encodeURIComponent(q)}&page=${page}&source=${source}`);
       const rows = jobs.map(jobRow);
       if (append) listEl.append(...rows); else listEl.replaceChildren(...(rows.length ? rows : [h('p', { class: 'loading' }, 'Nothing here yet.')]));
       more.hidden = jobs.length < 40;
     }
-    box.replaceChildren(h('div', { class: 'jpad' }, search), chips, listEl, h('div', { class: 'jpad' }, more));
+    box.replaceChildren(h('div', { class: 'jpad' }, search), chips, fromChips, listEl, h('div', { class: 'jpad' }, more));
     await load();
   },
   async questions(box) {
@@ -1442,10 +1446,14 @@ function qCard(q) {
   box.append(inp, h('div', { class: 'btns' }, save));
   return box;
 }
+// Where a job was found, and where the application really happens.
+const JOB_BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok'];
+const sourceName = (s) => (s === 'naukri' ? 'Naukri' : s === 'linkedin' ? 'LinkedIn' : JOB_BOARDS.includes(s) ? 'Job board' : 'Company career site');
+const applyName = (t) => (t === 'naukri' ? 'on Naukri' : t === 'linkedin' ? 'on LinkedIn' : 'on the company\'s site');
 function jobRow(j) {
   const row = h('button', { class: 'jrow', type: 'button' },
     h('span', { class: `score${j.score >= 80 ? ' hi' : ''}` }, j.score != null ? `${j.score}` : '–'),
-    h('span', { class: 'mid' }, h('b', {}, j.title || ''), h('small', {}, `${j.company || ''}${j.location ? ` · ${j.location}` : ''}`)),
+    h('span', { class: 'mid' }, h('b', {}, j.title || ''), h('small', {}, h('i', { class: `src src-${sourceName(j.source).split(' ')[0].toLowerCase()}` }, sourceName(j.source)), `${j.company || ''}${j.location ? ` · ${j.location}` : ''}`)),
     h('span', { class: 'st' }, LABEL[j.status] || j.status, h('small', {}, ago(j.applied_at || j.found_at))));
   row.addEventListener('click', () => openJob(j.id));
   return row;
@@ -1461,7 +1469,7 @@ async function openJob(id) {
   if (['failed', 'skipped', 'manual', 'filtered', 'scored'].includes(j.status)) acts.unshift(b('Let the agent apply', 'queue', ''));
   const sheet = h('div', { class: 'sheet' }, h('div', { class: 'sheetin' },
     h('div', { class: 'rhead' }, h('b', {}, j.title), close),
-    h('p', { class: 'soft' }, `${j.company} · ${j.location || ''} · ${j.source}`),
+    h('p', { class: 'soft' }, `${j.company} · ${j.location || ''}`), h('p', { class: 'soft' }, `Found on: ${sourceName(j.source)} · Applies ${applyName(j.apply_type)}`),
     h('p', {}, h('span', { class: 'tag' }, LABEL[j.status] || j.status), j.score != null ? ` Fit ${j.score}%` : ''),
     j.score_reasons ? h('p', { class: 'soft' }, j.score_reasons) : null,
     j.status_note && !/\.png$/.test(j.status_note) ? h('p', { class: 'soft' }, j.status_note) : null,
@@ -1543,7 +1551,34 @@ screens.rules = async () => {
       show();
       return el;
     };
+    // LinkedIn and Naukri open the live sign-in page; Gmail takes its app password right here.
+    const accountRow = (a) => {
+      const el = h('div', { class: 'rules-qa' });
+      const show = () => {
+        const b = h('button', { class: 'btn ghost rules-edit', type: 'button' }, a.connected ? 'Reconnect' : 'Connect');
+        b.addEventListener('click', async () => {
+          if (a.key === 'gmail') return gmailForm();
+          try { const { path } = await api('/jobs/signin', { method: 'POST', body: { site: a.key } }); go(path); } catch (e) { toast(e.message, true); }
+        });
+        el.replaceChildren(h('div', { class: 'rules-head' }, h('p', {}, `${a.label}: ${a.connected ? 'connected' : 'not connected'}`), b));
+      };
+      const gmailForm = () => {
+        const input = h('input', { type: 'password', autocomplete: 'off', placeholder: '16-letter app password', 'aria-label': 'Gmail app password' });
+        const msg = h('p', { class: 'err' }), save = h('button', { class: 'btn', type: 'button' }, 'Connect'), cancel = h('button', { class: 'btn ghost', type: 'button' }, 'Cancel');
+        cancel.addEventListener('click', show);
+        save.addEventListener('click', async () => {
+          save.disabled = true; msg.textContent = '';
+          try { await api('/jobs/action', { method: 'POST', body: { action: 'set_pref', id: 'gmail', answer: input.value } }); a.connected = true; toast('Gmail connected'); show(); }
+          catch (e) { msg.textContent = e.message; save.disabled = false; }
+        });
+        el.replaceChildren(h('p', {}, 'Gmail'), input, h('p', { class: 'st-note' }, 'Create it at myaccount.google.com/apppasswords (2-Step Verification must be on), name it "Job agent", and paste the 16-letter code here. It only allows mail access.'), h('div', { class: 'rules-actions' }, save, cancel), msg);
+        input.focus();
+      };
+      show();
+      return el;
+    };
     const sectionOf = (x) => {
+      if (x.accounts) return h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), ...x.accounts.map(accountRow));
       if (x.answers) return h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), x.answers.length ? h('div', {}, ...x.answers.map(answerRow)) : h('p', { class: 'st-note' }, 'No questions yet.'));
       const el = h('section', { class: 'plan-sec' });
       const show = () => {

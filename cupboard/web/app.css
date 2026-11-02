@@ -707,3 +707,9 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
 .rules-qa p{margin:.2rem 0 0;font-size:.92rem;overflow-wrap:anywhere}
 .rules-qa .rules-head{margin-bottom:0;align-items:flex-start}
 .rules-qa textarea{margin-top:.35rem}
+
+.src{font-style:normal;font-size:.68rem;font-weight:600;border-radius:6px;padding:.05rem .35rem;margin-right:.35rem;background:var(--fill);color:var(--ink)}
+.src-naukri{background:#e6f1fb;color:#0c447c}
+.src-linkedin{background:#e1f5ee;color:#085041}
+.src-company{background:#faeeda;color:#633806}
+.rules-qa .rules-head p{margin:0}
