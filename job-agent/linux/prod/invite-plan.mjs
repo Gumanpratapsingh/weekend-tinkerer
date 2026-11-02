@@ -56,14 +56,14 @@ console.log(JSON.stringify({
     ] },
     { heading: 'What you\'ll need to give it', items: [
       m ? 'Your resume: Guman already added it. You\'ll review it in chat.' : 'Your resume, as a PDF.',
-      'Two free AI keys, one from Google Gemini and one from Groq. You create them; no card needed.',
+      ...(c.keys_by_owner ? [] : ['Two free AI keys, one from Google Gemini and one from Groq. You create them; no card needed.']),
       'A Gmail app password for your job mailbox (mail access only, you can delete it anytime).',
       'LinkedIn and Naukri sign-in: you type into the real site and only the signed-in session is kept, not your password.',
     ] },
     { heading: 'Who can see your data', items: [
       'It runs on a laptop at Guman\'s home. Chats and data are stored there and are not end-to-end encrypted.',
       `${runBy} run${/ and /.test(runBy) ? '' : 's'} this and can see your applications, answers, agent chat and stored logins. Other users can't.`,
-      'Your resume details and job descriptions are sent to Gemini and Groq, under your own keys, for scoring and tailoring.',
+      `Your resume details and job descriptions are sent to Gemini and Groq, under ${c.keys_by_owner ? 'keys Guman provides' : 'your own keys'}, for scoring and tailoring.`,
       'Want out? Ask Guman and your agent and data get deleted. Also remove the Gmail app password yourself.',
     ] },
     { heading: 'Worth knowing before you say yes', items: [
