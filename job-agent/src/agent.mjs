@@ -169,6 +169,13 @@ createServer((req, res) => {
           case 'resume': setKv('paused', '0'); return ok();
           case 'live': setKv('dry_run', '0'); run("UPDATE jobs SET status = 'queued' WHERE status = 'ready'"); return ok();
           case 'dry': setKv('dry_run', '1'); return ok();
+          case 'set_answer': {                                // the Rules page: change an answer already given
+            const text = String(b.answer ?? '').trim().slice(0, 2000);
+            if (!text) return ok({ ok: false, error: 'Enter an answer.' });
+            if (!one('SELECT 1 FROM questions WHERE id = ?', Number(b.id))) return ok({ ok: false, error: 'No such question.' });
+            run('UPDATE questions SET answer = ?, updated_at = ? WHERE id = ?', text, Date.now(), Number(b.id));
+            return ok();
+          }
           case 'set_pref': {                                  // the Rules page; jobs already queued must follow the new roles and cities
             const r = setPreference(String(b.id), b.answer);
             if (r.error) return ok({ ok: false, error: r.error });

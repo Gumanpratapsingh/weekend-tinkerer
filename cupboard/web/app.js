@@ -1518,7 +1518,33 @@ screens.rules = async () => {
   try {
     const b = await api('/jobs/basis');
     // Roles, cities and minimum salary can be changed right here; the rest is read-only.
+    // One question and its answer, with its own Edit. Unanswered ones are answered here too.
+    const answerRow = (a) => {
+      const el = h('div', { class: 'rules-qa' });
+      const show = () => {
+        const edit = h('button', { class: 'btn ghost rules-edit', type: 'button' }, a.answer ? 'Edit' : 'Answer');
+        edit.addEventListener('click', form);
+        el.replaceChildren(h('div', { class: 'rules-head' }, h('small', {}, a.question), edit), h('p', {}, a.answer || 'Waiting for your answer'));
+      };
+      const form = () => {
+        const input = h('textarea', { rows: '2', 'aria-label': a.question }); input.value = a.answer || '';
+        const msg = h('p', { class: 'err' }), save = h('button', { class: 'btn', type: 'button' }, 'Save'), cancel = h('button', { class: 'btn ghost', type: 'button' }, 'Cancel');
+        cancel.addEventListener('click', show);
+        save.addEventListener('click', async () => {
+          const text = input.value.trim();
+          if (!text) { msg.textContent = 'Enter an answer.'; return; }
+          save.disabled = true; msg.textContent = '';
+          try { await api('/jobs/action', { method: 'POST', body: { action: a.answer ? 'set_answer' : 'answer', id: a.id, answer: text } }); a.answer = text; toast('Saved'); show(); }
+          catch (e) { msg.textContent = e.message; save.disabled = false; }
+        });
+        el.replaceChildren(h('small', {}, a.question), input, h('div', { class: 'rules-actions' }, save, cancel), msg);
+        input.focus();
+      };
+      show();
+      return el;
+    };
     const sectionOf = (x) => {
+      if (x.answers) return h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), x.answers.length ? h('div', {}, ...x.answers.map(answerRow)) : h('p', { class: 'st-note' }, 'No questions yet.'));
       const el = h('section', { class: 'plan-sec' });
       const show = () => {
         const edit = x.edit ? h('button', { class: 'btn ghost rules-edit', type: 'button' }, 'Edit') : null;

@@ -768,8 +768,8 @@ async function api(req, res, path, query) {
     }
     if (M === 'POST' && name === 'action') {
       const b = await readJson(req, 4000);
-      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies', 'set_pref'].includes(b.action)) throw err(400, 'Unknown action.');
-      track(me, b.action === 'set_pref' ? `Changed ${b.id}: ${String(b.answer).slice(0, 150)}` : `Job agent: ${b.action}`);
+      if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies', 'set_pref', 'set_answer'].includes(b.action)) throw err(400, 'Unknown action.');
+      track(me, b.action === 'set_pref' ? `Changed ${b.id}: ${String(b.answer).slice(0, 150)}` : b.action === 'set_answer' ? `Changed answer to question ${b.id}` : `Job agent: ${b.action}`);
       const r = await fetch(`${agent}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ action: b.action, id: b.id, answer: typeof b.answer === 'string' ? b.answer.slice(0, 4000) : b.answer }) }).catch(() => null);
       if (!r?.ok) throw err(503, 'Your job agent is not responding. It may be restarting.');

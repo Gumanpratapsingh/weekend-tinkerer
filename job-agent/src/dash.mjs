@@ -4,7 +4,6 @@ import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, writ
 import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
-import { SEED } from './answers.mjs';
 
 const COLS = 'id, source, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
@@ -47,10 +46,8 @@ export function basis() {
   const review = getKv('review_mode') === '1' || (getKv('review_mode') !== '0' && Date.now() < until);
   const day = until ? new Date(until + 5.5 * 3600e3).toISOString().slice(0, 10) : '';
   const on = (x) => (x ? 'connected' : 'not connected');
-  // Everything setup asked, as it stands now: the standard questions first, then anything else they have answered since.
-  const answered = all('SELECT question, answer FROM questions WHERE answer IS NOT NULL ORDER BY id');
-  const answerOf = (q) => answered.find((a) => a.question === q)?.answer;
-  const seeds = SEED().map((q) => q.question || q);
+  // Every question it has asked them, in order: the general ones from setup first, then any met on applications since.
+  const answers = all('SELECT id, question, answer FROM questions ORDER BY id');
   return {
     status: getKv('paused') === '1' ? 'Paused: nothing is being submitted. Send "resume" to restart.'
       : dry ? 'Dry run: it fills forms but submits nothing. Send "go live" when you are ready.'
@@ -60,8 +57,7 @@ export function basis() {
       { heading: 'Cities', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'], edit: { kind: 'cities', value: L.only_listed ? searched.join(', ') : 'anywhere', hint: 'Separate cities with commas. Add "remote" for remote jobs, or write "anywhere".' } },
       { heading: 'Minimum salary', items: [c.min_salary_lpa ? `${c.min_salary_lpa} LPA. Jobs that state less are skipped.` : 'No minimum set.'], edit: { kind: 'salary', value: String(c.min_salary_lpa ?? 0), hint: 'A number in LPA. Use 0 for no minimum.' } },
       { heading: 'Accounts', items: [`Job mailbox: ${privateProfile().mailbox || 'not set'}.`, `Gmail: ${on(!!secret('gmail_app_password'))}.`, `LinkedIn: ${on(hasSession('linkedin'))}.`, `Naukri: ${on(hasSession('naukri'))}.`] },
-      { heading: 'Your answers for applications', items: [...seeds.map((q) => `${q} ${answerOf(q) || '(waiting for your answer in chat)'}`),
-        ...answered.filter((a) => !seeds.includes(a.question)).map((a) => `${a.question} ${a.answer}`)] },
+      { heading: 'Your answers for applications', items: [], answers },
       { heading: 'Which jobs it applies to', items: [
         `AI fit score of ${c.min_score ?? 65}% or higher, comparing the job with your resume.`,
         ...(c.experience_years ? [`Skips jobs clearly asking for far more than your ${c.experience_years} years.`] : []),
