@@ -134,7 +134,8 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         }
         const url = page.url();
         progress(`Company site: hop ${hop + 1} at ${url.slice(0, 120)}`);
-        if (!/naukri\.com|linkedin\.com/.test(url)) seen.url = url;
+        // Real addresses only: a page that fails to load leaves the browser on chrome-error://chromewebdata/.
+        if (/^https?:/.test(url) && !/naukri\.com|linkedin\.com/.test(url)) seen.url = url;
         // Bot-check walls (DataDome, Cloudflare, "verify you are human"): auto-solve or hand to CAPTCHA list.
         if (/captcha-delivery|challenges\.cloudflare|\/captcha\b|perimeterx|hcaptcha\.com/i.test(url)
             || /verify (you are|that you're) (a )?human|are you a robot|press (&|and) hold/i.test((await page.innerText('body').catch(() => '')).slice(0, 2000))) {

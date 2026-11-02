@@ -90,7 +90,7 @@ function followupText(r) {
   // The company's own posting and ID when the agent reached it (a Naukri/LinkedIn link is no use in their referral portal).
   const job = r.job_id ? one('SELECT description, company_url FROM jobs WHERE id = ?', r.job_id) : null;
   const ref = !/Job ID/i.test(r.job_title || '') && reqId(job);
-  const link = job?.company_url || r.job_url;
+  const link = /^https?:/.test(job?.company_url) ? job.company_url : r.job_url;
   return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role')} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
     + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
     + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
