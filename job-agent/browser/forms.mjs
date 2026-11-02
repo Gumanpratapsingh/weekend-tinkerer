@@ -58,6 +58,11 @@ function describeFields(rootSel) {
   let n = 0;
   for (const el of root.querySelectorAll('input, select, textarea, [role="combobox"]')) {
     if (el.dataset.jaKey || !visible(el) || el.disabled || el.readOnly && el.getAttribute('role') !== 'combobox') continue;
+    // Not questions: react-select's invisible required-field twin beside each dropdown (same label, always empty), and the phone
+    // widget's country search box, which vanishes when its list closes. Both made the read-back report filled forms as empty.
+    if (el.type !== 'file' && el.getAttribute('aria-hidden') === 'true') continue;
+    if (el.getAttribute('role') !== 'combobox' && el.tabIndex === -1 && !el.id && el.type === 'text') continue;
+    if (el.closest('.iti__dropdown-content') || el.classList.contains('iti__search-input')) continue;
     const t = (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT') ? 'combobox' : (el.type || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(t)) continue;
     // "Autofill from resume" boxes (Ashby): an upload there re-renders the form and wipes our answers (NETGEAR: Email empty).
@@ -155,7 +160,12 @@ export async function fill(page, fields, answers, { resume } = {}) {
       else if (f.type === 'combobox') {
         await el.click(); await el.fill(String(v)).catch(() => page.keyboard.type(String(v)));
         await page.waitForTimeout(600);
-        const opt = page.locator('[role="option"]', { hasText: String(v) }).first();
+        // Only this box's open list (the phone widget keeps hidden country options in the DOM, and "4" matched one of those),
+        // the exact option first so "4" can't pick "14".
+        const owned = await el.first().getAttribute('aria-controls').catch(() => null) || await el.first().getAttribute('aria-owns').catch(() => null);
+        const pool = owned ? page.locator(`[id="${owned}"] [role="option"]`) : page.locator('[role="option"]:visible');
+        const exact = pool.filter({ hasText: new RegExp(`^\\s*${String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i') }).first();
+        const opt = await exact.count() ? exact : pool.filter({ hasText: String(v) }).first();
         if (await opt.count()) await opt.click(); else await page.keyboard.press('Enter');
       } else if (f.type === 'radio') {
         const marked = page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${String(v).replace(/"/g, '\\"')}"]`).first();
