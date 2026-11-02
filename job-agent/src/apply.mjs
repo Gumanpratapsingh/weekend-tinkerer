@@ -2,7 +2,7 @@
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
 import { existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { config, log, logError, istDate, istHour, activity, hasSession, DATA, PROFILE } from './core.mjs';
+import { config, log, logError, istDate, istHour, activity, hasSession, DATA, PROFILE, OWNER } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
