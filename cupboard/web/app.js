@@ -9,7 +9,7 @@ if (!shell || !side) {                                       // an older cached 
 }
 const desktopMq = window.matchMedia('(min-width: 64rem)');
 const isDesktop = () => desktopMq.matches;
-const SECTION = { chat: 'chats', list: 'chats', archived: 'chats', search: 'chats', new: 'chats', group: 'chats', media: 'chats', together: 'together', tlist: 'together', jobs: 'jobs', signin: 'jobs', me: 'settings', monitor: 'settings' };
+const SECTION = { chat: 'chats', list: 'chats', archived: 'chats', search: 'chats', new: 'chats', group: 'chats', media: 'chats', together: 'together', tlist: 'together', jobs: 'jobs', signin: 'jobs', me: 'settings', monitor: 'settings', activity: 'settings' };
 
 // ---------- helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -285,10 +285,13 @@ function route() {
   if ((m = /^\/signin\/([a-f0-9]{32})$/.exec(p))) return { name: 'signin', token: m[1] };
   if ((m = /^\/device\/([a-f0-9]{32})$/.exec(p))) return { name: 'device', token: m[1] };
   if ((m = /^\/jobs(?:\/(jobs|questions|referrals|live))?$/.exec(p))) return { name: 'jobs', tab: m[1] || 'overview' };
+  if ((m = /^\/activity(?:\/(\d+))?$/.exec(p))) return { name: 'activity', id: m[1] ? Number(m[1]) : null };
   if ((m = /^\/together(\/calendar)?$/.exec(p))) return { name: 'together', tab: m[1] ? 'cal' : 'lists' };
   if ((m = /^\/together\/list\/(\d+)$/.exec(p))) return { name: 'tlist', id: Number(m[1]) };
   return { name: { '/login': 'login', '/new': 'new', '/group': 'group', '/me': 'me', '/monitor': 'monitor', '/search': 'search', '/archived': 'archived' }[p] || 'list' };
 }
+// What a person's job agent will do, the same on the invite and first-password pages.
+const planNodes = (plan) => plan.sections.map((x) => h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), h('ul', {}, ...x.items.map((t) => h('li', {}, t))), x.note ? h('p', { class: 'st-note' }, x.note) : null));
 function go(path, replace) { if (location.pathname + location.search !== path) history[replace ? 'replaceState' : 'pushState'](null, '', path); render(); }
 window.addEventListener('popstate', render);
 document.addEventListener('click', (e) => {
@@ -354,7 +357,7 @@ const screens = {
     });
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
       plan ? h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, plan.title), h('p', { class: 'lede' }, plan.intro)),
-        ...plan.sections.map((x) => h('section', { class: 'plan-sec' }, h('h3', {}, x.heading), h('ul', {}, ...x.items.map((t) => h('li', {}, t))), x.note ? h('p', { class: 'st-note' }, x.note) : null)),
+        ...planNodes(plan),
         h('div', { class: 'sec' }, 'Create your account'), f)
       : h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, inv.owner ? 'Your Cupboard' : `${inv.by} invited you`),
         h('p', { class: 'lede' }, inv.owner ? 'Set up the owner account for your phone server.' : 'Cupboard is a private chat that runs on Guman\'s phone server. Messages are stored on that phone (not end-to-end encrypted).')), f));
@@ -382,7 +385,8 @@ const screens = {
       catch (x) { err.textContent = x.message; } finally { b.disabled = false; }
     });
     app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Cupboard')),
-      h('div', { class: 'page' }, h('div', { class: 'brandbox' }, h('h2', {}, `New password for ${r.name}`),
+      h('div', { class: 'page' }, ...(r.plan ? [h('div', { class: 'brandbox' }, h('h2', {}, r.plan.title), h('p', { class: 'lede' }, r.plan.intro)), ...planNodes(r.plan), h('div', { class: 'sec' }, 'Set your password')] : []),
+        h('div', { class: r.plan ? '' : 'brandbox' }, r.plan ? null : h('h2', {}, `New password for ${r.name}`),
         h('p', { class: 'lede' }, `Sign-in name: @${r.username}. After this you're signed in on this device.`)), f));
   },
 
@@ -737,6 +741,9 @@ const screens = {
     // --- Home / about / sign out ---
     const monitorGroup = group('Home', row('eye', '#1c1c1e', 'Monitor', 'Choose what the living-room screen shows', chev(), () => go('/monitor')));
     const aboutGroup = group('About', row('doc', '#636366', 'Version', 'Messages are stored on Guman\'s server, not end-to-end encrypted', h('span', { class: 'st-val' }, version.slice(0, 6))));
+    // Prod: the owner's page about who does what here, and the plain notice everyone else gets about it.
+    const activityGroup = state.noTogether && isOwner ? group('People', row('eye', '#0a84ff', 'Activity', 'Sign-ins, actions and agent chats', chev(), () => go('/activity'))) : null;
+    const watchNote = state.noTogether && !isOwner ? note('Guman runs this app and can see your sign-ins, activity and agent chat, but not your passwords.') : null;
     const out = h('button', { class: 'st-out', type: 'button' }, 'Sign out');
     out.addEventListener('click', async () => { await api('/logout', { method: 'POST' }).catch(() => {}); es?.close(); state.me = null; go('/login', true); });
 
@@ -746,7 +753,7 @@ const screens = {
         h('div', { class: 'st-me' }, h('span', { class: 'st-ic round big', style: 'background:linear-gradient(135deg,#ff9f0a,#ff375f)' }, (me.name || '?').trim()[0]?.toUpperCase() || '?'),
           h('span', { class: 'st-t' }, h('b', {}, me.name), h('small', {}, '@' + me.username, isOwner ? h('i', { class: 'st-pill' }, 'Owner') : me.admin ? h('i', { class: 'st-pill' }, 'Admin') : null))),
         group('App', notifRow, popRow, ringRow, installRow),
-        peopleGroup, securityGroup, state.noTogether ? null : monitorGroup, aboutGroup,
+        activityGroup, peopleGroup, securityGroup, state.noTogether ? null : monitorGroup, aboutGroup, watchNote,
         h('div', { class: 'st-grp st-outgrp' }, out))),
       tabbar('settings'));
   },
@@ -1503,6 +1510,30 @@ function upsertEvent(e) {
   redrawTogether();
 }
 function dropEvent(id) { if (state.tg) { state.tg.events = state.tg.events.filter((e) => e.id !== id); redrawTogether(); } }
+
+// Prod, owner only: everyone's activity. The server refuses anyone else.
+screens.activity = async (r) => {
+  const page = h('div', { class: 'page' }, h('p', { class: 'loading' }, 'Loading…'));
+  app.replaceChildren(h('div', { class: 'bar' }, back(r.id ? '/activity' : '/me'), h('div', { class: 't' }, h('b', {}, 'Activity'), h('small', {}, 'who is here and what they do'))), page);
+  const clock = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  try {
+    if (!r.id) {
+      const { people } = await api('/activity');
+      page.replaceChildren(...(people.length ? people.map((p) => h('a', { class: 'row', href: `/activity/${p.id}`, 'data-link': true },
+        h('div', { class: 'act-who' }, h('b', {}, `${p.name} `), h('small', {}, `@${p.username}${p.online ? ' · online now' : ''}`),
+          h('p', { class: 'st-note' }, p.last ? `${p.last.what} · ${clock(p.last.at)}` : p.devices ? 'No activity yet' : 'Has not signed in yet')))) : [h('p', { class: 'lede' }, 'Nobody else has joined yet.')]));
+      return;
+    }
+    const d = await api(`/activity/${r.id}`);
+    const line = (a, b) => h('li', {}, h('small', {}, `${clock(a)}  `), b);
+    page.replaceChildren(h('h2', {}, d.user.name), h('p', { class: 'lede' }, `@${d.user.username}${d.user.online ? ' · online now' : ''} · joined ${clock(d.user.created)}`),
+      d.job ? h('p', { class: 'lede' }, `Job agent: ${d.job.paused ? 'paused' : d.job.dryRun ? 'dry run' : 'live'}${d.job.setup ? ` · setup step: ${d.job.setup}` : ''} · today ${d.job.found} found, ${d.job.applied} applied${d.job.connected ? ` · LinkedIn ${d.job.connected.linkedin ? 'on' : 'off'}, Naukri ${d.job.connected.naukri ? 'on' : 'off'}, Gmail ${d.job.connected.gmail ? 'on' : 'off'}` : ''}`) : null,
+      h('div', { class: 'sec' }, 'Devices'), d.devices.length ? h('ul', { class: 'act-list' }, ...d.devices.map((x) => line(x.seen || x.created, x.name))) : h('p', { class: 'lede' }, 'None yet.'),
+      h('div', { class: 'sec' }, 'What they did'), d.events.length ? h('ul', { class: 'act-list' }, ...d.events.map((e) => line(e.at, e.what))) : h('p', { class: 'lede' }, 'Nothing yet.'),
+      h('div', { class: 'sec' }, 'Their chats'), d.messages.length ? h('div', { class: 'act-chat' }, ...d.messages.map((x) => h('div', { class: 'act-msg' + (x.mine ? ' mine' : '') },
+        h('small', {}, `${x.sender} · ${x.chat} · ${clock(x.at)}`), h('p', {}, x.text || `(${x.kind})`)))) : h('p', { class: 'lede' }, 'No messages yet.'));
+  } catch (x) { page.replaceChildren(h('p', { class: 'lede' }, x.message)); }
+};
 
 screens.together = async (r) => {
   if (state.noTogether) return go('/', true);

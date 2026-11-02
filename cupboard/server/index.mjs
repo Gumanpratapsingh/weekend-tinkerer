@@ -22,6 +22,13 @@ const SESSION_DAYS = 90;
 // The prod environment: no shared lists, calendar, reminders or wedding planner, and people are invisible to each other:
 // anyone but the owner can only ever see or reach the owner.
 const PROD = process.env.CB_PROD === '1';
+// Prod only: what each person does here, for the owner's Activity page (they are told about it). No passwords, no message text.
+if (PROD) db.exec('CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, at INTEGER NOT NULL, what TEXT NOT NULL); CREATE INDEX IF NOT EXISTS activity_user ON activity (user_id, id)');
+const track = (u, what) => { if (PROD && u && u.role !== 'owner' && u.role !== 'bot') run('INSERT INTO activity(user_id, at, what) VALUES(?,?,?)', u.id, Date.now(), String(what).slice(0, 200)); };
+const TRACKED = [[/^\/api\/convs\/\d+\/file$/, 'Sent a file'], [/^\/api\/convs\/\d+\/upload$/, 'Sent a photo or video'], [/^\/api\/convs\/\d+\/voice$/, 'Sent a voice note'],
+  [/^\/api\/convs$/, 'Started a chat'], [/^\/api\/jobs\/signin$/, 'Opened a job site sign-in'], [/^\/api\/devices\/link$/, 'Made a link to add a device'], [/^\/api\/calls/, 'Used calling']];
+// Anything that looks like a code or key never reaches the Activity page: Gmail app passwords (16 letters) and AI keys.
+const maskSecrets = (t) => String(t || '').replace(/\b(?:gsk_|AIza|AQ\.)\S+/g, '🔒 (hidden)').replace(/\b(?:[a-z]{4}[ -]?){3}[a-z]{4}\b/gi, '🔒 (hidden)');
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- http helpers ----------
@@ -332,8 +339,9 @@ async function api(req, res, path, query) {
     if (locked(ip)) throw err(429, 'Too many attempts. Try again in 15 minutes.');
     const b = await readJson(req, 2000);
     const u = one('SELECT * FROM users WHERE username = ? AND active = 1', String(b.username || '').trim().toLowerCase());
-    if (!u || u.role === 'bot' || !checkPw(u, b.password)) { fail(ip); log(`login failed from ${ip}`); throw err(401, 'Wrong username or password.'); }
+    if (!u || u.role === 'bot' || !checkPw(u, b.password)) { track(u, 'Wrong password'); fail(ip); log(`login failed from ${ip}`); throw err(401, 'Wrong username or password.'); }
     run('UPDATE devices SET user_id = ? WHERE id = ?', u.id, device.id);
+    track(u, `Signed in (${deviceName(req)})`);
     return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': cookie(newSession(u.id), SESSION_DAYS * 86400) });
   }
   let m;
@@ -342,7 +350,9 @@ async function api(req, res, path, query) {
   if ((m = /^\/api\/reset\/([a-f0-9]{32})$/.exec(path))) {
     const r = JSON.parse(getKv(`reset:${m[1]}`) || 'null');
     const u = r && r.exp > Date.now() ? one("SELECT * FROM users WHERE id = ? AND active = 1 AND role != 'bot'", r.uid) : null;
-    if (M === 'GET') return send(res, 200, u ? { valid: true, name: u.name, username: u.username } : { valid: false });
+    // Prod: the person may not have seen the invite page (someone set them up), so this page shows the same plan.
+    const plan = u && PROD ? one('SELECT plan FROM invites WHERE used_by = ? AND plan IS NOT NULL', u.id)?.plan : null;
+    if (M === 'GET') return send(res, 200, u ? { valid: true, name: u.name, username: u.username, plan: plan ? JSON.parse(plan) : null } : { valid: false });
     if (!u) throw err(410, 'This reset link has expired or was already used. Ask for a new one.');
     const ip = visitorIp(req);
     if (locked(ip)) throw err(429, 'Too many attempts. Try again in 15 minutes.');
@@ -352,6 +362,7 @@ async function api(req, res, path, query) {
     run('UPDATE users SET salt = ?, hash = ? WHERE id = ?', salt, hashPw(pw, salt), u.id);
     run('DELETE FROM kv WHERE k = ?', `reset:${m[1]}`);
     log(`password reset for ${u.username}`);
+    track(u, `Set a new password and signed in (${deviceName(req)})`);
     return send(res, 200, { user: publicUser(u) }, { 'Set-Cookie': [cookie(newSession(u.id), SESSION_DAYS * 86400), ...(device ? [] : [trustDevice(req, u.id, r.by)])] });
   }
   if ((m = /^\/api\/invite\/([a-f0-9]{32})$/.exec(path))) {
@@ -368,6 +379,7 @@ async function api(req, res, path, query) {
     run('UPDATE invites SET used_by = ? WHERE token = ?', uid, inv.token);
     const u = one('SELECT * FROM users WHERE id = ?', uid);
     log(`new ${role}: ${u.username}`);
+    track(u, 'Account created');
     if (role === 'owner') { botConv(u); await botSay(`Hi Guman 👋 I'm your ${BOT_NAME}. I'll message you here when I need something. Type "help" to see what I can do.`); }
     else {
       const o = owner();
@@ -381,7 +393,28 @@ async function api(req, res, path, query) {
   const me = userOf(req);
   if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, together: !PROD, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
   if (!me) throw err(401, 'Sign in first.');
-  if (M === 'POST' && path === '/api/logout') { run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
+  if (PROD && M !== 'GET') { const t = TRACKED.find(([re]) => re.test(path)); if (t) track(me, t[1]); }
+
+  // Prod, owner only: who is here and what they do. Passwords, typed sign-ins and codes are never stored or shown.
+  if (PROD && path.startsWith('/api/activity')) {
+    if (me.role !== 'owner' || M !== 'GET') throw err(404, 'Not found.');
+    const devicesOf = (id) => all('SELECT name, created, seen FROM devices WHERE user_id = ? ORDER BY seen DESC', id);
+    if (path === '/api/activity') {
+      return send(res, 200, { people: all("SELECT id, username, name, created FROM users WHERE active = 1 AND role = 'friend' ORDER BY created").map((u) => ({ ...u, online: isActive(u.id), devices: devicesOf(u.id).length,
+        last: one('SELECT at, what FROM activity WHERE user_id = ? ORDER BY id DESC LIMIT 1', u.id) || null })) });
+    }
+    const am = /^\/api\/activity\/(\d+)$/.exec(path);
+    const u = am && one("SELECT id, username, name, created FROM users WHERE id = ? AND active = 1 AND role = 'friend'", Number(am[1]));
+    if (!u) throw err(404, 'Not found.');
+    const agent = agentFor(u);
+    const job = agent ? await fetch(`${agent}/internal/dash/summary`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json()).catch(() => null) : null;
+    const messages = all(`SELECT m.id, m.user_id, m.kind, m.text, m.created, c.kind AS conv_kind, c.name AS conv_name, s.name AS sender FROM messages m JOIN convs c ON c.id = m.conv_id JOIN users s ON s.id = m.user_id
+      WHERE m.conv_id IN (SELECT conv_id FROM members WHERE user_id = ?) ORDER BY m.id DESC LIMIT 200`, u.id).reverse();
+    return send(res, 200, { user: { ...u, online: isActive(u.id) }, devices: devicesOf(u.id), job: job && { paused: job.paused, dryRun: job.dryRun, now: job.now?.text || null, setup: job.setup, applied: job.today?.applied ?? 0, found: job.today?.found ?? 0, connected: job.connected ? { linkedin: !!job.connected.linkedin, naukri: !!job.connected.naukri, gmail: !!job.connected.gmail } : null },
+      events: all('SELECT at, what FROM activity WHERE user_id = ? ORDER BY id DESC LIMIT 200', u.id),
+      messages: messages.map((x) => ({ id: x.id, mine: x.user_id === u.id, sender: x.sender, chat: x.conv_name || 'Chat with you', kind: x.kind, text: maskSecrets(x.text), at: x.created })) });
+  }
+  if (M === 'POST' && path === '/api/logout') { track(me, 'Signed out'); run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 
   if (M === 'GET' && path === '/api/stream') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', Connection: 'keep-alive' });
@@ -422,6 +455,7 @@ async function api(req, res, path, query) {
     const salt = randomBytes(16).toString('hex');
     run('UPDATE users SET salt = ?, hash = ? WHERE id = ?', salt, hashPw(pw, salt), me.id);
     log(`password changed by ${me.username}`);
+    track(me, 'Changed password');
     return send(res, 200, { ok: true });
   }
   // Owners only (the owner and co-owners): a one-time reset link for someone who forgot their password (1 hour). Not
@@ -735,6 +769,7 @@ async function api(req, res, path, query) {
     if (M === 'POST' && name === 'action') {
       const b = await readJson(req, 4000);
       if (!['answer', 'pause', 'resume', 'live', 'dry', 'skip', 'queue', 'claim', 'applied', 'forget', 'ref_decide', 'ref_companies'].includes(b.action)) throw err(400, 'Unknown action.');
+      track(me, `Job agent: ${b.action}`);
       const r = await fetch(`${agent}/internal/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ action: b.action, id: b.id, answer: typeof b.answer === 'string' ? b.answer.slice(0, 4000) : b.answer }) }).catch(() => null);
       if (!r?.ok) throw err(503, 'Your job agent is not responding. It may be restarting.');

@@ -680,3 +680,15 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
 .plan-sec ul{margin:0;padding:0 0 0 1.1rem;color:var(--ink);font-size:.92rem;line-height:1.45}
 .plan-sec li{margin:.2rem 0}
 .plan-sec .st-note{margin:.4rem 0 0}
+
+/* Prod owner's Activity page */
+.act-who{padding:.2rem 0}
+.act-who small{color:var(--soft)}
+.act-who .st-note{margin:.15rem 0 0}
+.act-list{margin:0 0 .5rem;padding:0;list-style:none;font-size:.9rem;line-height:1.5}
+.act-list small{color:var(--soft)}
+.act-chat{display:flex;flex-direction:column;gap:.45rem}
+.act-msg{background:var(--fill);border-radius:12px;padding:.5rem .7rem;max-width:92%;align-self:flex-start}
+.act-msg.mine{align-self:flex-end;border:1px solid var(--accent)}
+.act-msg small{color:var(--soft);font-size:.72rem}
+.act-msg p{margin:.15rem 0 0;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere}
