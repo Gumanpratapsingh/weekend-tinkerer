@@ -206,6 +206,12 @@ function settle(job, res) {
       event('dry_run', `${label} (${job.score}%) — form filled, not submitted`);
       break;
     default:
+      // Submit was pressed but no confirmation showed: it may have gone through, so never press it again (that could apply twice).
+      if (/no confirmation seen/i.test(res.reason || '')) {
+        run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", 'submit pressed, no confirmation seen: check your email before applying again', job.id);
+        tell(`🖐 ${label}: I pressed Submit but saw no confirmation, so it may or may not have gone through. Check your email for a confirmation before applying again.\n${job.apply_url}`, { refKind: 'job', refId: job.id });
+        break;
+      }
       run("UPDATE jobs SET status = ?, status_note = ? WHERE id = ?", (job.attempts || 0) + 1 >= 3 ? 'failed' : 'queued', (res.reason || res.status || '').slice(0, 300), job.id);
   }
   return res;
