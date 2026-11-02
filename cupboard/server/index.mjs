@@ -19,6 +19,7 @@ import { install as installMonitor } from './monitor.mjs';
 
 const PORT = Number(process.env.CB_PORT) || 8085, INTERNAL = Number(process.env.CB_INTERNAL) || 8086;
 const SESSION_DAYS = 90;
+const NO_TOGETHER = process.env.CB_NO_TOGETHER === '1';   // the prod environment: no shared lists, calendar, reminders or wedding planner
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- http helpers ----------
@@ -376,7 +377,7 @@ async function api(req, res, path, query) {
 
   // ----- signed in -----
   const me = userOf(req);
-  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
+  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, together: !NO_TOGETHER, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
   if (!me) throw err(401, 'Sign in first.');
   if (M === 'POST' && path === '/api/logout') { run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 
@@ -519,7 +520,7 @@ async function api(req, res, path, query) {
         if (n.length) { postMessage(convId, botId(), { kind: 'text', text: `🔕 Okay, urgent reminders stopped (${n.length} open). New urgent alerts will start again.` }, { pushOnly: [] }); return send(res, 200, { id: msg.id }); }
       }
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
-      else if (together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
+      else if (!NO_TOGETHER && together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
       else if (isNcrConv(conv)) setImmediate(async () => {
         const agent = getKv(`ncragent:${me.id}`) || agentFor(me);
@@ -772,8 +773,8 @@ async function api(req, res, path, query) {
   }
 
   if (await monitor.route(req, res, path, query, me)) return;
-  if (await together.route(req, res, path, query, me)) return;
-  if (await wedding.route(req, res, path, query, me)) return;
+  if (!NO_TOGETHER && await together.route(req, res, path, query, me)) return;
+  if (!NO_TOGETHER && await wedding.route(req, res, path, query, me)) return;
   if (await calls.route(req, res, path, query, me)) return;
 
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {

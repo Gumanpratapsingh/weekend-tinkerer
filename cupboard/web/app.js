@@ -306,7 +306,7 @@ async function render() {
   if (!state.me) {
     const me = await api('/me').catch(() => ({}));
     if (me.device === false) return screens.untrusted();
-    state.vapid = me.vapid; state.push = me.push; state.bot = me.bot;
+    state.vapid = me.vapid; state.push = me.push; state.bot = me.bot; state.noTogether = me.together === false;
     if (!me.user) return screens.login();
     state.me = me.user; connect(); presence(); await loadConvs().catch(() => {}); checkCall();
   }
@@ -759,7 +759,7 @@ function tabbar(active, cls = 'tabbar') {
   const tab = (id, href, icon, label, badge) => h('a', { class: 'tab' + (id === active ? ' on' : ''), href, 'data-link': true, 'aria-label': label },
     h('span', { class: 'ti' }, ic(icon), badge ? h('i', { class: 'tb' }, badge > 99 ? '99+' : String(badge)) : null), h('span', {}, label));
   return h('nav', { class: cls, 'aria-label': 'Sections' },
-    tab('chats', '/', 'chat', 'Chats', unread), tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), tab('settings', '/me', 'sliders', 'Settings'));
+    tab('chats', '/', 'chat', 'Chats', unread), state.noTogether ? null : tab('together', '/together', 'cal', 'Together'), tab('jobs', '/jobs', 'brief', 'Jobs'), tab('settings', '/me', 'sliders', 'Settings'));
 }
 // The desktop sidebar: brand, the four sections, search, and the chat list (never the archived view: that opens on the right).
 function drawSide() {
@@ -1167,7 +1167,7 @@ function drawComposer() {
       const docs = h('input', { type: 'file', accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip', multiple: true, hidden: '' });
       const b = h('button', { class: 'icon', type: 'button', 'aria-label': 'Attach photos, videos or files' }, ic('clip'));
       b.addEventListener('click', () => sheet(null, [['📷 Photo or video', () => media.click()], ['📄 Document', () => docs.click()],
-        ['📝 List', () => chatList(c)], ['⏰ Reminder or event', () => eventForm({}, { conv: c.id, reminder: true })]]));
+        ...(state.noTogether ? [] : [['📝 List', () => chatList(c)], ['⏰ Reminder or event', () => eventForm({}, { conv: c.id, reminder: true })]])]));
       // Photos wait in a tray so you can take the second hand (or more), then send them all together.
       media.addEventListener('change', () => {
         const files = [...(media.files || [])]; media.value = '';
@@ -1505,6 +1505,7 @@ function upsertEvent(e) {
 function dropEvent(id) { if (state.tg) { state.tg.events = state.tg.events.filter((e) => e.id !== id); redrawTogether(); } }
 
 screens.together = async (r) => {
+  if (state.noTogether) return go('/', true);
   const add = h('button', { class: 'icon', type: 'button', 'aria-label': r.tab === 'cal' ? 'New event or reminder' : 'New list' }, ic('plus'));
   add.addEventListener('click', () => (route().tab === 'cal' ? eventForm(state.calSel ? { date: state.calSel } : {}) : listForm()));
   app.replaceChildren(
@@ -1582,6 +1583,7 @@ async function listForm(pre = {}, conv = null, after = null) {
 }
 
 screens.tlist = async (r) => {
+  if (state.noTogether) return go('/', true);
   if (!state.tg) await loadTogether();
   if (!tgList(r.id)) upsertList((await api(`/lists/${r.id}`)).list);
   const ta = h('textarea', { rows: '1', placeholder: 'Add an item (or paste several lines)', 'aria-label': 'Add an item', enterkeyhint: 'done', autocapitalize: 'sentences' });

@@ -8,7 +8,7 @@ StartLimitIntervalSec=0
 [Service]
 User=prod
 WorkingDirectory=/home/prod
-Environment=HOME=/home/prod CB_PORT=8185 CB_INTERNAL=8186 CB_OWNER_AGENT= CB_BOT_NAME=Bot
+Environment=HOME=/home/prod CB_PORT=8185 CB_INTERNAL=8186 CB_OWNER_AGENT= CB_BOT_NAME=Bot CB_NO_TOGETHER=1
 ExecStart=/usr/local/bin/node --no-warnings /home/prod/cupboard/server/index.mjs
 StandardOutput=append:/home/prod/cupboard/server.out
 StandardError=append:/home/prod/cupboard/server.out
