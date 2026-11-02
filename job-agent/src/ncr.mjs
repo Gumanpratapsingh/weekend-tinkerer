@@ -150,7 +150,8 @@ export async function ncrFill(jobId, { chat = 'ncr' } = {}) {
   say(`🖊 Filling ${label(job)} — I won't submit. Screenshots in a minute or two.`);
   setKv(`fillans:${job.id}`, '{}');
   let resume = job.resume_path && existsSync(job.resume_path) ? job.resume_path : null;
-  if (!resume && job.apply_type !== 'naukri') {
+  if (config().original_resume_only) resume = job.apply_type === 'naukri' ? null : resumeFile();   // their own PDF, never a generated one
+  else if (!resume && job.apply_type !== 'naukri') {
     try { const t = job.description ? await tailor(job) : await baseResume(job.track || 'backend'); resume = t.pdf; run('UPDATE jobs SET resume_path = ? WHERE id = ?', resume, job.id); }
     catch (e) { log(`ncr fill resume: ${e.message}`); resume = resumeFile(); }
   }

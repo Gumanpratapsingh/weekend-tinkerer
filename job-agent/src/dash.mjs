@@ -75,7 +75,8 @@ export function basis() {
       { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day.`, `Naukri: up to ${caps.naukri} a day.`, `Company career sites: up to ${caps.ats} a day.`,
         `At most ${caps.total} a day and ${caps.per_company} per company.`] },
       { heading: 'What it sends', items: ['Only facts from your resume and answers you gave. Anything it does not know, it asks you in chat.',
-        `For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`, 'On Naukri it uses your resume as uploaded.',
+        ...(c.original_resume_only ? ['Your resume exactly as you gave it, on every application. It is never edited or rewritten.']
+          : [`For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`]), 'On Naukri it uses your Naukri profile resume.',
         `Recruiter replies and referral messages go out only after you approve them.`] },
     ],
     note: 'Open any job in the Jobs tab to see its score and the reasons for it. Daily limits are fixed to keep your accounts safe.',

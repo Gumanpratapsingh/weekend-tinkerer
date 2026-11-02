@@ -43,7 +43,8 @@ console.log(JSON.stringify({
     ], note: 'These are limits, not targets. Real numbers depend on how many jobs fit.' },
     { heading: 'What it does in your name', items: [
       'Fills application forms using only your resume and answers you gave it. Anything it doesn\'t know, it asks you in chat.',
-      `For ${tailor}%+ matches on LinkedIn and company sites, it tailors your resume for that job, using only facts already on it.`,
+      c.original_resume_only ? 'It attaches your resume exactly as you gave it, on every application. It is never edited.'
+        : `For ${tailor}%+ matches on LinkedIn and company sites, it tailors your resume for that job, using only facts already on it.`,
       'On Naukri it uses your resume as uploaded, and re-uploads it twice a day so your profile shows as recently updated.',
       'Reads your job emails: confirmations, recruiter replies, interview invites and security codes for applications.',
       'Drafts recruiter replies, emailed applications and LinkedIn referral messages. These go out only after you approve each one.',

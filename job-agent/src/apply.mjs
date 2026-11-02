@@ -2,7 +2,7 @@
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
 import { existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { config, log, logError, istDate, istHour, activity, hasSession, DATA, PROFILE, OWNER } from './core.mjs';
+import { config, log, logError, istDate, istHour, activity, hasSession, DATA, PROFILE, OWNER, resumeFile } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { browserTask } from './browser.mjs';
@@ -95,7 +95,9 @@ export async function applyJob(job, { dryRun = false } = {}) {
     // rather than keep sending out-of-date facts (found 2026-10-22: a resume tailored before that evening's profile
     // update kept going out on every retry after it, since nothing ever invalidated the cache).
     if (resume && existsSync(resume) && statSync(resume).mtimeMs < statSync(join(PROFILE, 'master.json')).mtimeMs) resume = null;
-    if (!resume && job.apply_type !== 'naukri') {      // Naukri sends the profile resume: no tailoring needed
+    // config.original_resume_only: the person's own PDF on every application, never a generated one (their instruction).
+    if (config().original_resume_only) resume = job.apply_type === 'naukri' ? null : resumeFile();
+    else if (!resume && job.apply_type !== 'naukri') {  // Naukri sends the profile resume: no tailoring needed
       const t = (job.score || 0) >= (config().tailor_min_score || 0) ? await tailor(job) : await baseResume(job.track || 'backend');
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
@@ -148,7 +150,7 @@ function settle(job, res) {
       if (!one("SELECT 1 FROM asks WHERE job_id = ? AND status = 'open'", job.id)) {
         const fields = res.unknown.map((u) => u.label).join(', ');
         run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `saved answer doesn't fit the form: ${fields}`, job.id);
-        tell(`🖐 ${label}: my saved answer for "${fields}" isn't one of the form's options. Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
+        tell(`🖐 ${label}: my saved answer for "${fields}" isn't one of the form's options. Apply here yourself${config().original_resume_only ? '' : ' — the tailored resume is ready'}:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
       }
       break;
     case 'manual':
@@ -171,7 +173,7 @@ function settle(job, res) {
         break;
       }
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", res.reason || 'needs you', job.id);
-      tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself — the tailored resume is ready:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
+      tell(`🖐 Couldn't finish ${label} (${res.reason}). Apply here yourself${config().original_resume_only ? '' : ' — the tailored resume is ready'}:\n${job.apply_url}`, { refKind: 'job', refId: job.id, urgent: isNcr(job) && job.id });
       break;
     case 'email':                                     // the company takes applications by email: draft it, the person approves
       run("UPDATE jobs SET status = 'manual', status_note = ? WHERE id = ?", `drafting an email application to ${res.email}`, job.id);
