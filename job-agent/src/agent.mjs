@@ -19,7 +19,8 @@ import { one, run } from './db.mjs';
 import { watchdog } from './watchdog.mjs';
 import { health } from './health.mjs';
 import { startCaptcha, captchaDone, liveCaptcha, expireStale } from './captcha.mjs';
-import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin } from './onboard.mjs';
+import { needsSetup, startOnboarding, receiveFile, onboardReply, loginCommand, pendingStep, startSignin, setPreference } from './onboard.mjs';
+import { locationOk, titleOk, maxSalaryLpa } from './sources/common.mjs';
 
 gate.open = !needsSetup();                          // a new person: only the chat + setup run until their profile exists
 seedKnown();
@@ -168,6 +169,17 @@ createServer((req, res) => {
           case 'resume': setKv('paused', '0'); return ok();
           case 'live': setKv('dry_run', '0'); run("UPDATE jobs SET status = 'queued' WHERE status = 'ready'"); return ok();
           case 'dry': setKv('dry_run', '1'); return ok();
+          case 'set_pref': {                                  // the Rules page; jobs already queued must follow the new roles and cities
+            const r = setPreference(String(b.id), b.answer);
+            if (r.error) return ok({ ok: false, error: r.error });
+            let dropped = 0;
+            for (const j of all("SELECT id, title, location, description FROM jobs WHERE status = 'queued'")) {
+              const lpa = maxSalaryLpa(j.description), floor = config().min_salary_lpa || 0;
+              const out = String(b.id) === 'cities' ? !locationOk(j.location, j.description) : String(b.id) === 'roles' ? !titleOk(j.title) : lpa != null && lpa < floor;
+              if (out) { run("UPDATE jobs SET status = 'filtered', status_note = ? WHERE id = ?", `no longer matches your ${b.id}`, j.id); dropped++; }
+            }
+            return ok({ dropped });
+          }
           case 'skip': run("UPDATE jobs SET status = 'skipped', status_note = 'skipped by you' WHERE id = ?", String(b.id)); return ok();
           case 'queue': run("UPDATE jobs SET status = 'queued', attempts = 0, status_note = 'queued by you' WHERE id = ? AND status NOT IN ('applied','interview')", String(b.id)); setKv(`ncrapply:${String(b.id)}`, '1'); return ok();   // ncrapply: the NCR sweep leaves it alone
           // Owner is applying by hand: park the job where neither the apply loop nor a bulk requeue of 'manual' jobs touches it.

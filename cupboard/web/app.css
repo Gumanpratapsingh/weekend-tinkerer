@@ -694,3 +694,10 @@ input[type=checkbox]{accent-color:var(--accent);width:1.15rem;height:1.15rem}
 .act-msg p{margin:.15rem 0 0;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere}
 
 .rules-status{background:var(--fill);border-radius:12px;padding:.65rem .8rem;font-size:.92rem;margin:0 0 1.1rem}
+
+.rules-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.4rem}
+.rules-head h3{margin:0}
+.rules-edit{padding:.2rem .7rem;font-size:.82rem;min-height:0;width:auto}
+.plan-sec textarea,.plan-sec input{width:100%;box-sizing:border-box;font:inherit;padding:.55rem .65rem;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.rules-actions{display:flex;gap:.5rem;margin-top:.5rem}
+.rules-actions .btn{width:auto;padding:.4rem 1rem}

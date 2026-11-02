@@ -56,9 +56,9 @@ export function basis() {
       : dry ? 'Dry run: it fills forms but submits nothing. Send "go live" when you are ready.'
         : review ? `Review mode${day ? ` until ${day}` : ''}: every application waits for you to tap Submit.` : 'Live: it submits on its own, within the limits below.',
     sections: [
-      { heading: 'Roles it looks for', items: (c.tracks?.backend?.queries || []).map(pretty) },
-      { heading: 'Cities', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'] },
-      { heading: 'Minimum salary', items: [c.min_salary_lpa ? `${c.min_salary_lpa} LPA. Jobs that state less are skipped.` : 'No minimum set.'] },
+      { heading: 'Roles it looks for', items: (c.tracks?.backend?.queries || []).map(pretty), edit: { kind: 'roles', value: (c.tracks?.backend?.queries || []).join(', '), hint: 'Separate roles with commas (up to 12).' } },
+      { heading: 'Cities', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'], edit: { kind: 'cities', value: L.only_listed ? searched.join(', ') : 'anywhere', hint: 'Separate cities with commas. Add "remote" for remote jobs, or write "anywhere".' } },
+      { heading: 'Minimum salary', items: [c.min_salary_lpa ? `${c.min_salary_lpa} LPA. Jobs that state less are skipped.` : 'No minimum set.'], edit: { kind: 'salary', value: String(c.min_salary_lpa ?? 0), hint: 'A number in LPA. Use 0 for no minimum.' } },
       { heading: 'Accounts', items: [`Job mailbox: ${privateProfile().mailbox || 'not set'}.`, `Gmail: ${on(!!secret('gmail_app_password'))}.`, `LinkedIn: ${on(hasSession('linkedin'))}.`, `Naukri: ${on(hasSession('naukri'))}.`] },
       { heading: 'Your answers for applications', items: [...seeds.map((q) => `${q} ${answerOf(q) || '(waiting for your answer in chat)'}`),
         ...answered.filter((a) => !seeds.includes(a.question)).map((a) => `${a.question} ${a.answer}`)] },
@@ -74,7 +74,7 @@ export function basis() {
         `For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`, 'On Naukri it uses your resume as uploaded.',
         `Recruiter replies and referral messages go out only after you approve them.`] },
     ],
-    note: 'Open any job in the Jobs tab to see its score and the reasons for it. To change anything here, ask in your Job agent chat.',
+    note: 'Open any job in the Jobs tab to see its score and the reasons for it. To change anything else here, ask in your Job agent chat.',
   };
 }
 

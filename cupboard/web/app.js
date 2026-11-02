@@ -1517,7 +1517,34 @@ screens.rules = async () => {
   app.replaceChildren(h('div', { class: 'bar' }, back('/'), h('div', { class: 't' }, h('b', {}, 'Rules'), h('small', {}, 'on what basis your agent applies'))), page, tabbar('rules'));
   try {
     const b = await api('/jobs/basis');
-    page.replaceChildren(h('p', { class: 'rules-status' }, b.status), ...planNodes(b), h('p', { class: 'st-note' }, b.note));
+    // Roles, cities and minimum salary can be changed right here; the rest is read-only.
+    const sectionOf = (x) => {
+      const el = h('section', { class: 'plan-sec' });
+      const show = () => {
+        const edit = x.edit ? h('button', { class: 'btn ghost rules-edit', type: 'button' }, 'Edit') : null;
+        edit?.addEventListener('click', form);
+        el.replaceChildren(h('div', { class: 'rules-head' }, h('h3', {}, x.heading), edit), h('ul', {}, ...x.items.map((t) => h('li', {}, t))));
+      };
+      const form = () => {
+        const input = x.edit.kind === 'salary' ? h('input', { inputmode: 'decimal', value: x.edit.value, 'aria-label': x.heading }) : h('textarea', { rows: '3', 'aria-label': x.heading });
+        if (x.edit.kind !== 'salary') input.value = x.edit.value;
+        const msg = h('p', { class: 'err' }), save = h('button', { class: 'btn', type: 'button' }, 'Save'), cancel = h('button', { class: 'btn ghost', type: 'button' }, 'Cancel');
+        cancel.addEventListener('click', show);
+        save.addEventListener('click', async () => {
+          save.disabled = true; msg.textContent = '';
+          try {
+            const r = await api('/jobs/action', { method: 'POST', body: { action: 'set_pref', id: x.edit.kind, answer: input.value } });
+            toast(r.dropped ? `Saved. ${r.dropped} queued job${r.dropped > 1 ? 's' : ''} no longer match and were removed.` : 'Saved');
+            screens.rules();
+          } catch (e) { msg.textContent = e.message; save.disabled = false; }
+        });
+        el.replaceChildren(h('h3', {}, x.heading), input, h('p', { class: 'st-note' }, x.edit.hint), h('div', { class: 'rules-actions' }, save, cancel), msg);
+        input.focus();
+      };
+      show();
+      return el;
+    };
+    page.replaceChildren(h('p', { class: 'rules-status' }, b.status), ...b.sections.map(sectionOf), h('p', { class: 'st-note' }, b.note));
   } catch (x) { page.replaceChildren(h('p', { class: 'lede' }, x.message)); }
 };
 

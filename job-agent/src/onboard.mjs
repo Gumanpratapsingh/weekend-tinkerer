@@ -225,6 +225,39 @@ export function loginCommand(text) {
 /** Is the person in a setup step that takes free text (so a plain message is an answer, never sent to the AI)? */
 export const pendingStep = () => (needsSetup() ? getKv('onboard') || 'resume' : null);
 
+// Roles, cities and minimum salary: asked during setup, and editable later on the Rules page. Returns {error} when the text is unusable.
+export function setPreference(kind, text) {
+  const t = String(text ?? '').trim(), path = join(PROFILE, 'config.json'), c = readJson(path, {});
+  if (kind === 'roles') {
+    const roles = t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 12);
+    if (!roles.length) return { error: 'Add at least one role.' };
+    const old = c.tracks?.backend?.queries || [];
+    c.tracks = { backend: { queries: roles } };
+    // A title has to match title_include to be considered at all, so the list follows the roles.
+    c.title_include = [...new Set([...(c.title_include || []).filter((k) => !old.includes(k) || roles.includes(k)), ...roles])];
+  } else if (kind === 'cities') {
+    const base = readJson(join(ROOT, 'profile', 'config.json'), {}).locations;
+    if (/^(any|anywhere|all|any city|anywhere in india)/i.test(t)) c.locations = base;
+    else {
+      const list = t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 15);
+      const remote = list.some((x) => /remote|wfh|work from home/.test(x));
+      const cities = list.filter((x) => !/remote|wfh|work from home/.test(x));
+      if (!cities.length && !remote) return { error: 'Add at least one city, "remote", or "anywhere".' };
+      const alias = { bangalore: 'bengaluru', bengaluru: 'bangalore', gurgaon: 'gurugram', gurugram: 'gurgaon', bombay: 'mumbai' };
+      c.locations = { ...base, preferred: [...new Set(cities.flatMap((x) => [x, alias[x]].filter(Boolean)))], other_cities: [], only_listed: true,
+        remote_ok: remote ? base.remote_ok : [],
+        naukri: [...cities.map((x) => ({ location: x })), ...(remote ? [{ location: 'remote' }] : [])],
+        linkedin: [...cities.map((x) => ({ location: `${x.replace(/\b\w/g, (m) => m.toUpperCase())}, India` })), ...(remote ? [{ location: 'India', remote: true }] : [])] };
+    }
+  } else if (kind === 'salary') {
+    const n = Number((/\d+(\.\d+)?/.exec(t) || [])[0]);
+    if (!Number.isFinite(n) || n > 500) return { error: 'Enter the number in LPA, or 0 for no minimum.' };
+    c.min_salary_lpa = n;
+  } else return { error: 'Unknown setting.' };
+  writeFileSync(path, JSON.stringify(c, null, 2));
+  return {};
+}
+
 export function onboardReply(step, text, msgId = null) {
   const t = String(text).trim(), path = join(PROFILE, 'config.json');
   const c = readJson(path, {});
@@ -250,35 +283,19 @@ export function onboardReply(step, text, msgId = null) {
   }
   if (step === 'roles') {
     if (!/^(ok|okay|yes|👍)$/i.test(t)) {
-      const roles = t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 12);
-      if (!roles.length) return say('Send the roles separated by commas, or "ok".', 'roles');
-      c.tracks = { backend: { queries: roles } };
+      const r = setPreference('roles', t);
+      if (r.error) return say('Send the roles separated by commas, or "ok".', 'roles');
     }
-    writeFileSync(path, JSON.stringify(c, null, 2));
     return next('roles');
   }
   if (step === 'cities') {
-    const base = readJson(join(ROOT, 'profile', 'config.json'), {}).locations;
-    if (/^(any|anywhere|all|any city|anywhere in india)/i.test(t)) c.locations = base;
-    else {
-      const list = t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 15);
-      const remote = list.some((x) => /remote|wfh|work from home/.test(x));
-      const cities = list.filter((x) => !/remote|wfh|work from home/.test(x));
-      if (!cities.length && !remote) return say('Send city names separated by commas, or "anywhere".', 'cities');
-      const alias = { bangalore: 'bengaluru', bengaluru: 'bangalore', gurgaon: 'gurugram', gurugram: 'gurgaon', bombay: 'mumbai' };
-      c.locations = { ...base, preferred: [...new Set(cities.flatMap((x) => [x, alias[x]].filter(Boolean)))], other_cities: [], only_listed: true,
-        remote_ok: remote ? base.remote_ok : [],
-        naukri: [...cities.map((x) => ({ location: x })), ...(remote ? [{ location: 'remote' }] : [])],
-        linkedin: [...cities.map((x) => ({ location: `${x.replace(/\b\w/g, (m) => m.toUpperCase())}, India` })), ...(remote ? [{ location: 'India', remote: true }] : [])] };
-    }
-    writeFileSync(path, JSON.stringify(c, null, 2));
+    const r = setPreference('cities', t);
+    if (r.error) return say('Send city names separated by commas, or "anywhere".', 'cities');
     return next('cities');
   }
   if (step === 'salary') {
-    const n = Number((/\d+(\.\d+)?/.exec(t) || [])[0]);
-    if (!Number.isFinite(n)) return say('Just the number in LPA, e.g. 8 (or 0 for no limit).', 'salary');
-    c.min_salary_lpa = n;
-    writeFileSync(path, JSON.stringify(c, null, 2));
+    const r = setPreference('salary', t);
+    if (r.error) return say('Just the number in LPA, e.g. 8 (or 0 for no limit).', 'salary');
     return next('salary');
   }
 }
