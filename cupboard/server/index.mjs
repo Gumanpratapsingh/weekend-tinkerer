@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { writeFileSync, statSync, createReadStream, existsSync, unlinkSync, realpathSync, readFileSync as readFileSyncFs } from 'node:fs';
 import { join } from 'node:path';
-import { db, one, all, run, MEDIA, botId, owner, getKv, setKv, OWNER_AGENT, BOT_NAME } from './db.mjs';
+import { db, one, all, run, MEDIA, botId, owner, getKv, setKv, OWNER_AGENT, BOT_NAME, HOME } from './db.mjs';
 import * as push from './push.mjs';
 import { botReply, botAction } from './bot.mjs';
 import { install as installTogether } from './together.mjs';
@@ -223,9 +223,10 @@ function interviewsConv(user) {
   return Number(id);
 }
 // Screenshots a local job agent sends with a message: only its own shots folders, copied into Cupboard media.
-const SHOTS = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?data\/shots\/[\w.-]+\.png$/;
+const JA_HOME = HOME.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');      // this environment's own home: prod runs from a different one
+const SHOTS = new RegExp(`^${JA_HOME}\\/jobagent\\/(people\\/[a-z0-9_-]+\\/)?data\\/shots\\/[\\w.-]+\\.png$`);
 // The resume that went with an application (tailored, or the profile's own): attached so the person can download it.
-const RESUMES = /^\/home\/gpsingh\/jobagent\/(people\/[a-z0-9_-]+\/)?(data\/resumes|profile)\/[^/]+\.pdf$/;
+const RESUMES = new RegExp(`^${JA_HOME}\\/jobagent\\/(people\\/[a-z0-9_-]+\\/)?(data\\/resumes|profile)\\/[^/]+\\.pdf$`);
 function resumeToMedia(path) {
   let real;
   try { real = realpathSync(String(path)); } catch { return null; }
