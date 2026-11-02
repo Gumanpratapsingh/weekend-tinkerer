@@ -68,7 +68,6 @@ console.log(JSON.stringify({
     ] },
     { heading: 'Worth knowing before you say yes', items: [
       'LinkedIn and Naukri don\'t officially allow automated applying, so your accounts could be limited or restricted.',
-      'Applications are real and in your name. Recruiters, and possibly your current employer, could see that you\'re looking.',
       'It can make mistakes on a form. Look through what it sent, especially at first.',
     ] },
   ],
