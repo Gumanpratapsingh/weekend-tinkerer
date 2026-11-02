@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, writ
 import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
+import { SEED } from './answers.mjs';
 
 const COLS = 'id, source, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
@@ -46,25 +47,32 @@ export function basis() {
   const review = getKv('review_mode') === '1' || (getKv('review_mode') !== '0' && Date.now() < until);
   const day = until ? new Date(until + 5.5 * 3600e3).toISOString().slice(0, 10) : '';
   const on = (x) => (x ? 'connected' : 'not connected');
+  // Everything setup asked, as it stands now: the standard questions first, then anything else they have answered since.
+  const answered = all('SELECT question, answer FROM questions WHERE answer IS NOT NULL ORDER BY id');
+  const answerOf = (q) => answered.find((a) => a.question === q)?.answer;
+  const seeds = SEED().map((q) => q.question || q);
   return {
     status: getKv('paused') === '1' ? 'Paused: nothing is being submitted. Send "resume" to restart.'
       : dry ? 'Dry run: it fills forms but submits nothing. Send "go live" when you are ready.'
         : review ? `Review mode${day ? ` until ${day}` : ''}: every application waits for you to tap Submit.` : 'Live: it submits on its own, within the limits below.',
     sections: [
       { heading: 'Roles it looks for', items: (c.tracks?.backend?.queries || []).map(pretty) },
-      { heading: 'Where the job must be', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'] },
+      { heading: 'Cities', items: [L.only_listed ? `${cities.join(', ') || 'No cities listed'}${remote ? ', or remote' : ''}.` : 'Any city in India, or remote.'] },
+      { heading: 'Minimum salary', items: [c.min_salary_lpa ? `${c.min_salary_lpa} LPA. Jobs that state less are skipped.` : 'No minimum set.'] },
+      { heading: 'Accounts', items: [`Job mailbox: ${privateProfile().mailbox || 'not set'}.`, `Gmail: ${on(!!secret('gmail_app_password'))}.`, `LinkedIn: ${on(hasSession('linkedin'))}.`, `Naukri: ${on(hasSession('naukri'))}.`] },
+      { heading: 'Your answers for applications', items: [...seeds.map((q) => `${q} ${answerOf(q) || '(waiting for your answer in chat)'}`),
+        ...answered.filter((a) => !seeds.includes(a.question)).map((a) => `${a.question} ${a.answer}`)] },
       { heading: 'Which jobs it applies to', items: [
         `AI fit score of ${c.min_score ?? 65}% or higher, comparing the job with your resume.`,
-        c.min_salary_lpa ? `Skips jobs that state less than ${c.min_salary_lpa} LPA.` : 'No minimum salary set.',
         ...(c.experience_years ? [`Skips jobs clearly asking for far more than your ${c.experience_years} years.`] : []),
         ...((c.title_exclude || []).length ? [`Skips job titles with: ${c.title_exclude.map(pretty).join(', ')}.`] : []),
         ...((c.exclude_companies || []).length ? [`Never applies to: ${c.exclude_companies.map(pretty).join(', ')}.`] : []),
       ] },
-      { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day (${on(hasSession('linkedin'))}).`, `Naukri: up to ${caps.naukri} a day (${on(hasSession('naukri'))}).`, `Company career sites: up to ${caps.ats} a day.`,
+      { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day.`, `Naukri: up to ${caps.naukri} a day.`, `Company career sites: up to ${caps.ats} a day.`,
         `At most ${caps.total} a day and ${caps.per_company} per company.`] },
       { heading: 'What it sends', items: ['Only facts from your resume and answers you gave. Anything it does not know, it asks you in chat.',
         `For ${c.tailor_min_score ?? 75}%+ matches on LinkedIn and company sites, it adjusts your resume for that job, using only what is already on it.`, 'On Naukri it uses your resume as uploaded.',
-        `Job emails: ${on(!!secret('gmail_app_password'))}. Recruiter replies and referral messages go out only after you approve them.`] },
+        `Recruiter replies and referral messages go out only after you approve them.`] },
     ],
     note: 'Open any job in the Jobs tab to see its score and the reasons for it. To change anything here, ask in your Job agent chat.',
   };
