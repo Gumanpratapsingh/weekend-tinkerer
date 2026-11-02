@@ -746,7 +746,7 @@ const screens = {
         h('div', { class: 'st-me' }, h('span', { class: 'st-ic round big', style: 'background:linear-gradient(135deg,#ff9f0a,#ff375f)' }, (me.name || '?').trim()[0]?.toUpperCase() || '?'),
           h('span', { class: 'st-t' }, h('b', {}, me.name), h('small', {}, '@' + me.username, isOwner ? h('i', { class: 'st-pill' }, 'Owner') : me.admin ? h('i', { class: 'st-pill' }, 'Admin') : null))),
         group('App', notifRow, popRow, ringRow, installRow),
-        peopleGroup, securityGroup, monitorGroup, aboutGroup,
+        peopleGroup, securityGroup, state.noTogether ? null : monitorGroup, aboutGroup,
         h('div', { class: 'st-grp st-outgrp' }, out))),
       tabbar('settings'));
   },

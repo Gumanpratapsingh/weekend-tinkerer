@@ -409,7 +409,9 @@ async function api(req, res, path, query) {
   }
 
   if (M === 'GET' && path === '/api/users') {
-    return send(res, 200, { users: all("SELECT id, username, name, role, admin FROM users WHERE active = 1 AND role != 'bot' AND id != ? ORDER BY name", me.id) });
+    // Prod users never learn who else is on it: they only see the owner, who sees everyone.
+    const onlyOwner = NO_TOGETHER && !isAdmin(me) ? "AND role = 'owner'" : '';
+    return send(res, 200, { users: all(`SELECT id, username, name, role, admin FROM users WHERE active = 1 AND role != 'bot' AND id != ? ${onlyOwner} ORDER BY name`, me.id) });
   }
   // Change my own password (signed in on a trusted device: no old password needed, e.g. when it's forgotten).
   if (M === 'POST' && path === '/api/password') {

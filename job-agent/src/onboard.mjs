@@ -24,6 +24,9 @@ export function startOnboarding() {
     say(`👋 Hi! I'm your job agent. I find jobs on company career pages, LinkedIn and Naukri, check how well each fits you, `
       + `fill the applications, and ask you here whenever I meet a question I can't answer.\n\n`
       + `To start, attach your resume here as a PDF (tap 📎). I'll read it and set everything up from it. I only ever use facts from your resume.`);
+  } else if (step === 'review' && !getKv('onboard_greeted')) {       // their resume was added for them: this is the first message they get
+    setKv('onboard_greeted', Date.now());
+    review(`👋 Hi! I'm your job agent. I find jobs on company career pages, LinkedIn and Naukri, check how well each fits you, fill the applications, and ask you here whenever I meet a question I can't answer.\n\nYour resume is already added. Please check every detail below. Every application and message I send is built only from this.`);
   } else ask(step);
 }
 
@@ -149,7 +152,7 @@ function ask(step) {
   if (step === 'review') return review('Please check these details once more.');
   if (step === 'mailbox') return say(`✉️ Which Gmail gets your job emails (recruiter replies, interview invites)? Reply "ok" for ${privateProfile().mailbox || 'the one on your resume'}, or send the address. ("skip" to do this later.)`, 'mailbox');
   if (step === 'gmail') return say(`🔑 To read job replies I need a Gmail app password: a 16-letter code that only allows mail access. You can delete it anytime and your real password stays private.\n\n`
-    + `1. Open myaccount.google.com/apppasswords (signed in as ${privateProfile().mailbox}). If it says the setting isn't available, first turn on 2-Step Verification under Security.\n2. Name it "Job agent", tap Create.\n3. Reply here with the 16-letter code.\n\nI test it, save it on the phone, and hide your message here. ("skip" to do this later.)`, 'gmail');
+    + `1. Open myaccount.google.com/apppasswords (signed in as ${privateProfile().mailbox}). If it says the setting isn't available, first turn on 2-Step Verification under Security.\n2. Name it "Job agent", tap Create.\n3. Reply here with the 16-letter code.\n\nI test it, save it on the server, and hide your message here. ("skip" to do this later.)`, 'gmail');
   if (step === 'linkedin' || step === 'naukri') return signinCard(step);
 }
 
@@ -162,7 +165,7 @@ async function signinCard(site) {
     link = (await r.json()).path;
   } catch (e) { log(`signin link: ${e.message}`); }
   if (!link) return say(`I couldn't open the ${SITES[site]} sign-in page just now. Send "login ${site}" to try again.`);
-  tell(`🔐 Sign in to ${SITES[site]}\nTap "Open sign-in". You'll see the phone's browser on ${SITES[site]}'s real login page: tap the boxes and type in the box below the screen. `
+  tell(`🔐 Sign in to ${SITES[site]}\nTap "Open sign-in". You'll see a browser on ${SITES[site]}'s real login page: tap the boxes and type in the box below the screen. `
     + `Your password goes straight to ${SITES[site]}; I only keep the signed-in session so I can apply for you. If ${SITES[site]} sends a code (OTP), type it there too.\n\n("skip" to do this later.)`,
     { refKind: 'onboard', refId: site, link: { label: `Open ${SITES[site]} sign-in`, path: link } });
 }

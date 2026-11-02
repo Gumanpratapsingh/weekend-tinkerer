@@ -196,7 +196,7 @@ function settle(job, res) {
       run("UPDATE jobs SET status = 'queued', attempts = attempts - 1 WHERE id = ?", job.id);
       if (getKv(`session_${job.apply_type}`) !== 'expired') {
         run("INSERT INTO kv(key, value) VALUES(?, 'expired') ON CONFLICT(key) DO UPDATE SET value = 'expired'", `session_${job.apply_type}`);
-        tell(`🔑 My ${job.apply_type} login expired. On the Mac run:\n  cd ~/job-agent && ./scripts/login.sh ${job.apply_type}\nUntil then I'll skip ${job.apply_type} jobs.`, { urgent: true });
+        tell(OWNER ? `🔑 My ${job.apply_type} login expired. On the Mac run:\n  cd ~/job-agent && ./scripts/login.sh ${job.apply_type}\nUntil then I'll skip ${job.apply_type} jobs.` : `🔑 My ${job.apply_type} login expired. Send "login ${job.apply_type}" to sign in again. Until then I'll skip ${job.apply_type} jobs.`, { urgent: true });
       }
       break;
     case 'dry_run':                                   // form filled fine; submitted for real after "go live"
