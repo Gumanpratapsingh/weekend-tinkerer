@@ -19,7 +19,9 @@ import { install as installMonitor } from './monitor.mjs';
 
 const PORT = Number(process.env.CB_PORT) || 8085, INTERNAL = Number(process.env.CB_INTERNAL) || 8086;
 const SESSION_DAYS = 90;
-const NO_TOGETHER = process.env.CB_NO_TOGETHER === '1';   // the prod environment: no shared lists, calendar, reminders or wedding planner
+// The prod environment: no shared lists, calendar, reminders or wedding planner, and people are invisible to each other:
+// anyone but the owner can only ever see or reach the owner.
+const PROD = process.env.CB_PROD === '1';
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- http helpers ----------
@@ -377,7 +379,7 @@ async function api(req, res, path, query) {
 
   // ----- signed in -----
   const me = userOf(req);
-  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, together: !NO_TOGETHER, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
+  if (path === '/api/me' && M === 'GET') return send(res, 200, { user: publicUser(me), bot: BOT_NAME, together: !PROD, vapid: push.publicKey, push: me ? push.hasPush(me.id) : false, device: true });
   if (!me) throw err(401, 'Sign in first.');
   if (M === 'POST' && path === '/api/logout') { run('DELETE FROM sessions WHERE token = ?', me.token); return send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); }
 
@@ -410,7 +412,7 @@ async function api(req, res, path, query) {
 
   if (M === 'GET' && path === '/api/users') {
     // Prod users never learn who else is on it: they only see the owner, who sees everyone.
-    const onlyOwner = NO_TOGETHER && !isAdmin(me) ? "AND role = 'owner'" : '';
+    const onlyOwner = PROD && !isAdmin(me) ? "AND role = 'owner'" : '';
     return send(res, 200, { users: all(`SELECT id, username, name, role, admin FROM users WHERE active = 1 AND role != 'bot' AND id != ? ${onlyOwner} ORDER BY name`, me.id) });
   }
   // Change my own password (signed in on a trusted device: no old password needed, e.g. when it's forgotten).
@@ -482,7 +484,7 @@ async function api(req, res, path, query) {
   if (M === 'POST' && path === '/api/convs') {
     const b = await readJson(req, 4000);
     const ids = [...new Set((b.members || []).map(Number))].filter((id) => id !== me.id);
-    const valid = ids.filter((id) => one("SELECT 1 FROM users WHERE id = ? AND active = 1 AND role != 'bot'", id));
+    const valid = ids.filter((id) => one(`SELECT 1 FROM users WHERE id = ? AND active = 1 AND role != 'bot' ${PROD && !isAdmin(me) ? "AND role = 'owner'" : ''}`, id));
     if (!valid.length) throw err(400, 'Pick at least one person.');
     if (valid.length === 1 && !b.name) return send(res, 200, { conv: convSummary(openDm(me.id, valid[0]), me) });
     const name = String(b.name || '').trim().slice(0, 40);
@@ -522,7 +524,7 @@ async function api(req, res, path, query) {
         if (n.length) { postMessage(convId, botId(), { kind: 'text', text: `🔕 Okay, urgent reminders stopped (${n.length} open). New urgent alerts will start again.` }, { pushOnly: [] }); return send(res, 200, { id: msg.id }); }
       }
       if (assistant.isAssistant(convId)) { if (assistant.shouldReply(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message))); }
-      else if (!NO_TOGETHER && together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
+      else if (!PROD && together.isRemind(text)) setImmediate(() => together.fromChat(me, conv, text).catch((e) => log('remind', e.message)));
       else if (assistant.isCoach(convId) && assistant.coachWants(text)) setImmediate(() => assistant.reply(me, convId).catch((e) => log('assistant', e.message)));
       else if (isNcrConv(conv)) setImmediate(async () => {
         const agent = getKv(`ncragent:${me.id}`) || agentFor(me);
@@ -775,8 +777,8 @@ async function api(req, res, path, query) {
   }
 
   if (await monitor.route(req, res, path, query, me)) return;
-  if (!NO_TOGETHER && await together.route(req, res, path, query, me)) return;
-  if (!NO_TOGETHER && await wedding.route(req, res, path, query, me)) return;
+  if (!PROD && await together.route(req, res, path, query, me)) return;
+  if (!PROD && await wedding.route(req, res, path, query, me)) return;
   if (await calls.route(req, res, path, query, me)) return;
 
   if ((m = /^\/api\/media\/(\d+)$/.exec(path)) && M === 'GET') {
