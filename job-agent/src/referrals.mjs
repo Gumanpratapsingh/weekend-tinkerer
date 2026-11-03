@@ -134,17 +134,32 @@ const SENIOR = /\b(lead|manager|principal|staff|architect|head|director|senior|s
 const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
 // Who could refer this person for a job: the job page's "People you can reach out to" panel (former colleagues, school alumni),
 // plus a LinkedIn people search at the company (school alumni, and senior people in the job's region). Not yet contacted only.
-// Can this person help with this job? They must work in the job's field (a senior accountant at Kanpeki Care was asked, 2026-11-03: "senior"
-// alone was enough), and not have another employer in their headline (the people search also returns ex-staff). Alumni and colleagues are
-// worth asking whatever their role, as long as they work there.
-const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech|technical|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
-const PRODUCT_ROLE = /\b(product|program manager|project manager|business analyst|scrum)\b/i;
+// Can this person help with this job? They must work at that company now, in the job's field. Being an alum or ex-colleague widens the field a
+// little but excuses nothing: a senior accountant, a sales executive and a student were all asked on 2026-11-03.
+const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech lead|technical lead|engineering manager|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
+const PRODUCT_ROLE = /\b(product manager|product owner|product lead|head of product|program manager|project manager|business analyst|scrum master)\b/i;
+const NEAR_ROLE = /\b(analyst|consultant|data|technical|tech|cloud|security)\b/i;
+const NOT_WORKING = /\b(student|aspiring|intern|internship|trainee|fresher|seeking|looking for|open to work|pursuing)\b/i;
+const OTHER_FIELD = /\b(accountant|accounts?|finance|sales|business development|marketing|seo|social media|content|producer|legal|compliance|admin|facilities|procurement|teacher|faculty)\b/i;
+const roleFits = (text, p, jobTitle) => !OTHER_FIELD.test(text) && (ENG_ROLE.test(text)
+  || (/product|business analyst|project manager|analyst/i.test(jobTitle) && PRODUCT_ROLE.test(text)) || (!!(p.alumni || p.tag === 'alumni' || p.tag === 'colleague') && NEAR_ROLE.test(text)));
+const notPast = (s) => String(s).replace(/\b(former|ex)[- ][^|,@]*/gi, ' ');   // "Former iOS intern" is not an intern now
+const nameWord = (company) => String(company).toLowerCase().split(/[^a-z0-9]+/).find((w) => w.length >= 3) || String(company).toLowerCase();
 export function usefulReferrer(p, company, jobTitle = '') {
   const h = String(p.headline || '');
-  const word = String(company).toLowerCase().split(/[^a-z0-9]+/).find((w) => w.length >= 3) || String(company).toLowerCase();
-  if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().includes(word)) return false;
-  if (p.alumni || p.tag === 'alumni' || p.tag === 'colleague') return true;
-  return ENG_ROLE.test(h) || (/product|business analyst|project manager|analyst/i.test(jobTitle) && PRODUCT_ROLE.test(h));
+  if (NOT_WORKING.test(notPast(h))) return false;
+  if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().includes(nameWord(company))) return false;
+  return roleFits(h, p, jobTitle);
+}
+// The same questions, answered from the full profile just before an invite. Returns null when fine, else why not.
+export function profileProblem(profile, r) {
+  const now = profile.current;
+  if (!now?.length) return 'no current job on their profile';
+  const work = now.join(' | ');
+  if (!work.toLowerCase().includes(nameWord(r.company))) return `works elsewhere (${work.slice(0, 80)})`;
+  if (NOT_WORKING.test(notPast(work)) || NOT_WORKING.test(notPast(profile.top || ''))) return 'student or not working now';
+  if (!roleFits(work, r, r.job_title || '')) return `role is not related (${work.slice(0, 80)})`;
+  return null;
 }
 
 async function findReferrers(job) {
@@ -293,6 +308,11 @@ export async function send() {
   if (!r) return;
   nextGap();
   try {
+    // Read the whole profile first: headlines are vague and out of date.
+    const profile = await browserTask('linkedin_profile', { url: r.profile }, 5 * 60e3);
+    if (profile.status !== 'ok') return;
+    const problem = profileProblem(profile, r);
+    if (problem) { set(r.id, { stage: 'skipped', reason: `profile check: ${problem}`.slice(0, 300) }); activity(`🤝 Not inviting ${r.person} (${r.company}): ${problem}`); return; }
     const res = await browserTask('linkedin_connect', { url: r.profile, note: r.note || '' }, 10 * 60e3);   // no note = a plain "Connect"
     if (res.status === 'limit') { setKv('ref_backoff_until', now() + 7 * 864e5); set(r.id, { stage: 'approved', reason: 'LinkedIn weekly invite limit: paused 7 days' });
       tell('🤝 LinkedIn says the weekly invitation limit is reached. Referral invites are paused for 7 days.'); return; }
