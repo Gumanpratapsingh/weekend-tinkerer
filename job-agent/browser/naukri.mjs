@@ -189,6 +189,17 @@ export default {
         if (!await drawer.count()) break;
         const q = await currentQuestion(page);
         if (!q) { await page.waitForTimeout(2000); continue; }
+        // The chat's closing line, not a question: answering it hit a hidden box and timed out, though the application had gone
+        // through (10 errors on 2026-11-02, the retries all found "Applied"). Wait for the confirmation; the reloaded page's badge also counts.
+        if (/^thank you for your responses/i.test(q.label)) {
+          for (let w = 0; w < 6 && !await done(page); w++) await page.waitForTimeout(2500);
+          if (!await done(page)) {
+            await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+            await page.waitForTimeout(4000);
+            if (!await page.locator('#already-applied, button:has-text("Applied")').count()) return { status: 'failed', reason: 'no confirmation seen', shot: await snap(page, 'naukri-unsure') };
+          }
+          return { status: 'applied', shot: await snap(page, 'naukri-done'), filled: sent };
+        }
         // The same question again and again (13 times on 2026-10-19, ending as "no confirmation seen" and retried 3 times): the answer
         // is not being accepted. Stop after 3 and hand it to the person with the question named, instead of burning the attempt.
         sameQ = q.label === lastQ ? sameQ + 1 : 1; lastQ = q.label;
