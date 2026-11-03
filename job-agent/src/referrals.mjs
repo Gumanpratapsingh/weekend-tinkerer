@@ -110,7 +110,7 @@ export async function prospect({ only, jobId } = {}) {
     let people;
     try { people = (await browserTask('linkedin_people', { company, school: R().school || persona().school_short || '' }, 10 * 60e3)).people || []; }
     catch (e) { logError('referrals people', e, { company }); continue; }
-    const picks = people.filter((p) => p.url && !one('SELECT 1 FROM referrals WHERE profile = ?', p.url))
+    const picks = people.filter((p) => p.url && !one('SELECT 1 FROM referrals WHERE profile = ?', p.url) && usefulReferrer(p, company, job?.title))
       .sort((a, b) => b.alumni - a.alumni).slice(0, R().people_per_company || 3);
     activity(`🤝 Referrals: ${company}: found ${people.length} people, drafting ${picks.length}${job ? ` (job: ${job.title})` : ' (no matching job yet)'}`);
     if (!picks.length) { run('INSERT OR IGNORE INTO referrals(company, stage, reason, created_at) VALUES(?,?,?,?)', company, 'skipped', 'nobody found', now()); continue; }
@@ -134,6 +134,19 @@ const SENIOR = /\b(lead|manager|principal|staff|architect|head|director|senior|s
 const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
 // Who could refer this person for a job: the job page's "People you can reach out to" panel (former colleagues, school alumni),
 // plus a LinkedIn people search at the company (school alumni, and senior people in the job's region). Not yet contacted only.
+// Can this person help with this job? They must work in the job's field (a senior accountant at Kanpeki Care was asked, 2026-11-03: "senior"
+// alone was enough), and not have another employer in their headline (the people search also returns ex-staff). Alumni and colleagues are
+// worth asking whatever their role, as long as they work there.
+const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech|technical|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
+const PRODUCT_ROLE = /\b(product|program manager|project manager|business analyst|scrum)\b/i;
+export function usefulReferrer(p, company, jobTitle = '') {
+  const h = String(p.headline || '');
+  const word = String(company).toLowerCase().split(/[^a-z0-9]+/).find((w) => w.length >= 3) || String(company).toLowerCase();
+  if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().includes(word)) return false;
+  if (p.alumni || p.tag === 'alumni' || p.tag === 'colleague') return true;
+  return ENG_ROLE.test(h) || (/product|business analyst|project manager|analyst/i.test(jobTitle) && PRODUCT_ROLE.test(h));
+}
+
 async function findReferrers(job) {
   const P = persona(), school = R().school || P.school_short || '';
   const people = new Map();
@@ -160,7 +173,7 @@ async function findReferrers(job) {
     if (p.tag === 'other' && !p.alumni) continue;
     people.set(p.url, { ...p, tag: p.alumni ? 'alumni' : p.tag });
   }
-  const fresh = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url));
+  const fresh = [...people.values()].filter((p) => !one('SELECT 1 FROM referrals WHERE profile = ?', p.url) && usefulReferrer(p, job.company, job.title));
   return { found: people.size, fresh, failed };
 }
 // Nobody at the company came up on LinkedIn: kept aside for the person (they may know someone, or the company has its own form).
