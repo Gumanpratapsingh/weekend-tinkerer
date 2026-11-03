@@ -7,6 +7,7 @@ import { one, all, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
 import { companyKey } from './companies.mjs';
+import { linkedinPaused } from './liguard.mjs';
 
 const R = () => config().referrals || {};
 const now = () => Date.now();
@@ -332,7 +333,7 @@ async function swapDeadJob(r) {
 function windowOpen() {                                     // when anything may go out: the daytime, no LinkedIn back-off, spaced out
   const c = R(); const h = istHour();
   if (h < (c.hours || [9, 21])[0] || h >= (c.hours || [9, 21])[1]) return false;
-  if (Number(getKv('ref_backoff_until', 0)) > now()) return false;
+  if (Number(getKv('ref_backoff_until', 0)) > now() || linkedinPaused()) return false;
   return now() >= Number(getKv('ref_next_at', 0));
 }
 // Sent so far, split: what the person approved (with a note, follow-up messages) and the plain requests the agent sends itself.

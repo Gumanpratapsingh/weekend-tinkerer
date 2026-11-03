@@ -1,6 +1,7 @@
 // LinkedIn's public (logged-out) job search, Easy Apply jobs only, posted in the last 24 hours.
 // Kept gentle: a few queries every few hours. Applying itself happens in the browser with the owner's session.
 import { held } from '../holdoff.mjs';
+import { linkedinPaused } from '../liguard.mjs';
 import { config, log, sleep } from '../core.mjs';
 import { getKv, setKv, run } from '../db.mjs';
 import { getText, htmlToText, decode, locationOk, titleOk } from './common.mjs';
@@ -15,7 +16,7 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
   const seen = new Set();
   const out = [];
   // LinkedIn answers 429 when we search too much: then stay away for 12-18 hours (getText starts the hold, src/holdoff.mjs).
-  if (held('linkedin.com')) return out;
+  if (held('linkedin.com') || linkedinPaused()) return out;
   for (const q of queries) {
     for (const { location: loc, remote } of locations || c.locations.linkedin) for (const easy of allJobs ? [false] : [true, false])
     for (let start = 0; start < (pages || (fresh ? 1 : c.linkedin_pages || 3)) * 25; start += 25) {

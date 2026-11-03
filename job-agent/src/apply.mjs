@@ -12,6 +12,7 @@ import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 import { ncrOn, ncrAuto, isNcr } from './ncr.mjs';
 import { isTopCompany } from './companies.mjs';
+import { linkedinPaused } from './liguard.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats' };
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
@@ -27,6 +28,7 @@ function appliedToday(bucket) {
 function siteReady(bucket) {
   const p = config().pacing[bucket];
   const h = istHour();
+  if (bucket === 'linkedin' && linkedinPaused()) return false;
   if (h < p.hours[0] || h >= p.hours[1]) return false;
   if (Date.now() < Number(getKv(`limit_${bucket}`, 0))) return false;   // the site's daily apply quota for this account is used up
   const last = Number(getKv(`last_${bucket}`, 0));

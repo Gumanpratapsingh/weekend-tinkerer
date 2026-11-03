@@ -4,6 +4,7 @@
 import { request } from 'node:http';
 import { PERSON, PORT, WORKER_PORT } from './core.mjs';
 import { held, holdOff } from './holdoff.mjs';
+import { noteLinkedin } from './liguard.mjs';
 
 // Searches on a site that answered "too many requests" are not sent for 12-18 hours (src/holdoff.mjs).
 const SEARCH_SITE = { naukri_search: 'naukri.com', naukri_recommended: 'naukri.com' };
@@ -20,8 +21,8 @@ export function browserTask(name, body = {}, timeoutMs = 300000) {
       res.on('end', () => {
         clearTimeout(timer);
         let out; try { out = JSON.parse(raw); } catch { out = { error: `worker ${res.statusCode}` }; }
-        if (res.statusCode >= 400) reject(new Error(out.error || `worker ${res.statusCode}`));
-        else { if (site && out.status === 'rate_limited') holdOff(site, `${name} got 429`); resolve(out); }
+        if (res.statusCode >= 400) { noteLinkedin(name, { error: out.error || `worker ${res.statusCode}` }); reject(new Error(out.error || `worker ${res.statusCode}`)); }
+        else { noteLinkedin(name, { result: out }); if (site && out.status === 'rate_limited') holdOff(site, `${name} got 429`); resolve(out); }
       });
     });
     const timer = setTimeout(() => req.destroy(new Error(`browser task ${name} timed out`)), timeoutMs);

@@ -1,5 +1,6 @@
 // Job agent main process (Termux Node on the S20). Schedules discovery, scoring, applying and mail checks,
 // and serves the WhatsApp webhook (public via nginx /wa/webhook) and /internal/resolve (browser worker only).
+import { linkedinPaused, linkedinHours } from './liguard.mjs';
 import { createServer } from 'node:http';
 import { log, logError, every, istHour, config, activity, ROOT, HOME, PROFILE, DATA, PORT, OWNER, PERSON, resumeFile, hasSession, gate, WORKER_URL } from './core.mjs';
 import { readFileSync } from 'node:fs';
@@ -365,11 +366,11 @@ every(30, 'housekeeping', async () => {
 
 // Referral outreach: find people + queue drafts hourly (daytime), send approved ones in spaced slots, check acceptances daily.
 every(60, 'referral prospecting', async () => {
-  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
+  if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
   const { prospect } = await import('./referrals.mjs'); await prospect();
 }, { delay: 15 * 60e3 });
 every(240, 'referral posts', async () => {                 // LinkedIn posts offering referrals, every 4 h in the daytime
-  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
+  if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
   const { scanPosts } = await import('./referrals.mjs'); await scanPosts();
 }, { delay: 25 * 60e3 });
 every(5, 'referral sending', async () => {
@@ -379,12 +380,12 @@ every(5, 'referral sending', async () => {
 every(60, 'referral acceptances', async () => {
   const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
   if (n.getUTCHours() < 10 || getKv('ref_check_day') === day) return;
-  if (!hasSession('linkedin')) return;
+  if (!hasSession('linkedin') || linkedinPaused()) return;
   setKv('ref_check_day', day);
   const { checkAccepted } = await import('./referrals.mjs'); await checkAccepted();
 }, { delay: 20 * 60e3 });
 every(180, 'referral replies', async () => {                // who answered on LinkedIn, every 3 h in the daytime
-  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
+  if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
   const { checkReplies } = await import('./referrals.mjs'); await checkReplies();
 }, { delay: 30 * 60e3 });
 every(60, 'referral draft cleanup', async () => {               // drafts the owner never acted on: drop after 5 days

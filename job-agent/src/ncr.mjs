@@ -11,6 +11,7 @@ import { askOwner } from './asks.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { getText, htmlToText, decode } from './sources/common.mjs';
 import { companyKey } from './companies.mjs';
+import { linkedinPaused, linkedinHours } from './liguard.mjs';
 
 run('CREATE TABLE IF NOT EXISTS ncr_sent (job_id TEXT PRIMARY KEY, sent_at INTEGER NOT NULL)');
 
@@ -284,8 +285,7 @@ const AGENCY = /(talent|hiring|recruit|staffing|placement|manpower|headhunt)|\b(
 let inflight = 0;
 export async function ncrReferrals() {
   if (getKv('ncr_ref_off') === '1') return;
-  const h = istHour();
-  if (h < 9 || h >= 21 || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
+  if (!linkedinHours() || linkedinPaused() || !hasSession('linkedin') || getKv('session_linkedin') === 'expired') return;
   if (Date.now() < Number(getKv('ncr_ref_backoff', 0))) return;                                       // LinkedIn did not answer: wait a while
   const key = `ncr_ref_n:${istDate()}`;                                                              // company lookups today (LinkedIn limits people searches)
   const room = Math.min((config().ncr?.parallel || 3) - inflight, (config().ncr?.lookups_per_day || 20) - Number(getKv(key, 0)));
