@@ -37,10 +37,12 @@ const fitsYears = (min) => min != null && min <= Math.floor(yearsWorked()) + 1;
 // Best open job at a company from what the agent already found (needs a link to cite in the note), with a fitting
 // experience requirement stated in it.
 function jobAt(company) {
-  const key = `%${company.toLowerCase().replace(/ (inc|ltd|llp|pvt|private|limited|group|global tech)\.?$/g, '')}%`;
-  return all(`SELECT id, title, url, score, description, company_url FROM jobs WHERE lower(company) LIKE ? AND score >= 65
-    AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 15`, key)
-    .find((j) => fitsYears(yearsAsked(`${j.title}\n${j.description}`))) || null;
+  const name = company.toLowerCase().replace(/ (inc|ltd|llp|pvt|private|limited|group|global tech)\.?$/g, '');
+  // Whole words only: a short name like "TP" or "EY" also matches inside other companies' names, and the note would cite their job.
+  const same = new RegExp(`(^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`, 'i');
+  return all(`SELECT id, title, url, score, description, company_url, company FROM jobs WHERE lower(company) LIKE ? AND score >= 65
+    AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 60`, `%${name}%`)
+    .find((j) => same.test(j.company) && fitsYears(yearsAsked(`${j.title}\n${j.description}`))) || null;
 }
 
 // The roles a hiring post itself lists (title, job ID, location, years). The referrer offers THOSE, so the note names
