@@ -17,7 +17,7 @@ const SPECIAL = { aws: 'AWS', gcp: 'GCP', sre: 'SRE', devops: 'DevOps', qa: 'QA'
 const nice = (t) => t.trim().split(/\s+/).map((w) => SPECIAL[w.toLowerCase()] || w[0].toUpperCase() + w.slice(1)).join(' ');
 const first = m?.name ? m.name.split(/\s+/)[0].toLowerCase().replace(/^./, (x) => x.toUpperCase()) : '';
 const roles = c.tracks?.backend?.queries || [];
-const caps = c.daily_caps || { naukri: 25, linkedin: 10, ats: 20, total: 55, per_company: 3 };
+const caps = c.daily_caps || { naukri: 25, linkedin: 10, ats: 20, total: 55, per_company: 5 };
 const min = c.min_score ?? 65, tailor = c.tailor_min_score ?? 75, skip = c.title_exclude || [], no = c.exclude_companies || [];
 const cities = c.locations_confirmed ? [...(c.locations?.preferred || []), ...(c.locations?.other_cities || [])] : null;
 
