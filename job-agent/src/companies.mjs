@@ -12,9 +12,9 @@ const NAMES = ['Accenture', 'Capgemini', 'Cognizant', 'Infosys', 'Tata Consultan
   'Goldman Sachs', 'Morgan Stanley', 'JPMorgan', 'JPMorganChase', 'J.P. Morgan', 'Citibank', 'Citicorp', 'Barclays', 'Wells Fargo', 'HSBC', 'Deutsche Bank', 'Bank of America', 'Standard Chartered', 'BlackRock', 'State Street',
   'Northern Trust', 'Nomura', 'NatWest', 'Lloyds', 'Societe Generale', 'BNP Paribas', 'Synchrony', 'American Express', 'Mastercard', 'PayPal', 'Fiserv', 'Broadridge', 'Synechron', 'Fidelity', 'LSEG', 'S&P Global', "Moody's", 'Equifax', 'TransUnion',
   'Optum', 'UnitedHealth', 'Elevance Health', 'Evernorth', 'Flipkart', 'Myntra', 'Swiggy', 'Zomato', 'Eternal Limited', 'PhonePe', 'Razorpay', 'Paytm', 'Meesho', 'Nykaa', 'Zerodha', 'Groww', 'MakeMyTrip', 'Airtel', 'Reliance', 'Maruti Suzuki',
-  'OpenAI', 'GitLab', 'MongoDB', 'Twilio', 'Okta', 'Coinbase', 'Samsara', 'HighRadius', 'Morningstar', 'Cargill', 'Amgen', 'Birlasoft', 'Luxoft', 'Info Edge'];
+  'OpenAI', 'GitLab', 'MongoDB', 'Twilio', 'Okta', 'Coinbase', 'Samsara', 'HighRadius', 'Morningstar', 'Cargill', 'Amgen', 'Birlasoft', 'Luxoft', 'Info Edge', 'Rupeek', 'Kapiva', 'ValueLabs', 'Teleperformance'];
 // Short or everyday words ("Meta Infotech", "Target Staffing" are other firms): only the name itself, plus legal words.
-const SHORT = ['TCS', 'HCL', 'EY', 'HP', 'HPE', 'Meta', 'Apple', 'AWS', 'SAP', 'Dell', 'Dell Technologies', 'Citi', 'UBS', 'BNY', 'BNY Mellon', 'Visa', 'Target', 'FIS', 'ABB', 'Shell', 'BP', 'DHL', 'UPS', 'Bain', 'Stripe', 'Persistent Systems', 'Cred'];
+const SHORT = ['TCS', 'HCL', 'EY', 'HP', 'HPE', 'Meta', 'Apple', 'AWS', 'SAP', 'Dell', 'Dell Technologies', 'Citi', 'UBS', 'BNY', 'BNY Mellon', 'Visa', 'Target', 'FIS', 'ABB', 'Shell', 'BP', 'DHL', 'UPS', 'Bain', 'Stripe', 'Persistent Systems', 'Cred', 'TP', 'UST', 'EXL', 'EXL Service', 'Turing'];
 // Local firms whose name contains a big one.
 const NOT = ['Apex Infosys'].map(clean);
 const LEGAL = /\b(india|global|group|inc|incorporated|corp|corporation|company|co|pvt|private|ltd|limited|llp|plc|gds|gcc)\b/g;
