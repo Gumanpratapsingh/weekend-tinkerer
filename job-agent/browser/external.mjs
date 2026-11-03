@@ -79,8 +79,20 @@ async function notApplication(page) {
   }).catch(() => false);
 }
 
+// The Apply click can start a redirect chain that outlasts the wait, and a read landing mid-way threw "Execution context was
+// destroyed", ending the attempt. The retry then saw Naukri's Applied badge from that click and gave up (naukri:021126919232).
+async function settled(page, read) {
+  for (let i = 0; ; i++) {
+    try { return await read(); } catch (e) {
+      if (i >= 3 || !/execution context was destroyed/i.test(e.message)) throw e;
+      await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+    }
+  }
+}
+
 async function formScore(page) {
-  return page.evaluate(() => {
+  return settled(page, () => page.evaluate(() => {
     const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
     const chat = (e) => /chat|bot|search|newsletter|subscribe/i.test(`${e.id} ${e.name} ${e.className} ${e.placeholder || ''} ${e.getAttribute('aria-label') || ''}`);
     const inputs = [...document.querySelectorAll('input, textarea, select')].filter((e) => (e.type === 'file' || vis(e)) && !chat(e) && e.type !== 'checkbox');
@@ -89,7 +101,7 @@ async function formScore(page) {
     const hasPassword = inputs.some((e) => e.type === 'password' && vis(e));
     const hasName = inputs.some((e) => /name/i.test(`${e.name} ${e.id} ${e.placeholder || ''} ${e.getAttribute('autocomplete') || ''}`));
     return { n: inputs.length, hasFile, hasEmail, hasName, hasPassword };
-  });
+  }));
 }
 
 export default {
@@ -198,7 +210,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         // Click the most likely Apply control (best-ranked first); follow a popup if it opens one.
         const target = page.locator('a, button, [role="button"], input[type="submit"], input[type="button"]');
         const ranked = [];
-        for (const el of await target.all()) {
+        for (const el of await settled(page, () => target.all())) {
           const text = ((await el.innerText().catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || '').trim();
           const href = (await el.getAttribute('href').catch(() => '')) || '';
           if (/^mailto:/i.test(href)) continue;                      // email applications are handled below

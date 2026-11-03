@@ -236,7 +236,14 @@ function readValues(keys) {
     const els = [...document.querySelectorAll(`[data-ja-key="${key}"]`)];
     const el = els[0];
     if (!el) out[key] = null;
-    else if (el.type === 'radio') out[key] = els.find((e) => e.checked)?.dataset.jaOpt || '';
+    else if (el.type === 'radio') {
+      // LinkedIn rebuilds the option it ticks, so the new one has no marker and only the unticked one kept it: look at the whole group
+      // and read that option's own text (real answers reported as empty, 9 forms not sent on 2026-11-02/03).
+      const on = (el.name ? [...document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`)] : els).find((e) => e.checked);
+      let box = on?.parentElement;
+      while (box?.parentElement && box.parentElement.querySelectorAll('input[type="radio"]').length === 1) box = box.parentElement;
+      out[key] = on ? on.dataset.jaOpt || (box?.innerText || '').trim() : '';
+    }
     else if (el.type === 'checkbox') out[key] = els.filter((e) => e.checked).map((e) => e.dataset.jaOpt || 'yes').join('; ');
     else if (el.tagName === 'SELECT') out[key] = `${el.selectedOptions[0]?.text?.trim() || ''}\n${el.value}`;
     else if (el.getAttribute('role') === 'combobox' && !el.value) {

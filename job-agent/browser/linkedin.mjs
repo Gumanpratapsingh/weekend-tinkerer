@@ -15,7 +15,9 @@ async function markRoot(page) {
     if (!el) {
       const head = [...document.querySelectorAll('h1, h2, h3, span, div')].find((n) => /^Apply to\s/.test(n.textContent.trim()) && n.textContent.trim().length < 120);
       el = head;
-      while (el && !(el.querySelector('input, select, textarea') && [...el.querySelectorAll('button')].some((b) => /next|review|submit/i.test(b.textContent)))) el = el.parentElement;
+      // The panel is the nearest box holding the buttons. Requiring an input too climbed to the whole page on steps with none (the
+      // Work experience summary), and the job went into LinkedIn's search box as an answer ("I'm looking for…", 2026-11-02/03).
+      while (el && ![...el.querySelectorAll('button')].some((b) => /next|review|submit/i.test(b.textContent))) el = el.parentElement;
     }
     if (!el) return false;
     el.setAttribute('data-ja-root', '1');
