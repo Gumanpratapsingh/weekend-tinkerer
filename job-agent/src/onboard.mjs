@@ -97,7 +97,7 @@ export async function receiveFile({ file, name }) {
     tracks: { backend: { queries: (x.roles || []).slice(0, 9) } }, experience_years: years,
     title_include: x.title_include?.length ? x.title_include : base.title_include,
     title_exclude: [...new Set([...['senior', 'sr.', 'sr ', 'lead', 'principal', 'staff', 'architect', 'manager', 'director', 'head of', 'vp ', 'intern', 'internship'], ...(x.title_exclude_extra || [])])],
-    daily_caps: { naukri: 25, linkedin: 10, ats: 20, total: 55, per_company: 3 },
+    daily_caps: { naukri: 25, linkedin: 10, ats: 20, total: 55, per_company: 5 },
     naukri_headlines: [], naukri_resume: fname,
     referrals: { ...(base.referrals || {}), companies: [], school: x.school_short || '' } };
   writeFileSync(join(PROFILE, 'config.json'), JSON.stringify(cfg, null, 2));
