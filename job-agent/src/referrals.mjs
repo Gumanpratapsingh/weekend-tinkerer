@@ -169,7 +169,7 @@ const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaz
 // plus a LinkedIn people search at the company (school alumni, and senior people in the job's region). Not yet contacted only.
 // Can this person help with this job? They must work at that company now, in the job's field. Being an alum or ex-colleague widens the field a
 // little but excuses nothing: a senior accountant, a sales executive and a student were all asked on 2026-11-03.
-const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech lead|technical lead|engineering manager|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
+const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde[-\d]*|se \d|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech lead|technical lead|engineering manager|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
 const PRODUCT_ROLE = /\b(product manager|product owner|product lead|head of product|program manager|project manager|business analyst|scrum master)\b/i;
 const NEAR_ROLE = /\b(analyst|consultant|data|technical|tech|cloud|security)\b/i;
 const NOT_WORKING = /\b(student|aspiring|intern|internship|trainee|fresher|seeking|looking for|open to work|pursuing)\b/i;
@@ -181,7 +181,7 @@ const nameWord = (company) => String(company).toLowerCase().split(/[^a-z0-9]+/).
 export function usefulReferrer(p, company, jobTitle = '') {
   const h = String(p.headline || '');
   if (NOT_WORKING.test(notPast(h))) return false;
-  if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().includes(nameWord(company))) return false;
+  if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().replace(/\s+/g, '').includes(nameWord(company))) return false;
   return roleFits(h, p, jobTitle);
 }
 // The same questions, answered from the full profile just before an invite. Returns null when fine, else why not.
@@ -189,7 +189,7 @@ export function profileProblem(profile, r) {
   const now = profile.current;
   if (!now?.length) return 'no current job on their profile';
   const work = now.join(' | ');
-  if (!work.toLowerCase().includes(nameWord(r.company))) return `works elsewhere (${work.slice(0, 80)})`;
+  if (!work.toLowerCase().replace(/\s+/g, '').includes(nameWord(r.company))) return `works elsewhere (${work.slice(0, 80)})`;
   if (NOT_WORKING.test(notPast(work)) || NOT_WORKING.test(notPast(profile.top || ''))) return 'student or not working now';
   if (!roleFits(work, r, r.job_title || '')) return `role is not related (${work.slice(0, 80)})`;
   return null;
