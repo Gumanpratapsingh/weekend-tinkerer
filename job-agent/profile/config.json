@@ -203,9 +203,9 @@
   "min_score": 65,
   "daily_caps": {
     "naukri": 20,
-    "linkedin": 19,
+    "linkedin": 25,
     "ats": 40,
-    "total": 79,
+    "total": 85,
     "per_company": 5
   },
   "whatsapp_quiet_hours": [
@@ -507,8 +507,8 @@
       "Zomato"
     ],
     "auto_min_score": 60,
-    "per_day": 5,
-    "per_week": 25,
+    "per_day": 15,
+    "per_week": 70,
     "hours": [
       9,
       21
@@ -632,7 +632,9 @@
       "Sopra Steria",
       "Nagarro"
     ],
-    "posts_unverified_ok": true
+    "posts_unverified_ok": true,
+    "companies_per_run": 4,
+    "drafts_limit": 30
   },
   "career_switch": {
     "roles": [
