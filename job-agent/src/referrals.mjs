@@ -123,6 +123,10 @@ function followupText(r) {
   const job = r.job_id ? one('SELECT description, company_url FROM jobs WHERE id = ?', r.job_id) : null;
   const ref = !/Job ID/i.test(r.job_title || '') && reqId(job);
   const link = /^https?:/.test(job?.company_url) ? job.company_url : r.job_url;
+  // No open role known: ask them which role they could refer for, instead of asking for "a role" as if one were named.
+  if (!r.job_title) return `Thanks for connecting, ${first}! I'm currently looking for ${P.fallback_role || 'a new role'} at ${r.company}. I checked the careers site and other job sources but couldn't find an opening that fits my experience. Is there any role you could refer me for?\n\n`
+    + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
+    + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
   return `Thanks for connecting, ${first}! I'd be grateful for a referral for ${r.job_title ? `the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role')} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
     + `Quick summary: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
     + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
