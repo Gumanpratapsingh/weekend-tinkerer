@@ -114,7 +114,7 @@ export const memory = () => ({
 
 export function referrals() {
   return { companies: config().referrals?.companies || [],
-    rows: all(`SELECT id, company, job_title, job_url, person, headline, profile, alumni, stage, note, followup, reason, created_at, updated_at
+    rows: all(`SELECT id, company, job_title, job_url, person, headline, profile, alumni, stage, note, followup, reason, reply, replied_at, created_at, updated_at
       FROM referrals WHERE person IS NOT NULL ORDER BY (stage IN ('drafted','followup_drafted')) DESC, updated_at DESC, created_at DESC LIMIT 200`) };
 }
 

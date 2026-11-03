@@ -56,6 +56,13 @@ async function peopleOn(page) {
   });
 }
 
+export function inboxRows(page) {
+  return page.evaluate(() => [...document.querySelectorAll('.msg-conversation-card')].map((c) => {
+    const text = (sel) => (c.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim();
+    return { name: text('.msg-conversation-listitem__participant-names'), snippet: text('.msg-conversation-card__message-snippet'), time: text('.msg-conversation-listitem__time-stamp') };
+  }).filter((r) => r.name));
+}
+
 export default {
   // Connection request with a note. Returns invited | connected | pending | limit | manual | dry_run.
   async linkedin_connect({ url, note, dryRun = false }) {
@@ -119,6 +126,19 @@ export default {
         email = await page.locator('a[href^="mailto:"]').first().getAttribute('href').then((h) => h?.replace('mailto:', '') || null).catch(() => null);
       }
       return { status: 'ok', connected, email };
+    } finally { await ctx.close(); }
+  },
+
+  // The conversation list only: who wrote last and how it starts. Read-only, and no chat is opened, so nothing gets marked as read.
+  async linkedin_inbox() {
+    const ctx = await siteContext('linkedin');
+    const page = await ctx.newPage();
+    try {
+      await page.goto('https://www.linkedin.com/messaging/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', rows: [] };
+      await page.locator('.msg-conversation-listitem__participant-names').first().waitFor({ timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+      return { status: 'ok', rows: await inboxRows(page) };
     } finally { await ctx.close(); }
   },
 

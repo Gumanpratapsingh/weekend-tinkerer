@@ -377,6 +377,10 @@ every(60, 'referral acceptances', async () => {
   setKv('ref_check_day', day);
   const { checkAccepted } = await import('./referrals.mjs'); await checkAccepted();
 }, { delay: 20 * 60e3 });
+every(180, 'referral replies', async () => {                // who answered on LinkedIn, every 3 h in the daytime
+  const h = istHour(); if (h < 9 || h >= 21 || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
+  const { checkReplies } = await import('./referrals.mjs'); await checkReplies();
+}, { delay: 30 * 60e3 });
 every(60, 'referral draft cleanup', async () => {               // drafts the owner never acted on: drop after 5 days
   const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
   if (n.getUTCHours() < 10 || getKv('ref_prune_day') === day) return;

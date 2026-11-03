@@ -318,6 +318,29 @@ export async function checkAccepted() {
   }
 }
 
+// 4) Who answered? The LinkedIn conversation list says who wrote last. It only tells the person: replying stays with them.
+export const wroteLast = (r) => !/^(you\b|sponsored\b)/i.test(r.snippet) && (/^[^:]{1,40}:/.test(r.snippet) || /^.{1,40} sent (a|an) /i.test(r.snippet));
+const sameName = (s) => String(s || '').toLowerCase().replace(/[^\p{L} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+export async function checkReplies() {
+  const people = all("SELECT * FROM referrals WHERE person IS NOT NULL AND stage IN ('invited','accepted','followup_drafted','followup_approved','followup_sent','replied')");
+  if (!people.length) return;                                   // no outreach from this account: its inbox is left alone
+  const res = await browserTask('linkedin_inbox', {}, 5 * 60e3);
+  if (res.status !== 'ok' || !res.rows.length) return;
+  const firstRun = getKv('li_inbox_seen') == null;
+  const seen = JSON.parse(getKv('li_inbox_seen', '{}'));
+  const found = [];
+  for (const row of res.rows.filter(wroteLast)) {
+    const r = people.find((p) => sameName(p.person) === sameName(row.name));
+    if (seen[row.name] === row.snippet || r?.reply === row.snippet) continue;
+    seen[row.name] = row.snippet;
+    if (r) run("UPDATE referrals SET reply = ?, replied_at = ?, stage = CASE WHEN stage IN ('invited','accepted','followup_sent') THEN 'replied' ELSE stage END WHERE id = ?", row.snippet, now(), r.id);
+    if (r || !firstRun) found.push(`• ${row.name}${r ? ` (${r.company})` : ''}: "${row.snippet.slice(0, 160)}"`);
+  }
+  setKv('li_inbox_seen', JSON.stringify(seen));
+  if (found.length) tell(`💬 New on LinkedIn:\n${found.slice(0, 15).join('\n')}\n\nReply here: https://www.linkedin.com/messaging/`);
+  activity(`💬 LinkedIn inbox: ${res.rows.length} conversations read, ${found.length} new from others`);
+}
+
 // Stale drafts the owner never acted on: delete them (his choice, 2026-10-22) rather than let them pile up
 // as dead cards. Invited/accepted/followup_sent are real outreach already sent and stay.
 export function pruneOldDrafts(days = 5) {
