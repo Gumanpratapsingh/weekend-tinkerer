@@ -137,8 +137,8 @@ function followupText(r) {
 //    { only, jobId }: the owner asked for referrals for one specific job (cites that job, skips the queue checks).
 export async function prospect({ only, jobId } = {}) {
   const waiting = one("SELECT count(*) n FROM referrals WHERE stage = 'drafted'").n;
-  if (!only && waiting >= 15) return;                           // don't flood the owner with drafts
-  const companies = only ? [only] : dueCompanies().slice(0, 2);
+  if (!only && waiting >= (R().drafts_limit || 15)) return;                           // don't flood the owner with drafts
+  const companies = only ? [only] : dueCompanies().slice(0, R().companies_per_run || 2);
   for (const company of companies) {
     const job = jobId ? one('SELECT id, title, url, score, description, company_url FROM jobs WHERE id = ?', jobId) : jobAt(company);
     let people;
