@@ -9,7 +9,8 @@ const MODAL = '[data-ja-root="1"]';
 async function markRoot(page) {
   return page.evaluate(() => {
     document.querySelectorAll('[data-ja-root]').forEach((e) => e.removeAttribute('data-ja-root'));
-    const old = document.querySelector('.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]');
+    // Not a video player's hidden error box: it is also a dialog, and it came first on pages with a video ("no next button").
+    const old = document.querySelector('.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]:not(.vjs-modal-dialog)');
     let el = old;
     if (!el) {
       const head = [...document.querySelectorAll('h1, h2, h3, span, div')].find((n) => /^Apply to\s/.test(n.textContent.trim()) && n.textContent.trim().length < 120);
