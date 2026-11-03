@@ -78,9 +78,12 @@ export default {
       // The button labelled for THIS person (the sidebar has "Invite <someone else> to connect" too).
       let btn = page.locator(`main [aria-label="Invite ${name.replace(/"/g, '\\"')} to connect"]`).first();
       if (!await btn.isVisible().catch(() => false)) {                     // Connect hides under "More"
-        await top.locator('button[aria-label="More actions"], button:has-text("More")').first().click({ timeout: 6000 }).catch(() => {});
+        // The new page's "…" button is labelled just "More" and has no text: not finding it failed 100 of Vertika's invites as "no Connect option".
+        await top.locator('button[aria-label="More actions"], button[aria-label="More"], button:has-text("More")').first().click({ timeout: 6000 }).catch(() => {});
         await page.waitForTimeout(1200);
-        btn = page.locator(`[role="menu"] [aria-label="Invite ${name.replace(/"/g, '\\"')} to connect"], [role="menu"] :text-is("Connect")`).first();
+        // Their own invite link, never the "More profiles" sidebar's (those Connect links are for other people).
+        const vanity = /\/in\/([^/?#]+)/.exec(url)?.[1] || '';
+        btn = page.locator(`a[href*="custom-invite"][href*="vanityName=${vanity}"], [role="menu"] [aria-label="Invite ${name.replace(/"/g, '\\"')} to connect"], [role="menu"] :text-is("Connect"), [role="menuitem"]:has-text("Connect")`).first();
       }
       if (!await btn.count()) return { status: 'manual', reason: 'no Connect option (they may only allow Follow)', shot: await snap(page, 'ref-noconnect') };
       await btn.click({ timeout: 8000 });
