@@ -73,6 +73,8 @@ export function currentWork(text) {
   return out;
 }
 
+export const JOB_GONE = /page you are looking for doesn.?t exist|job you are looking for is expired|no longer (accepting|available)|not (currently )?accepting applications|this job (posting )?(has )?expired|position (has been )?(filled|closed)|applications? (are |is )?(now )?closed/i;
+
 export function inboxRows(page) {
   return page.evaluate(() => [...document.querySelectorAll('.msg-conversation-card')].map((c) => {
     const text = (sel) => (c.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim();
@@ -128,6 +130,18 @@ export default {
       if (/weekly (invitation )?limit/i.test(await page.innerText('body').catch(() => ''))) return { status: 'limit' };
       return { status: 'invited', withoutNote, shot: await snap(page, 'ref-sent') };
     } finally { await ctx.saveSession().catch(() => {}); await ctx.close(); }
+  },
+
+  // Is a job posting still open? Only a page that says it is gone counts as closed; anything unclear stays open.
+  async job_page_alive({ url }) {
+    const ctx = await siteContext('linkedin');
+    const page = await ctx.newPage();
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(6000);
+      const text = (await page.innerText('body').catch(() => '')).slice(0, 8000);
+      return { status: 'ok', alive: !JOB_GONE.test(text), url: page.url() };
+    } catch (e) { return { status: 'error', alive: true, reason: e.message.slice(0, 120) }; } finally { await ctx.close(); }
   },
 
   // Read one profile to judge whether to contact them: the top card and their current jobs. Sends nothing.
@@ -202,6 +216,14 @@ export default {
       if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired', rows: [] };
       await page.locator('.msg-conversation-listitem__participant-names').first().waitFor({ timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2500);
+      // The list loads about 10 at a time as it scrolls.
+      for (let i = 0, before = -1; i < 8; i++) {
+        const count = await page.locator('.msg-conversation-card').count();
+        if (count === before || count >= 80) break;
+        before = count;
+        await page.locator('.msg-conversation-card').last().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(1500);
+      }
       return { status: 'ok', rows: await inboxRows(page) };
     } finally { await ctx.close(); }
   },

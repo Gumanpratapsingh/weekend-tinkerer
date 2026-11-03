@@ -27,5 +27,13 @@ export function isTopCompany(company, extra = []) {
   return WORDS.some((w) => c.includes(w)) || WHOLE.has(c.replace(LEGAL, ' ').replace(/\s+/g, ' ').trim()) || extra.some((w) => c.includes(clean(w)));
 }
 
+// One key for the spellings of a company: "Optum", "Optum India", "Optum Global Solutions (India) Private Limited".
+const FILLER = /\b(india|global|group|inc|incorporated|corp|corporation|company|co|pvt|private|ltd|limited|llp|plc|solutions?|services?|technolog(y|ies)|tech|software|labs?|it|the|in)\b/g;
+const ALIAS = { tcs: 'tata consultancy', aws: 'amazon', hcltech: 'hcl', 'hcl technologies': 'hcl', jpmorganchase: 'jpmorgan', 'jpmorgan chase': 'jpmorgan', 'j p morgan': 'jpmorgan', ey: 'ernst and young', pricewaterhousecoopers: 'pwc', citibank: 'citi' };
+export function companyKey(name) {
+  const full = clean(name).trim(), key = full.replace(FILLER, ' ').replace(/\s+/g, ' ').trim() || full;
+  return ALIAS[key] || key;
+}
+
 // For the Rules page.
 export const TOP_COMPANIES = [...new Set([...NAMES, ...SHORT])].sort((a, b) => a.localeCompare(b));

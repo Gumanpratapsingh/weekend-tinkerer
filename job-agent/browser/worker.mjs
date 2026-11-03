@@ -217,7 +217,7 @@ const LANES = Number(process.env.JA_LANES) || (totalmem() > 12e9 ? 8 : 1);
 const waiting = [];                                  // [{ who, run }]
 // LinkedIn people work (a company's people, connection requests, messages) takes minutes: it has its own lane, several at once,
 // so it never holds up a person's applying or job searches and never waits behind them. The phone keeps 1.
-const SOCIAL_TASKS = new Set(['linkedin_people', 'linkedin_job_network', 'linkedin_connect', 'linkedin_message', 'linkedin_state', 'linkedin_posts', 'linkedin_inbox', 'linkedin_withdraw', 'linkedin_profile']);
+const SOCIAL_TASKS = new Set(['linkedin_people', 'linkedin_job_network', 'linkedin_connect', 'linkedin_message', 'linkedin_state', 'linkedin_posts', 'linkedin_inbox', 'linkedin_withdraw', 'linkedin_profile', 'job_page_alive']);
 const SOCIAL = Number(process.env.JA_SOCIAL) || (totalmem() > 12e9 ? 4 : 1);
 const social = { waiting: [], running: new Map() };  // running: id -> { task, who, since }
 let socialSeq = 0;

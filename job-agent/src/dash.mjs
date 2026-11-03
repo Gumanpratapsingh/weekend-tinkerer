@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
 import { TOP_COMPANIES } from './companies.mjs';
+import { funnel } from './referrals.mjs';
 
 const COLS = 'id, source, apply_type, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
@@ -113,7 +114,7 @@ export const memory = () => ({
 });
 
 export function referrals() {
-  return { companies: config().referrals?.companies || [],
+  return { companies: config().referrals?.companies || [], funnel: funnel(),
     rows: all(`SELECT id, company, job_title, job_url, person, headline, profile, alumni, stage, note, followup, reason, reply, replied_at, created_at, updated_at
       FROM referrals WHERE person IS NOT NULL ORDER BY (stage IN ('drafted','followup_drafted')) DESC, updated_at DESC, created_at DESC LIMIT 200`) };
 }

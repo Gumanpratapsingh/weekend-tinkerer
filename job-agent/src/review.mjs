@@ -1,5 +1,6 @@
 // Nightly self-review: what needed a human today, grouped into patterns, so the code can be fixed where it matters most.
 // Writes data/reviews/<date>.json (read by the morning fix-up session) and sends the top patterns to the owner.
+import { funnel } from './referrals.mjs';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DATA, OWNER, PERSON, istDate } from './core.mjs';
@@ -35,7 +36,7 @@ export function buildReview(day = istDate()) {
   const asked = all(`SELECT q.id, q.question, q.answer, count(a.id) n FROM asks a JOIN questions q ON q.id = a.question_id
     WHERE a.asked_at >= ? AND a.asked_at < ? GROUP BY q.id ORDER BY n DESC`, from, to);
   return {
-    day, person: PERSON || 'owner',
+    day, person: PERSON || 'owner', referrals: funnel(),
     applied: one('SELECT count(*) n FROM jobs WHERE applied_at >= ? AND applied_at < ?', from, to).n,
     attempts: attempts.length, byStatus,
     patterns: [...groups.values()].sort((a, b) => b.count - a.count),

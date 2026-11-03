@@ -1395,7 +1395,7 @@ const jobTabs = {
       sec(`What I know about you (${answers.length})`, h('p', { class: 'soft' }, 'I reuse these on every application. Change any of them anytime.'), ...learned));
   },
   async referrals(box) {
-    const { rows, companies } = await api('/jobs/referrals');
+    const { rows, companies, funnel: f } = await api('/jobs/referrals');
     const card = (r) => {
       const draft = ['drafted', 'followup_drafted'].includes(r.stage);
       const text = draft ? h('textarea', { rows: '5', class: 'jta' }) : null;
@@ -1411,7 +1411,7 @@ const jobTabs = {
       } else if (r.note) kids.push(h('p', { class: 'soft clip' }, r.note));
       return h('div', { class: 'rcard' }, kids.filter(Boolean));
     };
-    box.replaceChildren(sec('Referral requests', h('p', { class: 'soft' }, `Nothing is sent without your OK. Target companies: ${companies.length ? companies.join(', ') : 'companies where you are a strong match'}.`),
+    box.replaceChildren(sec('Referral requests', f ? h('p', {}, `Invited ${f.invited} · accepted ${f.accepted} · asked ${f.asked} · replied ${f.replied} · referred ${f.referred} · interviews at those companies ${f.interviews}`) : null, h('p', { class: 'soft' }, `Nothing is sent without your OK. Target companies: ${companies.length ? companies.join(', ') : 'companies where you are a strong match'}.`),
       ...(rows.length ? rows.map(card) : [h('p', { class: 'soft' }, 'None yet. They start once LinkedIn is connected.')])));
   },
   async live(box) {

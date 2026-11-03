@@ -10,6 +10,7 @@ import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tailor, baseResume } from './tailor.mjs';
 import { getText, htmlToText, decode } from './sources/common.mjs';
+import { companyKey } from './companies.mjs';
 
 run('CREATE TABLE IF NOT EXISTS ncr_sent (job_id TEXT PRIMARY KEY, sent_at INTEGER NOT NULL)');
 
@@ -292,15 +293,15 @@ export async function ncrReferrals() {
   // A backlog of already-queued plain requests pauses new lookups — but never for NCR jobs: the person is moving north,
   // so those referrals matter even while the general (non-NCR) queue is full.
   const backlogged = one("SELECT count(*) n FROM referrals WHERE stage = 'approved' AND source = 'auto'").n >= 12;
-  const asked = new Set(all('SELECT DISTINCT lower(company) c FROM referrals').map((r) => r.c));
+  const asked = new Set(all('SELECT DISTINCT company c FROM referrals').map((r) => companyKey(r.c)));
   const taken = new Set();
-  const fresh = (j) => j.company && !asked.has(j.company.toLowerCase()) && !taken.has(j.company.toLowerCase()) && !AGENCY.test(`${j.company} ${j.title}`);
+  const fresh = (j) => j.company && !asked.has(companyKey(j.company)) && !taken.has(companyKey(j.company)) && !AGENCY.test(`${j.company} ${j.title}`);
   // NCR jobs first, then any other good match (queued ones too: the request goes out before the application does).
   const rows = all(`SELECT * FROM jobs WHERE status IN ('queued','manual','applied') AND score >= ? AND found_at >= ? ORDER BY score DESC, found_at DESC LIMIT 200`,
     Math.max(ncrMin(), 65), Date.now() - 7 * 864e5);
   const picks = [];
-  for (const j of ncrOn() ? rows.filter(isNcr) : []) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
-  if (!backlogged) for (const j of rows) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(j.company.toLowerCase()); }
+  for (const j of ncrOn() ? rows.filter(isNcr) : []) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(companyKey(j.company)); }
+  if (!backlogged) for (const j of rows) if (picks.length < room && fresh(j)) { picks.push(j); taken.add(companyKey(j.company)); }
   if (!picks.length) return;
   const { connectForJob } = await import('./referrals.mjs');
   picks.forEach((job, i) => {          // side by side, a few seconds apart: nothing waits for another company, for LinkedIn, or for the applying

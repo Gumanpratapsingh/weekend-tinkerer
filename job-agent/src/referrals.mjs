@@ -6,6 +6,7 @@ import { config, log, logError, activity, master, persona, istHour, istDate, llm
 import { one, all, run, getKv, setKv } from './db.mjs';
 import { browserTask } from './browser.mjs';
 import { tell } from './whatsapp.mjs';
+import { companyKey } from './companies.mjs';
 
 const R = () => config().referrals || {};
 const now = () => Date.now();
@@ -22,7 +23,36 @@ const set = (id, fields = {}) => {
 export function targetCompanies() {
   const list = new Set((R().companies || []).map((c) => c.trim()).filter(Boolean));
   for (const r of all('SELECT DISTINCT company FROM jobs WHERE score >= ? AND company IS NOT NULL', R().auto_min_score || 80)) list.add(r.company);
-  return [...list];
+  const once = new Map();                                       // "Optum" and "Optum India" are one company: the first spelling stands
+  for (const c of list) if (!once.has(companyKey(c))) once.set(companyKey(c), c);
+  return [...once.values()];
+}
+
+// Who to search next: companies never searched, then ones whose people have not led anywhere after revisit_days (a nobody-found company
+// included: its people change, and the first look was not the last word). Never one with drafts or queued invites still waiting.
+export function dueCompanies() {
+  const seen = new Map();
+  for (const r of all('SELECT company, person, stage, created_at FROM referrals')) {
+    const s = seen.get(companyKey(r.company)) || { last: 0, people: 0, waiting: false };
+    s.last = Math.max(s.last, r.created_at || 0); if (r.person) s.people++;
+    if (['drafted', 'approved', 'followup_drafted', 'followup_approved', 'replied', 'referred'].includes(r.stage)) s.waiting = true;
+    seen.set(companyKey(r.company), s);
+  }
+  const back = now() - (R().revisit_days || 21) * 864e5, most = R().max_people_per_company || 9;
+  const targets = targetCompanies();
+  return [...targets.filter((c) => !seen.has(companyKey(c))),
+    ...targets.filter((c) => { const s = seen.get(companyKey(c)); return s && !s.waiting && s.last < back && s.people < most; })];
+}
+
+// How far outreach has gone, and whether a company we asked has since moved to interview: the proof of whether referrals work.
+export function funnel() {
+  const rows = all('SELECT company, stage FROM referrals WHERE person IS NOT NULL');
+  const n = (...st) => rows.filter((r) => st.includes(r.stage)).length;
+  const asked = new Set(rows.filter((r) => ['followup_sent', 'replied', 'referred'].includes(r.stage)).map((r) => companyKey(r.company)));
+  const interviews = all("SELECT title, company FROM jobs WHERE status = 'interview'").filter((j) => asked.has(companyKey(j.company)));
+  return { invited: n('invited', 'accepted', 'followup_drafted', 'followup_approved', 'followup_sent', 'replied', 'referred', 'withdrawn'),
+    accepted: n('accepted', 'followup_drafted', 'followup_approved', 'followup_sent', 'replied', 'referred'), asked: n('followup_sent', 'replied', 'referred'),
+    replied: n('replied', 'referred'), referred: n('referred'), interviews: interviews.length, interview_jobs: interviews.map((j) => `${j.title} @ ${j.company}`).slice(0, 10) };
 }
 
 // The years a job asks for ("3-5 years", "5+ yrs", "minimum 4 years"): the first stated number, or null when not stated.
@@ -41,7 +71,7 @@ function jobAt(company) {
   // Whole words only: a short name like "TP" or "EY" also matches inside other companies' names, and the note would cite their job.
   const same = new RegExp(`(^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`, 'i');
   return all(`SELECT id, title, url, score, description, company_url, company FROM jobs WHERE lower(company) LIKE ? AND score >= 65
-    AND status NOT IN ('skipped','filtered','rejected') ORDER BY score DESC, found_at DESC LIMIT 60`, `%${name}%`)
+    AND status NOT IN ('skipped','filtered','rejected','closed') ORDER BY score DESC, found_at DESC LIMIT 60`, `%${name}%`)
     .find((j) => same.test(j.company) && fitsYears(yearsAsked(`${j.title}\n${j.description}`))) || null;
 }
 
@@ -101,10 +131,9 @@ function followupText(r) {
 // 1) Find people at the next target company and queue drafts for approval (a few companies per run).
 //    { only, jobId }: the owner asked for referrals for one specific job (cites that job, skips the queue checks).
 export async function prospect({ only, jobId } = {}) {
-  const done = new Set(all('SELECT DISTINCT company FROM referrals').map((r) => r.company.toLowerCase()));
   const waiting = one("SELECT count(*) n FROM referrals WHERE stage = 'drafted'").n;
   if (!only && waiting >= 15) return;                           // don't flood the owner with drafts
-  const companies = only ? [only] : targetCompanies().filter((c) => !done.has(c.toLowerCase())).slice(0, 2);
+  const companies = only ? [only] : dueCompanies().slice(0, 2);
   for (const company of companies) {
     const job = jobId ? one('SELECT id, title, url, score, description, company_url FROM jobs WHERE id = ?', jobId) : jobAt(company);
     let people;
@@ -259,12 +288,40 @@ export function decide(id, text) {
   if (!r) return 'No such referral request.';
   const t = String(text).trim();
   const followup = r.stage === 'followup_drafted';
+  if (/^referred$/i.test(t)) { set(id, { stage: 'referred' }); return `Noted: ${r.person} referred you. It counts in the referral results.`; }
   if (/^(no|skip|discard|cancel)$/i.test(t)) { set(id, { stage: 'skipped', reason: 'skipped by you' }); return `Skipped ${r.person}.`; }
   const custom = /^(ok|okay|yes|send|👍)$/i.test(t) ? null : t;
   if (followup) { set(id, { stage: 'followup_approved', ...(custom ? { followup: custom } : {}) }); return `✓ Follow-up to ${r.person} approved; it goes out shortly.`; }
   if (r.stage !== 'drafted') return `That request is already ${r.stage}.`;
   set(id, { stage: 'approved', ...(custom ? { note: custom.slice(0, 300) } : {}) });
   return `✓ Approved: invite to ${r.person} goes out within the next send slot.`;
+}
+
+// A job named in a message may have closed since it was drafted (Visa's and Optum's had, 2026-11-03). Before sending, open the link; if it is
+// gone, put the next open job there, or none, and ask again: the person approved a message naming the old one.
+const linkOf = (r) => { const j = r.job_id ? one('SELECT company_url FROM jobs WHERE id = ?', r.job_id) : null; return /^https?:/.test(j?.company_url) ? j.company_url : r.job_url; };
+const isOpen = async (url) => (await browserTask('job_page_alive', { url }, 3 * 60e3).catch(() => ({ alive: true }))).alive !== false;
+async function swapDeadJob(r) {
+  if (r.job_id) run("UPDATE jobs SET status = 'closed', status_note = 'posting gone (referral link check)' WHERE id = ? AND status NOT IN ('applied','interview')", r.job_id);
+  let job = null;
+  for (let i = 0; i < 3 && !job; i++) {
+    const next = jobAt(r.company);
+    if (!next) break;
+    const link = /^https?:/.test(next.company_url) ? next.company_url : next.url;
+    if (await isOpen(link)) job = next;
+    else run("UPDATE jobs SET status = 'closed', status_note = 'posting gone (referral link check)' WHERE id = ? AND status NOT IN ('applied','interview')", next.id);
+  }
+  const fields = { job_id: job?.id || null, job_title: job?.title || null, job_url: job?.url || null };
+  const old = r.job_title || 'that job';
+  if (r.stage === 'followup_approved') {
+    const text = followupText({ ...r, ...fields });
+    set(r.id, { ...fields, stage: 'followup_drafted', followup: text });
+    tell(`🤝 ${old} at ${r.company} has closed, so I did not message ${r.person}. New message #${r.id}:\n\n${text}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
+  } else {
+    const text = note(r.person, job, r.company, r.alumni);
+    set(r.id, { ...fields, stage: 'drafted', note: text });
+    tell(`🤝 ${old} at ${r.company} has closed, so I did not invite ${r.person}. New note #${r.id}:\n\n${text}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
+  }
 }
 
 // 2) Send approved invites / follow-ups, slowly.
@@ -291,6 +348,8 @@ export async function send() {
   if (fu) {
     nextGap();
     try {
+      const link = linkOf(fu);
+      if (link && !await isOpen(link)) return await swapDeadJob(fu);
       if (fu.email && (config().referrals?.email !== false)) {
         const { sendReferralEmail } = await import('./mail.mjs');
         await sendReferralEmail(fu.email, `Referral request: ${fu.job_title || 'Backend/AI Engineer'} at ${fu.company}`, fu.followup);
@@ -309,6 +368,8 @@ export async function send() {
   nextGap();
   try {
     // Read the whole profile first: headlines are vague and out of date.
+    const named = r.note && linkOf(r);
+    if (named && !await isOpen(named)) return await swapDeadJob(r);
     const profile = await browserTask('linkedin_profile', { url: r.profile }, 5 * 60e3);
     if (profile.status !== 'ok') return;
     const problem = profileProblem(profile, r);
@@ -394,7 +455,7 @@ function employerOf(headline, list) {
 }
 
 export function judgePost(p, list) {
-  if (!p.verified) return 'author not verified';
+  if (!p.verified && !R().posts_unverified_ok) return 'author not verified';   // their employer is still checked below, and every note waits for approval
   if (!OFFER.test(p.text)) return 'not a referral offer';
   if (SEEKER.test(p.text.slice(0, 600)) && !/\b(i can|i'll|will) refer\b/i.test(p.text)) return 'author is looking for work';
   if (SPAM.test(`${p.headline} ${p.text}`)) return 'spam signs';
