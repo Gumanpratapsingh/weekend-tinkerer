@@ -113,6 +113,35 @@ export default {
     } finally { await ctx.saveSession().catch(() => {}); await ctx.close(); }
   },
 
+  // Take back a connection request still pending. Returns withdrawn | not_pending | manual | dry_run.
+  async linkedin_withdraw({ url, dryRun = false }) {
+    const ctx = await siteContext('linkedin');
+    const page = await ctx.newPage();
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired' };
+      await page.waitForTimeout(4000 + Math.random() * 2000);
+      const { top, topText } = await profileHead(page);
+      if (/·\s*1st|\b1st\b/.test(topText.slice(0, 400))) return { status: 'connected' };
+      const PENDING = 'button:has-text("Pending"), a:has-text("Pending"), [aria-label*="Pending" i]';
+      let btn = top.locator(PENDING).first();
+      if (!await btn.isVisible().catch(() => false)) {                     // it can sit under the "…" menu, like Connect
+        await top.locator('button[aria-label="More actions"], button[aria-label="More"], button:has-text("More")').first().click({ timeout: 6000 }).catch(() => {});
+        await page.waitForTimeout(1200);
+        btn = page.locator(`${PENDING}, [role="menuitem"]:has-text("Withdraw"), :text-is("Pending")`).first();
+      }
+      if (!await btn.isVisible().catch(() => false)) return { status: 'not_pending', shot: await snap(page, 'ref-nopending') };
+      await btn.click({ timeout: 8000 });
+      await page.waitForTimeout(1800);
+      const confirm = page.locator('[role="dialog"] button:has-text("Withdraw"), [role="alertdialog"] button:has-text("Withdraw")').last();
+      if (!await confirm.isVisible().catch(() => false)) return { status: 'manual', reason: 'no Withdraw confirmation', shot: await snap(page, 'ref-nowithdraw') };
+      if (dryRun) { const shot = await snap(page, 'ref-withdraw-dry'); await page.keyboard.press('Escape'); return { status: 'dry_run', shot }; }
+      await confirm.click({ timeout: 8000 });
+      await page.waitForTimeout(2500);
+      return { status: 'withdrawn', shot: await snap(page, 'ref-withdrawn') };
+    } finally { await ctx.saveSession().catch(() => {}); await ctx.close(); }
+  },
+
   // Are we connected now? Any email they publish in Contact info?
   async linkedin_state({ url }) {
     const ctx = await siteContext('linkedin');
