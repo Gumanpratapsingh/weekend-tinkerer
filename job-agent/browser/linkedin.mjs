@@ -59,8 +59,8 @@ async function peopleOn(page) {
 // The current jobs from a profile's Experience text: the lines of every entry whose dates run to "Present". Entries end at their date line.
 export function currentWork(text) {
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-  const from = lines.findIndex((l) => /^experience$/i.test(l));
-  if (from < 0) return null;
+  if (!lines.length) return null;
+  const from = lines.findIndex((l) => /^experience$/i.test(l));                // -1 on the Experience page itself: the list starts at the top
   const to = lines.findIndex((l, i) => i > from && /^(education|licenses|skills|interests|projects|volunteering|languages|recommendations)\b/i.test(l));
   const body = lines.slice(from + 1, to < 0 ? undefined : to).filter((l) => !/^(show all|… ?more|\.\.\. ?more)/i.test(l));
   const DATE = /\b(19|20)\d{2}\b.*(-|–|to).*(present|\b(19|20)\d{2}\b)/i;
@@ -152,10 +152,12 @@ export default {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       if (/\/(login|authwall|checkpoint)/.test(page.url())) return { status: 'session_expired' };
       await page.waitForTimeout(3000 + Math.random() * 2000);
-      for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, 1000); await page.waitForTimeout(700); }   // Experience loads on scroll
       const { topText } = await profileHead(page);
+      // The profile page only loads Experience as it scrolls: its own page has the whole list.
+      await page.goto(`${url.replace(/\/$/, '')}/details/experience/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(4000 + Math.random() * 2000);
       const text = await page.locator('main').first().innerText().catch(() => '');
-      return { status: 'ok', top: topText.slice(0, 500), current: currentWork(text) };
+      return { status: 'ok', top: topText.slice(0, 500), current: currentWork(text), sample: text.slice(0, 500) };
     } finally { await ctx.close(); }
   },
 

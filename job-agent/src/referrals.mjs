@@ -377,6 +377,8 @@ export async function send() {
     if (named && !await isOpen(named)) return await swapDeadJob(r);
     const profile = await browserTask('linkedin_profile', { url: r.profile }, 5 * 60e3);
     if (profile.status !== 'ok') return;
+    // Could not read it: not a verdict on them. To the back of the queue, not dropped, and never sent unread.
+    if (profile.current == null) { set(r.id, {}); activity(`🤝 Could not read ${r.person}'s profile, trying later`); return; }
     const problem = profileProblem(profile, r);
     if (problem) { set(r.id, { stage: 'skipped', reason: `profile check: ${problem}`.slice(0, 300) }); activity(`🤝 Not inviting ${r.person} (${r.company}): ${problem}`); return; }
     const res = await browserTask('linkedin_connect', { url: r.profile, note: r.note || '' }, 10 * 60e3);   // no note = a plain "Connect"
