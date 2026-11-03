@@ -244,6 +244,12 @@ every(config().fresh_lane?.every_min || 40, 'fresh lane', async () => {
   })();
 }, { delay: 600e3 });
 
+// Target companies, searched by name (public LinkedIn search): their openings go to scoring like any other job.
+every(120, 'company jobs', async () => {
+  const h = istHour(); if (h < 8 || h >= 23) return;
+  if (await discover('companies')) await scoreNew(30);
+}, { delay: 35 * 60e3 });
+
 // Gurgaon/Noida watch (src/ncr.mjs): NCR-only searches every half hour in the daytime, scored first; good matches go to the
 // person's chat as links and are never applied automatically. The link sender also catches NCR jobs from every other source.
 every(ncrEvery(), 'ncr watch', async () => {             // all night too: Naukri (your account) only 05:00-23:00, see fetchNcr

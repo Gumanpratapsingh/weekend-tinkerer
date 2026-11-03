@@ -5,7 +5,7 @@ import { one, all, run, event, dedupeKey, getKv, setKv } from './db.mjs';
 import { held } from './holdoff.mjs';
 import { experienceOk, maxSalaryLpa } from './sources/common.mjs';
 import { fetchAts } from './sources/ats.mjs';
-import { fetchLinkedin, linkedinDescription } from './sources/linkedin.mjs';
+import { fetchLinkedin, fetchCompanyJobs, linkedinDescription } from './sources/linkedin.mjs';
 import { fetchRemotive } from './sources/remotive.mjs';
 import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
 import { fetchAggregators } from './sources/aggregators.mjs';
@@ -14,7 +14,7 @@ import { scoreJob } from './score.mjs';
 import { fetchNcr, ncrOn, ncrAuto, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
 
 export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
-  fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr };
+  fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr, companies: fetchCompanyJobs };
 
 // Any Greenhouse/Lever/Ashby link seen in a feed adds that company's board to the list searched directly.
 function learnBoard(url) {

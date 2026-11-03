@@ -50,6 +50,22 @@ export async function fetchLinkedin({ fresh = false, locations = null, queries: 
   return out;
 }
 
+// Openings at the people's target companies, searched by company name instead of waiting for a role search to turn them up.
+// A few companies per run, taking turns; the place in the list survives restarts. Only for people with company_focus on.
+export async function fetchCompanyJobs(perRun = 6) {
+  const c = config(), names = c.referrals?.companies || [];
+  if (!Number.isFinite(c.company_focus?.small_daily_cap) || !names.length) return [];
+  const out = [];
+  for (let k = 0; k < Math.min(perRun, names.length); k++) {
+    const i = Number(getKv('company_jobs_cursor', 0)) % names.length, name = names[i];
+    const same = new RegExp(`(^|[^a-z0-9])${name.toLowerCase().replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`, 'i');
+    const jobs = await fetchLinkedin({ fresh: true, locations: [{ location: 'India' }], queries: [name], pages: 1, window: 'r604800', allJobs: true });
+    out.push(...jobs.filter((j) => same.test(j.company)));
+    setKv('company_jobs_cursor', (i + 1) % names.length);
+  }
+  return out;
+}
+
 // Description is fetched lazily, only for jobs that survive the title/location filters and dedupe.
 export async function linkedinDescription(job) {
   const id = job.id.split(':')[1];

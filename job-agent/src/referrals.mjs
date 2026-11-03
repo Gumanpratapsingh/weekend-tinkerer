@@ -381,8 +381,12 @@ export function fitsSkills(title) {
 export async function scanPosts() {
   const c = R();
   const list = [...new Set([...(c.companies || []), ...(c.mnc || [])])];
+  // Plus referral posts naming a target company, a few each run, taking turns (the general queries rarely reach most of the list).
+  const names = c.companies || [], at = Number(getKv('post_company_cursor', 0));
+  const named = names.length ? Array.from({ length: Math.min(6, names.length) }, (_, k) => `${names[(at + k) % names.length]} referral`) : [];
+  setKv('post_company_cursor', names.length ? (at + named.length) % names.length : 0);
   let posts = [];
-  try { posts = (await browserTask('linkedin_posts', { queries: c.post_queries || [] }, 20 * 60e3)).posts || []; }
+  try { posts = (await browserTask('linkedin_posts', { queries: [...(c.post_queries || []), ...named] }, 30 * 60e3)).posts || []; }
   catch (e) { logError('referral posts', e); return; }
   let kept = 0;
   const why = {};
