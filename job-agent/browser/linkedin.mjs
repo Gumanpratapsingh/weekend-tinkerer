@@ -133,7 +133,7 @@ export default {
       if (!await btn.isVisible().catch(() => false)) return { status: 'not_pending', shot: await snap(page, 'ref-nopending') };
       await btn.click({ timeout: 8000 });
       await page.waitForTimeout(1800);
-      const confirm = page.locator('[role="dialog"] button:has-text("Withdraw"), [role="alertdialog"] button:has-text("Withdraw")').last();
+      const confirm = page.locator('button[aria-label^="Withdraw invitation sent to"]:visible, dialog button:has-text("Withdraw"):visible, [role="dialog"] button:has-text("Withdraw"):visible').last();
       if (!await confirm.isVisible().catch(() => false)) return { status: 'manual', reason: 'no Withdraw confirmation', shot: await snap(page, 'ref-nowithdraw') };
       if (dryRun) { const shot = await snap(page, 'ref-withdraw-dry'); await page.keyboard.press('Escape'); return { status: 'dry_run', shot }; }
       await confirm.click({ timeout: 8000 });
