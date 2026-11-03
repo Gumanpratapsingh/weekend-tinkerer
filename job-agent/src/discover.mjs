@@ -2,6 +2,7 @@
 // and queue the ones at or above min_score for applying.
 import { config, log, sleep } from './core.mjs';
 import { one, all, run, event, dedupeKey, getKv, setKv } from './db.mjs';
+import { held } from './holdoff.mjs';
 import { experienceOk, maxSalaryLpa } from './sources/common.mjs';
 import { fetchAts } from './sources/ats.mjs';
 import { fetchLinkedin, linkedinDescription } from './sources/linkedin.mjs';
@@ -49,7 +50,9 @@ export async function discover(sourceName) {
 // Score new jobs (oldest first). Stops quietly when the free LLM budget runs out; picks up next round.
 export async function scoreNew(limit = 25) {
   const min = config().min_score;
-  const jobs = all("SELECT * FROM jobs WHERE status = 'new' ORDER BY priority DESC, found_at LIMIT ?", limit);
+  // During a LinkedIn hold its jobs with no description can't be scored: leave them out so they don't fill the batch and block every other source.
+  const noJd = held('linkedin.com') ? "AND NOT (source = 'linkedin' AND COALESCE(description, '') = '')" : '';
+  const jobs = all(`SELECT * FROM jobs WHERE status = 'new' ${noJd} ORDER BY priority DESC, found_at LIMIT ?`, limit);
   let queued = 0;
   for (const job of jobs) {
     if (!job.description && job.source === 'linkedin') {
