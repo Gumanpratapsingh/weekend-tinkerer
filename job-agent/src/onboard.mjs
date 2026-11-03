@@ -263,6 +263,12 @@ export function setPreference(kind, text) {
     c.experience_years = n;
   } else if (kind === 'title_exclude' || kind === 'exclude_companies') {
     c[kind] = [...new Set(t.split(/[,\n]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))].slice(0, 60);
+  } else if (kind === 'top_companies') {
+    c.company_focus = { ...c.company_focus, top: [...new Set(t.split(/[,\n]+/).map((x) => x.trim()).filter(Boolean))].slice(0, 100) };
+  } else if (kind === 'small_cap') {
+    const n = Math.round(Number(t));
+    if (!/^off$/i.test(t) && (t === '' || !Number.isFinite(n) || n < 0 || n > 100)) return { error: 'Enter a number from 0 to 100, or "off".' };
+    c.company_focus = { top: c.company_focus?.top || [], ...(/^off$/i.test(t) ? {} : { small_daily_cap: n }) };
   } else if (kind === 'mailbox') {
     if (!/^[^\s@]+@gmail\.com$/i.test(t)) return { error: 'Enter a Gmail address (…@gmail.com).' };
     const priv = privateProfile(); priv.mailbox = t.toLowerCase();

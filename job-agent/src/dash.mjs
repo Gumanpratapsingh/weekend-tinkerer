@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, writ
 import { join } from 'node:path';
 import { config, master, DATA, hasSession, secret, privateProfile } from './core.mjs';
 import { one, all, getKv } from './db.mjs';
+import { TOP_COMPANIES } from './companies.mjs';
 
 const COLS = 'id, source, apply_type, title, company, location, score, status, status_note, found_at, applied_at, url, apply_url';
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
@@ -57,6 +58,7 @@ export function basis() {
   const on = (x) => (x ? 'connected' : 'not connected');
   // Every question it has asked them, in order: the general ones from setup first, then any met on applications since.
   const answers = all('SELECT id, question, answer FROM questions ORDER BY id');
+  const cap = c.company_focus?.small_daily_cap, added = c.company_focus?.top || [];
   return {
     status: getKv('paused') === '1' ? 'Paused: nothing is being submitted. Send "resume" to restart.'
       : dry ? 'Dry run: it fills forms but submits nothing. Send "go live" when you are ready.'
@@ -72,6 +74,9 @@ export function basis() {
       { heading: 'Your experience', items: [`${c.experience_years ?? 0} years. Jobs clearly asking for far more are skipped.`], edit: { kind: 'experience', value: String(c.experience_years ?? 0), hint: 'Total years, as a whole number.' } },
       { heading: 'Job titles it skips', items: [(c.title_exclude || []).map(pretty).join(', ') || 'None.'], edit: { kind: 'title_exclude', value: (c.title_exclude || []).map((x) => x.trim()).join(', '), hint: 'Separate words with commas. A job whose title contains one is skipped.' } },
       { heading: 'Companies it never applies to', items: [(c.exclude_companies || []).map(pretty).join(', ') || 'None.'], edit: { kind: 'exclude_companies', value: (c.exclude_companies || []).join(', '), hint: 'Separate company names with commas.' } },
+      { heading: 'Well-known companies it applies to first', items: [Number.isFinite(cap) ? 'These go ahead of other companies in the queue.' : 'Not switched on: companies are not ranked by name. Set a daily limit below to switch it on.',
+        `Your additions: ${added.join(', ') || 'none.'}`, `Built in: ${TOP_COMPANIES.join(', ')}.`], edit: { kind: 'top_companies', value: added.join(', '), hint: 'Add your own companies, separated by commas. The built-in list stays.' } },
+      { heading: 'Other companies each day', items: [Number.isFinite(cap) ? `Up to ${cap} a day. The rest wait in the queue for the next day.` : 'No separate limit.'], edit: { kind: 'small_cap', value: Number.isFinite(cap) ? String(cap) : 'off', hint: 'A number such as 10, or "off" to treat all companies the same.' } },
       { heading: 'How much', items: [`LinkedIn: up to ${caps.linkedin} a day.`, `Naukri: up to ${caps.naukri} a day.`, `Company career sites: up to ${caps.ats} a day.`,
         `At most ${caps.total} a day and ${caps.per_company} per company.`] },
       { heading: 'What it sends', items: ['Only facts from your resume and answers you gave. Anything it does not know, it asks you in chat.',

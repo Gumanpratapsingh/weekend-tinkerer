@@ -499,5 +499,9 @@
       "project manager",
       "business analyst"
     ]
+  },
+  "company_focus": {
+    "top": [],
+    "small_daily_cap": 10
   }
 }

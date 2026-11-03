@@ -11,6 +11,7 @@ import { browserTask } from './browser.mjs';
 import { askOwner } from './asks.mjs';
 import { tell } from './whatsapp.mjs';
 import { ncrOn, ncrAuto, isNcr } from './ncr.mjs';
+import { isTopCompany } from './companies.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats' };
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
@@ -63,7 +64,11 @@ function nextJob(dryRun) {
   const caps = config().daily_caps;
   const busy = [...inFlight.values()];                // counted as applied, so applications running side by side can't pass a cap
   if (!dryRun && appliedToday() + busy.length >= caps.total) return null;
-  const queued = all("SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT 200");
+  // config.company_focus: well-known companies go first, the rest share small_daily_cap a day (they wait in the queue after that).
+  const focus = Number.isFinite(config().company_focus?.small_daily_cap) ? config().company_focus : null;
+  const top = (j) => isTopCompany(j.company, focus?.top);
+  const queued = all(`SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT ${focus ? 2000 : 200}`);
+  if (focus) queued.sort((a, b) => top(b) - top(a));
   // config.exclude_companies: never apply here (the person's current employer, say).
   const excluded = (config().exclude_companies || []).map((c) => c.toLowerCase());
   for (let i = queued.length - 1; i >= 0; i--) {
@@ -71,9 +76,12 @@ function nextJob(dryRun) {
     run("UPDATE jobs SET status = 'skipped', status_note = 'company excluded in config' WHERE id = ?", queued[i].id);
     queued.splice(i, 1);
   }
+  const since = Date.parse(`${istDate()}T00:00:00+05:30`);
+  const smallLeft = !focus || dryRun ? Infinity : focus.small_daily_cap - busy.filter((x) => !top(x)).length
+    - all("SELECT company FROM jobs WHERE status = 'applied' AND applied_at >= ?", since).filter((r) => !top(r)).length;
   return queued.find((j) => {
     const b = BUCKET[j.apply_type];
-    return b && !inFlight.has(laneFor(j)) && !busy.some((x) => x.company === j.company)
+    return b && (smallLeft > 0 || top(j)) && !inFlight.has(laneFor(j)) && !busy.some((x) => x.company === j.company)
       && siteReady(b) && (dryRun || appliedToday(b) + busy.filter((x) => BUCKET[x.apply_type] === b).length < caps[b]) && companyToday(j.company) < caps.per_company
       && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && !ncrAuto() && isNcr(j) && !getKv(`ncrapply:${j.id}`));   // NCR: the person applies (or taps Queue / asks for it)
   }) || null;
