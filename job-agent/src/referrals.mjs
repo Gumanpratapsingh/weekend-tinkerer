@@ -112,7 +112,7 @@ function note(person, job, company, alumni, colleagueOrg = null) {
   const ref = job && reqId(job);
   const role = job ? `the ${job.title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role there');
   // LinkedIn invite notes are capped at 300 characters.
-  return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
+  return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. ${job ? "I'm applying for" : "I'm looking for"} ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
 }
 
 function followupText(r) {
