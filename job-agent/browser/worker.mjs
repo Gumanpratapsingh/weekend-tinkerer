@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, getBrowser, begin, end } from './session.mjs';
 import * as session from './session.mjs';
+import { laneOf } from './lanes.mjs';
 import { writeFileSync, renameSync, statSync } from 'node:fs';
 
 // ---------- tasks ----------
@@ -76,7 +77,7 @@ process.on('uncaughtException', (e) => { console.error('uncaught exception (kept
 
 // Snapshot of the browser for the hub's live screen, every 2.5 s while a task runs (JPEG, ~50 KB).
 // Written to the data folder of the person whose task is running; only while their /jobs/live page is open.
-const lanes = new Map();                              // person -> { task, since, who }: what each person's lane is doing
+const lanes = new Map();                              // "person:lane" -> { task, since, who }: what each lane is doing
 const shooting = new Set();                           // a slow screenshot must not pile up behind the next tick
 setInterval(() => { for (const current of lanes.values()) shoot(current); }, 900);
 async function shoot(current) {
@@ -209,10 +210,10 @@ async function online() {
   }
   return false;
 }
-// Each person has one lane: their own tasks run one at a time (their logins and pages stay consistent), and different
-// people's lanes run in parallel when the machine is big enough. The laptop (16 GB) runs 2 lanes; the phone keeps 1,
+// Each person has a lane per site (lanes.mjs): tasks in one lane run one at a time (the site's login and pages stay consistent),
+// and lanes run in parallel when the machine is big enough. The laptop (16 GB) runs up to 8 at once; the phone keeps 1,
 // taking turns between people, so it stays cool. JA_LANES overrides.
-const LANES = Number(process.env.JA_LANES) || (totalmem() > 12e9 ? 2 : 1);
+const LANES = Number(process.env.JA_LANES) || (totalmem() > 12e9 ? 8 : 1);
 const waiting = [];                                  // [{ who, run }]
 // LinkedIn people work (a company's people, connection requests, messages) takes minutes: it has its own lane, several at once,
 // so it never holds up a person's applying or job searches and never waits behind them. The phone keeps 1.
@@ -233,14 +234,14 @@ function pumpSocial() {
 let lastPerson = null;
 function pump() {
   while (lanes.size < LANES && waiting.length) {
-    // Oldest task of a person who is not running yet; with one lane, prefer someone other than the last one served.
-    const free = waiting.map((w, i) => [w, i]).filter(([w]) => !lanes.has(w.who.person));
+    // Oldest task whose lane is free; with one lane, prefer someone other than the last one served.
+    const free = waiting.map((w, i) => [w, i]).filter(([w]) => !lanes.has(w.lane));
     if (!free.length) return;
     const [, i] = (LANES === 1 && free.find(([w]) => w.who.person !== lastPerson)) || free[0];
     const [next] = waiting.splice(i, 1);
     lastPerson = next.who.person;
-    lanes.set(next.who.person, { task: next.name, since: Date.now(), who: next.who });
-    session.person.run(next.who, next.run).finally(() => { lanes.delete(next.who.person); pump(); });
+    lanes.set(next.lane, { task: next.name, since: Date.now(), who: next.who });
+    session.person.run(next.who, next.run).finally(() => { lanes.delete(next.lane); pump(); });
   }
 }
 // A task says whose it is (_who); data folders must be the owner's or one under people/, never anything else.
@@ -310,7 +311,7 @@ createServer((req, res) => {
     if (!tasks[name]) return reply(404, { error: `no task ${name}` });
     let body, w;
     try { body = raw ? JSON.parse(raw) : {}; w = whoOf(body); } catch (e) { return reply(400, { error: e.message }); }
-    const entry = { who: w, name, run: async () => {
+    const entry = { who: w, name, lane: `${w.person}:${laneOf(name, body.job)}`, run: async () => {
       begin();
       let timer;
       try {

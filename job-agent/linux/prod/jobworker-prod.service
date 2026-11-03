@@ -8,7 +8,7 @@ StartLimitIntervalSec=0
 [Service]
 User=prod
 WorkingDirectory=/home/prod/jobagent
-Environment=HOME=/home/prod PW_DIR=/opt/pw/ JA_WORKER_PORT=8184 JA_LANES=1
+Environment=HOME=/home/prod PW_DIR=/opt/pw/ JA_WORKER_PORT=8184 JA_LANES=4
 ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1366x900x24" /usr/local/bin/node /home/prod/jobagent/browser/worker.mjs
 StandardOutput=append:/home/prod/jobagent/data/worker.log
 StandardError=append:/home/prod/jobagent/data/worker.log

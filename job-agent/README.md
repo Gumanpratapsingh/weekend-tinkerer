@@ -16,7 +16,7 @@ data/agent.db  jobs · questions · asks · emails · drafts · events
 - **Honest resume:** `src/tailor.mjs` lets the LLM reorder and reword, then rejects any line that adds a skill,
   number or scale claim its source fact doesn't support.
 - **Not spammy:** per-site hours, random gaps and daily caps (`profile/config.json` → `pacing`, `daily_caps`),
-  at most 3 applications per company a day, one at a time. CAPTCHAs are never bypassed: the job goes to "apply yourself".
+  at most 3 applications per company a day, one at a time per site (Naukri and LinkedIn run side by side). CAPTCHAs are never bypassed: the job goes to "apply yourself".
 - **Safe start:** dry-run by default (forms filled, never submitted) until "go live".
 - **Private data** (`profile/master.json`, `profile/private.json`, `data/`) is gitignored; see `profile/README.md`.
 

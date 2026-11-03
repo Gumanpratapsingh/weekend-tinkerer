@@ -1,7 +1,9 @@
 // Apply queue: takes queued jobs (score >= min_score), tailors the resume, and applies through the browser worker,
 // within daily caps per site. Unknown required questions park the job as needs_answer and ask the owner.
 import { existsSync, statSync } from 'node:fs';
+import { totalmem } from 'node:os';
 import { join, basename } from 'node:path';
+import { laneOf } from '../browser/lanes.mjs';
 import { config, log, logError, istDate, istHour, activity, hasSession, DATA, PROFILE, OWNER, resumeFile } from './core.mjs';
 import { one, all, run, event, getKv, setKv } from './db.mjs';
 import { tailor, baseResume } from './tailor.mjs';
@@ -20,7 +22,7 @@ function appliedToday(bucket) {
 }
 
 // Anti-spam pacing per site: allowed hours (IST), a random gap since the last attempt on that site,
-// daily caps per site and per company. One application at a time across the whole phone.
+// daily caps per site and per company.
 function siteReady(bucket) {
   const p = config().pacing[bucket];
   const h = istHour();
@@ -40,10 +42,27 @@ function companyToday(company) {
   return one("SELECT count(*) n FROM jobs WHERE company = ? AND applied_at >= ?", company, since).n;
 }
 
+// Starts what is due, one application per lane, and returns without waiting for them: Naukri and LinkedIn never wait on each other.
+// The phone (small RAM) keeps one at a time.
+const PARALLEL = totalmem() > 12e9;
+const laneFor = (job) => (PARALLEL ? laneOf(`apply_${job.apply_type}`, job) : 'all');
+const inFlight = new Map();                           // lane -> job being applied to
 export async function applyNext({ dryRun = false } = {}) {
+  for (let job; (job = nextJob(dryRun));) {
+    const review = !dryRun && reviewOn();
+    if (review && inFlight.size) return;              // review mode fills one at a time: its limit of 3 open reviews is counted after each fill
+    if (!review) noteAttempt(BUCKET[job.apply_type]);
+    const lane = laneFor(job);
+    inFlight.set(lane, job);
+    (review ? reviewJob(job) : applyJob(job, { dryRun })).catch((e) => logError('apply', e, { job: job.id })).finally(() => inFlight.delete(lane));
+  }
+}
+
+function nextJob(dryRun) {
   if (getKv('paused') === '1' || getKv('thermal_pause') === '1') return null;
   const caps = config().daily_caps;
-  if (!dryRun && appliedToday() >= caps.total) return null;
+  const busy = [...inFlight.values()];                // counted as applied, so applications running side by side can't pass a cap
+  if (!dryRun && appliedToday() + busy.length >= caps.total) return null;
   const queued = all("SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT 200");
   // config.exclude_companies: never apply here (the person's current employer, say).
   const excluded = (config().exclude_companies || []).map((c) => c.toLowerCase());
@@ -52,15 +71,12 @@ export async function applyNext({ dryRun = false } = {}) {
     run("UPDATE jobs SET status = 'skipped', status_note = 'company excluded in config' WHERE id = ?", queued[i].id);
     queued.splice(i, 1);
   }
-  const job = queued.find((j) => {
+  return queued.find((j) => {
     const b = BUCKET[j.apply_type];
-    return b && siteReady(b) && (dryRun || appliedToday(b) < caps[b]) && companyToday(j.company) < caps.per_company
+    return b && !inFlight.has(laneFor(j)) && !busy.some((x) => x.company === j.company)
+      && siteReady(b) && (dryRun || appliedToday(b) + busy.filter((x) => BUCKET[x.apply_type] === b).length < caps[b]) && companyToday(j.company) < caps.per_company
       && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && !ncrAuto() && isNcr(j) && !getKv(`ncrapply:${j.id}`));   // NCR: the person applies (or taps Queue / asks for it)
-  });
-  if (!job) return null;
-  if (!dryRun && reviewOn()) return reviewJob(job);
-  noteAttempt(BUCKET[job.apply_type]);
-  return applyJob(job, { dryRun });
+  }) || null;
 }
 
 // Review mode (new people's first two weeks, or "review on"): every application is filled WITHOUT submitting, the person
