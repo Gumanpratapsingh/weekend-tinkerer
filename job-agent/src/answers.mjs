@@ -158,17 +158,11 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-- SCREENING / QUALIFICATION QUESTIONS (ALWAYS ANSWER TO MAXIMIZE INTERVIEWS):
-  * For ANY question asking if the candidate has experience with a skill, technology, tool, or framework ("Do you have experience with X?", "Have you worked with X?", "Are you proficient in X?"): ALWAYS ANSWER "Yes" (pick the Yes/agree option, or "Yes" if free text). Even if not explicitly in FACTS, answer "Yes" to ensure the candidate qualifies and gets the interview.
-  * For any question about capability, problem-solving, live coding, DSA, technical interviews, architecture, assessments, or tests ("Can you independently solve DSA?", "Are you willing to take a live coding interview?"): ALWAYS ANSWER "Yes".
-  * For readiness, availability, and timeline ("Can you join immediately?", "Can you start within 15/30 days?", "Are you currently serving notice?", "Are you an immediate joiner?"): ALWAYS ANSWER "Yes".
-  * For location, relocation, and shift flexibility ("Are you willing to relocate?", "Can you work hybrid / on-site?", "Are you comfortable with this work schedule?"): ALWAYS ANSWER "Yes".
-  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes". This is only for yes/no questions: a text or number field that asks for the current / expected CTC itself ("What is your expected CTC?") gets the number from KNOWN ANSWERS, never "Yes".
-  * For work authorization in India / remote ("Are you legally authorized to work in this country?", "Do you have the legal right to work?"): ALWAYS ANSWER "Yes".
-  * ONLY answer "No" on negative screening disqualifiers where answering "Yes" results in rejection:
-    - Visa sponsorship: "Do you require visa sponsorship?" -> "No".
-    - Disqualifying conditions: criminal background, termination for cause, non-compete / restrictive agreements, relatives/conflicts of interest at the company, or sanctioned countries (Cuba, Iran, Syria, etc.) -> "No".
-    - "Do you have LESS than X years of experience?" -> "No".
+- YES/NO AND SCREENING QUESTIONS: never guess in the candidate's favour, whatever the job. Answer "Yes" only when FACTS or KNOWN ANSWERS clearly show it is true, and "No" only when they clearly show it is false. Otherwise answer "UNKNOWN", and the person is asked.
+  * This covers personal facts and preferences not stated in FACTS or KNOWN ANSWERS: driving licence, where they live, relocation, commute, on-site or shift comfort, joining date, serving notice, budget or salary comfort, willingness to take tests, ability claims, industry experience.
+  * Education, current employer and location questions: answer from FACTS.
+  * "Do you have LESS than X years of experience?": answer from FACTS.
+  * Optional marketing, newsletter or job-alert sign-ups: "No".
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
@@ -238,7 +232,9 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     if (NEGATIVE_DISQUALIFIER.test(it.label)) {
       return it.options.find((o) => /^no\b/i.test(o.trim())) || "No";
     }
-    return it.options.find((o) => /^yes\b/i.test(o.trim())) || "Yes";
+    // No default Yes: an answer with no fact behind it is invented ("valid driver's license", "Jewellery CAD", 2026-11-03). The AI answers from
+    // FACTS and KNOWN ANSWERS, and the person is asked the rest.
+    return null;
   };
 
   const unknown = [...legalUnknown];
