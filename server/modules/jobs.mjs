@@ -31,6 +31,13 @@ function q(sql, ...p) {
   return e.db.prepare(sql).all(...p);
 }
 const one = (sql, ...p) => q(sql, ...p)[0];
+// The end of a file (logs grow to megabytes).
+const tail = (path, bytes) => {
+  if (!existsSync(path)) return '';
+  const size = statSync(path).size, len = Math.min(size, bytes), buf = Buffer.alloc(len), fd = openSync(path, 'r');
+  try { readSync(fd, buf, 0, len, size - len); } finally { closeSync(fd); }
+  return buf.toString('utf8');
+};
 const kv = (k) => one('SELECT value FROM kv WHERE key = ?', k)?.value ?? null;
 const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10)}T00:00:00+05:30`);
 const config = (P = cur) => { try { return JSON.parse(readFileSync(join(P.profile, 'config.json'), 'utf8')); } catch { return {}; } };
@@ -214,6 +221,33 @@ export default {
         FROM referrals WHERE person IS NOT NULL ORDER BY (stage IN ('drafted','followup_drafted')) DESC, updated_at DESC, created_at DESC LIMIT 300`);
       const byStage = Object.fromEntries(q('SELECT stage, count(*) n FROM referrals WHERE person IS NOT NULL GROUP BY stage').map((r) => [r.stage, r.n]));
       return { companies: cfg.companies || [], perDay: cfg.per_day || 10, rows, byStage };
+    },
+
+    // One page for the owner: how referrals are going for everyone with an agent. Owner only: it is not in PERSON_ROUTES.
+    'GET /api/jobs/referrals/report': async () => {
+      let names = [];
+      try { names = readdirSync(join(ROOT, 'people')).filter((n) => /^[a-z0-9_-]{1,30}$/.test(n) && portOf(n)); } catch { /* owner only */ }
+      const istDay = (t) => new Date(t + 5.5 * 3600e3).toISOString().slice(0, 10);
+      const today = istDay(Date.now());
+      return { today, people: await Promise.all([person(''), ...names.map(person)].map(async (P) => {
+        const s = await live(P, 'summary').then((r) => (r?.ok ? r.json() : null)).catch(() => null);
+        use(P.who);
+        const n = Object.fromEntries(q('SELECT stage, count(*) n FROM referrals WHERE person IS NOT NULL GROUP BY stage').map((r) => [r.stage, r.n]));
+        const stored = q("SELECT value FROM kv WHERE key = 'ref_backoff_until'")[0]?.value;
+        const days = {}, recent = [];
+        // The referrals table only keeps the last change, so what went out each day comes from the agent's own log.
+        for (const line of tail(join(P.dir, 'activity.log'), 3e6).split('\n')) {
+          const m = /^(\S+Z) 🤝 (Invite sent|Referral follow-up sent) to (.+)$/u.exec(line);
+          if (!m) continue;
+          const day = istDay(Date.parse(m[1])), kind = m[2] === 'Invite sent' ? 'requests' : 'messages';
+          (days[day] ||= { requests: 0, messages: 0 })[kind]++;
+          recent.push({ at: Date.parse(m[1]), kind, to: m[3].replace(/\s+—.*$/, '') });
+        }
+        const cfg = JSON.parse(readFileSync(join(P.profile, 'config.json'), 'utf8')).referrals || {};
+        return { who: P.who, name: s?.name || (P.who ? P.who[0].toUpperCase() + P.who.slice(1) : 'You'), online: !!s, stages: n, days,
+          recent: recent.slice(-12).reverse(), limits: { perDay: cfg.per_day, hours: cfg.hours, gap: cfg.gap_min },
+          pausedUntil: Number(stored) > Date.now() ? Number(stored) : null };
+      })) };
     },
 
     'GET /api/jobs/memory': ({ query }) => (use(query.who), {

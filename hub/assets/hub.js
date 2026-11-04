@@ -930,6 +930,7 @@ const pages = {
     const s = d.byStage;
     return [
       h('p', { class: 'lede' }, h('a', { href: '/jobs', 'data-link': true }, '‹ Jobs')),
+      limited() ? null : h('p', { class: 'lede' }, h('a', { href: '/jobs/referrals/report', 'data-link': true }, 'Referral report: sent and waiting, for everyone →')),
       h('div', { class: 'hello' }, h('h1', {}, 'Referrals'),
         h('p', { class: 'lede' }, `Every message waits for your OK. Up to ${d.perDay} a day, spaced out, 9 AM–9 PM. `
           + `${(s.drafted || 0) + (s.followup_drafted || 0)} waiting for you · ${s.invited || 0} invites out · ${s.followup_sent || 0} referral asks sent · ${s.referred || 0} referred`)),
@@ -937,6 +938,37 @@ const pages = {
       d.rows.length ? h('div', { class: 'list' }, d.rows.map(row)) : h('p', { class: 'muted' }, 'Nothing yet: the agent searches companies hourly between 9 AM and 9 PM.'),
       h('div', { class: 'sec' }, 'Target companies (plus any company where a job scores 80%+)'),
       companies, h('div', { class: 'btns' }, saveCo),
+    ];
+  },
+
+  async '/jobs/referrals/report'() {
+    const d = await api('/jobs/referrals/report');
+    const when = (t) => new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const line = (label, value) => h('tr', {}, h('td', { class: 'muted' }, label), h('td', { style: 'text-align:right' }, String(value)));
+    const card = (p) => {
+      const s = p.stages, t = p.days[d.today] || { requests: 0, messages: 0 };
+      const accepted = (s.accepted || 0) + (s.followup_drafted || 0) + (s.followup_approved || 0) + (s.followup_sent || 0) + (s.replied || 0) + (s.referred || 0);
+      const days = Object.keys(p.days).sort().reverse().slice(0, 7);
+      return h('div', { class: 'item', style: 'display:block' },
+        h('div', { class: 'main' }, h('b', {}, p.name), p.online ? null : h('span', { class: 'tag red' }, 'agent offline'),
+          p.pausedUntil ? h('span', { class: 'tag red' }, `paused until ${when(p.pausedUntil)}`) : null),
+        h('table', { style: 'width:100%;margin-top:.5rem' }, h('tbody', {},
+          line('Sent today', t.requests + t.messages), line('Connection requests today', t.requests), line('Referral messages today', t.messages),
+          line('Requests waiting to send', s.approved || 0), line('Messages waiting to send', s.followup_approved || 0),
+          line('Waiting for approval', (s.drafted || 0) + (s.followup_drafted || 0)), line('Requests with no answer yet', s.invited || 0),
+          line('Connected', accepted), line('Referral messages sent, all time', (s.followup_sent || 0) + (s.replied || 0) + (s.referred || 0)),
+          line('Replied', (s.replied || 0) + (s.referred || 0)), line('Referred', s.referred || 0),
+          line('Failed', s.failed || 0), line('Skipped', s.skipped || 0), line('Withdrawn', s.withdrawn || 0),
+          line('Limit per day', p.limits.perDay ?? '—'))),
+        h('div', { class: 'sec' }, 'By day'),
+        days.length ? h('table', { style: 'width:100%' }, h('tbody', {}, days.map((x) => line(x, `${p.days[x].requests} requests · ${p.days[x].messages} messages`)))) : h('p', { class: 'muted' }, 'Nothing sent yet.'),
+        h('div', { class: 'sec' }, 'Latest sent'),
+        p.recent.length ? h('div', {}, p.recent.map((r) => h('small', { style: 'display:block' }, `${when(r.at)} · ${r.kind === 'requests' ? 'Request' : 'Message'} · ${r.to}`))) : h('p', { class: 'muted' }, 'Nothing sent yet.'));
+    };
+    return [
+      h('p', { class: 'lede' }, h('a', { href: '/jobs/referrals', 'data-link': true }, '‹ Referrals')),
+      h('div', { class: 'hello' }, h('h1', {}, 'Referral report'), h('p', { class: 'lede' }, 'What went out, and what is still waiting, for everyone.')),
+      h('div', { class: 'list' }, d.people.map(card)),
     ];
   },
 
@@ -1112,7 +1144,7 @@ const pages = {
 };
 
 // ---------- router ----------
-const TITLES = { '/try': 'Try your own job agent', '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/wifi': 'Wi-Fi', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
+const TITLES = { '/try': 'Try your own job agent', '/device': 'Add device', '/devices': 'Devices', '/setup': 'Welcome', '/laptop': 'Laptop', '/wifi': 'Wi-Fi', '/reels': 'Reels', '/jobs/errors': 'Errors', '/jobs/referrals': 'Referrals', '/jobs/referrals/report': 'Referral report', '/health': 'Phone health', '/jobs/live': 'Live', '/jobs': 'Jobs', '/jobs/job': 'Job', '/jobs/memory': 'Memory', '/': 'Tinker hub', '/login': 'Log in', '/expenses': 'Money', '/interview': 'Interview', '/linkedin': 'LinkedIn', '/tamil': 'Tamil', '/room': 'Room' };
 function go(path, keepWho = true) {
   if (keepWho && path.startsWith('/jobs') && who() && !/[?&]who=/.test(path)) path = withWho(path);   // stay on the same person's agent
   history.pushState(null, '', path); render();
