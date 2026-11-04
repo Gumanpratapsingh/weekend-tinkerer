@@ -158,16 +158,17 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-- YES/NO AND SCREENING QUESTIONS: never guess in the candidate's favour, whatever the job. Answer "Yes" only when FACTS or KNOWN ANSWERS clearly show it is true, and "No" only when they clearly show it is false. Otherwise answer "UNKNOWN", and the person is asked.
-  * This covers personal facts and preferences not stated in FACTS or KNOWN ANSWERS: driving licence, where they live, relocation, commute, on-site or shift comfort, joining date, serving notice, budget or salary comfort, willingness to take tests, ability claims, industry experience.
+- YES/NO AND SCREENING QUESTIONS: the goal is the most interview calls, with a true answer. For each one ask: does this really describe this candidate? Never "Yes" by default.
+  * "Yes": FACTS or KNOWN ANSWERS show it, or it plainly follows from their work (for an engineer who builds backend services: REST APIs, debugging, code reviews). Also taking tests or interviews, full-time work, and working hybrid or on-site.
+  * "No": it clearly does not describe them: a different field or a skill far from their work (actuarial work or jewellery CAD for a software engineer), a location FACTS show they are not in, more years than FACTS show. A true "No" is the right answer even if it costs the job.
+  * "UNKNOWN" only for what nothing here can tell: a driving licence, joining date, serving notice, salary or budget comfort, relocating.
   * Education, current employer and location questions: answer from FACTS.
-  * "Do you have LESS than X years of experience?": answer from FACTS.
   * Optional marketing, newsletter or job-alert sign-ups: "No".
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
   used it for ..."), answer from that: the years number, Yes/No, or for open-ended fields 2-4 first-person sentences built
-  ONLY from that short answer plus FACTS. Otherwise answer exactly "SKILL: <short skill name>" (one short question is asked).
+  ONLY from that short answer plus FACTS. A yes/no question about something clearly far from their work: "No". Otherwise answer exactly "SKILL: <short skill name>" (one short question is asked).
 - Open-ended "describe your experience with X" where FACTS do show X: 2-3 sentences written only from FACTS.
 - Other open-ended fields that need the person's own input (how they work, examples, motivations): if KNOWN ANSWERS has a
   short note on that topic, expand it into 2-4 first-person sentences (only what it says, plus FACTS). Otherwise answer
@@ -176,8 +177,9 @@ export async function resolve(items, context = '') {
   " | " when several may be ticked), else whichever of them is offered; for free text give the email and phone from FACTS.
 - "How did you hear about us / where did you find this job / source": KNOWN ANSWERS if present, else the option meaning the
   company's careers website (or "Company careers website").
-- Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
-  willingness, drug/background-check consent, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
+- Anything else personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
+  willingness, drug/background-check consent, opinions) that is not in KNOWN ANSWERS: "UNKNOWN". The yes/no rule above still
+  decides tests, interviews, full-time, hybrid and on-site work: "Yes".
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
 - Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
 - Multi-select experience/skills lists: select only the options the FACTS support.
@@ -232,8 +234,8 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     if (NEGATIVE_DISQUALIFIER.test(it.label)) {
       return it.options.find((o) => /^no\b/i.test(o.trim())) || "No";
     }
-    // No default Yes: an answer with no fact behind it is invented ("valid driver's license", "Jewellery CAD", 2026-11-03). The AI answers from
-    // FACTS and KNOWN ANSWERS, and the person is asked the rest.
+    // No default Yes: "valid driver's license" and "Jewellery CAD" got a Yes with no fact behind them (2026-11-03). The AI decides whether each one
+    // really describes the person; what it cannot tell goes to them.
     return null;
   };
 
@@ -250,7 +252,8 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
     // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
     const long = it.type === 'textarea' || /describe|explain|examples?|how (do|did|have) you|tell us|walk (us|me) through/i.test(it.label);
-    const skill = /^SKILL:\s*(.+)$/i.exec(a)?.[1]?.trim() || unseenSkill(it.label);
+    // A truthful "No" stands; only a claimed skill the resume does not show needs the person.
+    const skill = /^SKILL:\s*(.+)$/i.exec(a)?.[1]?.trim() || (isYesNo(it) && /^no\b/i.test(a) ? null : unseenSkill(it.label));
     const short = skill ? `Do you have experience with ${skill.slice(0, 60)}? (yes/no, roughly how many years${long ? ', and in a few words how you used it' : ''})`
       : /^SHORT:\s*(.+)$/i.exec(a)?.[1]?.trim().slice(0, 140);
     if (short) {
