@@ -254,6 +254,9 @@ async function done(page) {
 async function currentQuestion(page) {
   return page.evaluate(() => {
     const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    // The bot is still typing, so its last line is not the question yet: its intro ("This helps us to recommend better jobs...")
+    // was read as one, and the person got asked to answer it (2026-11-03).
+    if (document.querySelector('[class*="chatbot_Drawer"] li.loader, [class*="chatbot_Drawer"] #typing')) return null;
     const bot = [...document.querySelectorAll('[class*="botMsg"], [class*="bot-msg"], li.botItem, [class*="chatbot_ListItem"]')].map((e) => clean(e.innerText)).filter(Boolean);
     const label = bot.at(-1);
     if (!label) return null;

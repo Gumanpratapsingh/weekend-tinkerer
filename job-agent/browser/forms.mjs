@@ -264,6 +264,8 @@ function sameValue(f, want, got) {
   if (!g) return false;
   if (g === w || g.includes(w)) return true;
   const digits = (s) => String(s).replace(/\D/g, '');
+  // The same number, shown with the site's own formatting: "95712 42175", "₹15,00,000" (2 forms not sent on 2026-11-03).
+  if (/^[\d\s+(),.-]+$/.test(String(want)) && digits(want).length >= 5 && digits(want) === digits(got)) return true;
   if (/\+/.test(`${want}${got}`) && digits(want).length && digits(want).length <= 4 && digits(want) === digits(got)) return true;   // "(+91)" = "India+91"
   if (f.type === 'tel') return digits(got).length >= 6 && digits(want).endsWith(digits(got).slice(-10));
   if (f.type === 'number') return parseFloat(g) === parseFloat(w);
