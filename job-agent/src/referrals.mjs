@@ -448,11 +448,33 @@ export async function checkAccepted() {
 // 4) Who answered? The LinkedIn conversation list says who wrote last. It only tells the person: replying stays with them.
 export const wroteLast = (r) => !/^(you\b|sponsored\b)/i.test(r.snippet) && (/^[^:]{1,40}:/.test(r.snippet) || /^.{1,40} sent (a|an) /i.test(r.snippet));
 const sameName = (s) => String(s || '').toLowerCase().replace(/[^\p{L} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+// A reply the person has already answered: the conversation list then starts "You:", so it does not count as them writing last (Saurabh Raj, 2026-11-04).
+// Two signs: LinkedIn's "just messaged you" email names their profile; or the person wrote something of their own in the chat, after what the agent sent.
+const profileSlug = (s) => (/linkedin\.com\/in\/([\w%-]+)/i.exec(String(s || ''))?.[1] || '').toLowerCase();
+export function repliedByMail(people, mails) {
+  const found = new Map();
+  for (const m of mails) {
+    const slug = profileSlug(m.body);
+    const r = slug && people.find((p) => profileSlug(p.profile) === slug && m.at > p.created_at);
+    if (r && !found.has(r.id)) found.set(r.id, r);
+  }
+  return [...found.values()];
+}
+export function answeredInChat(row, r) {
+  const you = /^you:\s*(.+)/is.exec(String(row.snippet || ''))?.[1]?.trim();
+  if (!you || !['followup_sent', 'accepted', 'invited'].includes(r.stage)) return false;
+  const same = (t) => String(t || '').replace(/\s+/g, ' ').toLowerCase().startsWith(you.replace(/\s+/g, ' ').replace(/(\.\.\.|…)$/, '').toLowerCase().slice(0, 40));
+  return !same(r.followup) && !same(r.note);
+}
+const markAnswered = (r, how) => run("UPDATE referrals SET reply = ?, replied_at = ?, stage = 'replied' WHERE id = ? AND reply IS NULL AND stage IN ('invited','accepted','followup_sent')", how, now(), r.id);
+
 export async function checkReplies() {
   const people = all("SELECT * FROM referrals WHERE person IS NOT NULL AND stage IN ('invited','accepted','followup_drafted','followup_approved','followup_sent','replied')");
   if (!people.length) return;                                   // no outreach from this account: its inbox is left alone
+  for (const r of repliedByMail(people, all("SELECT body, at FROM emails WHERE from_addr LIKE '%linkedin%' AND (subject LIKE '%messaged you%' OR subject LIKE '%sent you a message%') AND at > ?", now() - 30 * 864e5))) markAnswered(r, 'Replied on LinkedIn (from their message email)');
   const res = await browserTask('linkedin_inbox', {}, 5 * 60e3);
   if (res.status !== 'ok' || !res.rows.length) return;
+  for (const row of res.rows) { const r = people.find((p) => sameName(p.person) === sameName(row.name)); if (r && answeredInChat(row, r)) markAnswered(r, `You answered in the chat: "${String(row.snippet).replace(/^you:\s*/i, '').slice(0, 120)}"`); }
   const firstRun = getKv('li_inbox_seen') == null;
   const seen = JSON.parse(getKv('li_inbox_seen', '{}'));
   const found = [];
