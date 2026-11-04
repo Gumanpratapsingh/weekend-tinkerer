@@ -1,6 +1,6 @@
 // The agent's question memory: every question a form or recruiter asks, and the owner's answer.
 // Lookup order: exact match -> near match -> LLM match against known answers/resume facts -> ask the owner.
-import { llm, master, config, log, privateProfile, persona, careerStart, yearsWorked } from './core.mjs';
+import { llm, master, config, log, privateProfile, persona, careerStart, yearsWorked, OWNER } from './core.mjs';
 import { one, all, run, norm } from './db.mjs';
 
 // Questions almost every Indian application asks. Asked once on WhatsApp during setup.
@@ -90,6 +90,28 @@ function direct(label, m) {
   return null;
 }
 
+// The owner chose Yes on screening questions for the most interviews (2026-10-17, again 2026-11-04). Everyone else gets answers judged from their
+// own profile: a Yes in their name needs their say-so.
+const OWNER_SCREENING = `- SCREENING / QUALIFICATION QUESTIONS (ALWAYS ANSWER TO MAXIMIZE INTERVIEWS):
+  * For ANY question asking if the candidate has experience with a skill, technology, tool, or framework ("Do you have experience with X?", "Have you worked with X?", "Are you proficient in X?"): ALWAYS ANSWER "Yes" (pick the Yes/agree option, or "Yes" if free text). Even if not explicitly in FACTS, answer "Yes" to ensure the candidate qualifies and gets the interview.
+  * For any question about capability, problem-solving, live coding, DSA, technical interviews, architecture, assessments, or tests ("Can you independently solve DSA?", "Are you willing to take a live coding interview?"): ALWAYS ANSWER "Yes".
+  * For readiness, availability, and timeline ("Can you join immediately?", "Can you start within 15/30 days?", "Are you currently serving notice?", "Are you an immediate joiner?"): ALWAYS ANSWER "Yes".
+  * For location, relocation, and shift flexibility ("Are you willing to relocate?", "Can you work hybrid / on-site?", "Are you comfortable with this work schedule?"): ALWAYS ANSWER "Yes".
+  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes". This is only for yes/no questions: a text or number field that asks for the current / expected CTC itself ("What is your expected CTC?") gets the number from KNOWN ANSWERS, never "Yes".
+  * For work authorization in India / remote ("Are you legally authorized to work in this country?", "Do you have the legal right to work?"): ALWAYS ANSWER "Yes".
+  * ONLY answer "No" on negative screening disqualifiers where answering "Yes" results in rejection:
+    - Visa sponsorship: "Do you require visa sponsorship?" -> "No".
+    - Disqualifying conditions: criminal background, termination for cause, non-compete / restrictive agreements, relatives/conflicts of interest at the company, or sanctioned countries (Cuba, Iran, Syria, etc.) -> "No".
+    - "Do you have LESS than X years of experience?" -> "No".
+`;
+const SCREENING = `- YES/NO AND SCREENING QUESTIONS: the goal is the most interview calls, with a true answer. For each one ask: does this really describe this candidate? Never "Yes" by default.
+  * "Yes": FACTS or KNOWN ANSWERS show it, or it plainly follows from their work (for an engineer who builds backend services: REST APIs, debugging, code reviews). Also taking tests or interviews, full-time work, and working hybrid or on-site.
+  * "No": it clearly does not describe them: a different field or a skill far from their work (actuarial work or jewellery CAD for a software engineer), a location FACTS show they are not in, more years than FACTS show. A true "No" is the right answer even if it costs the job.
+  * "UNKNOWN" only for what nothing here can tell: a driving licence, joining date, serving notice, salary or budget comfort, relocating.
+  * Education, current employer and location questions: answer from FACTS.
+  * Optional marketing, newsletter or job-alert sign-ups: "No".
+`;
+
 export async function resolve(items, context = '') {
   const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
   const answers = {};
@@ -158,13 +180,7 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-- YES/NO AND SCREENING QUESTIONS: the goal is the most interview calls, with a true answer. For each one ask: does this really describe this candidate? Never "Yes" by default.
-  * "Yes": FACTS or KNOWN ANSWERS show it, or it plainly follows from their work (for an engineer who builds backend services: REST APIs, debugging, code reviews). Also taking tests or interviews, full-time work, and working hybrid or on-site.
-  * "No": it clearly does not describe them: a different field or a skill far from their work (actuarial work or jewellery CAD for a software engineer), a location FACTS show they are not in, more years than FACTS show. A true "No" is the right answer even if it costs the job.
-  * "UNKNOWN" only for what nothing here can tell: a driving licence, joining date, serving notice, salary or budget comfort, relocating.
-  * Education, current employer and location questions: answer from FACTS.
-  * Optional marketing, newsletter or job-alert sign-ups: "No".
-- Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
+${OWNER ? OWNER_SCREENING : SCREENING}- Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
   used it for ..."), answer from that: the years number, Yes/No, or for open-ended fields 2-4 first-person sentences built
@@ -234,9 +250,9 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     if (NEGATIVE_DISQUALIFIER.test(it.label)) {
       return it.options.find((o) => /^no\b/i.test(o.trim())) || "No";
     }
-    // No default Yes: "valid driver's license" and "Jewellery CAD" got a Yes with no fact behind them (2026-11-03). The AI decides whether each one
-    // really describes the person; what it cannot tell goes to them.
-    return null;
+    // No default Yes for anyone else: "valid driver's license" and "Jewellery CAD" got a Yes with no fact behind them (2026-11-03). The AI decides
+    // whether each one really describes the person; what it cannot tell goes to them.
+    return OWNER ? (it.options.find((o) => /^yes\b/i.test(o.trim())) || "Yes") : null;
   };
 
   const unknown = [...legalUnknown];
