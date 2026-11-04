@@ -206,7 +206,7 @@ export default {
         if (sameQ >= 4) return { status: 'manual', reason: `Naukri keeps asking "${q.label.slice(0, 100)}" and does not accept the answer`, shot: await snap(page, 'naukri-stuck-question') };
         progress(`Naukri asks: "${q.label.slice(0, 120)}"`);
         const r = await fetch(AGENT(), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
+          body: JSON.stringify({ job_id: job.id, context: `${job.title} at ${job.company} (Naukri)`, fields: [{ key: 'a', label: q.label, type: q.options.length ? 'choice' : 'text', options: q.options, required: true }] }) });
         if (r.status === 503) throw new Error('AI busy, retry later');
         const { answers, unknown } = await r.json();
         const odd = oddField(unknown);

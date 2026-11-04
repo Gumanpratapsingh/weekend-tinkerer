@@ -46,11 +46,12 @@ createServer((req, res) => {
         const { fields, context, job_id } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         // Fill-and-show (NCR chat): the answers shown in the screenshots are kept per job and reused when it is submitted.
         const memoKey = job_id && getKv(`fillans:${job_id}`) != null ? `fillans:${job_id}` : null;
+        const job = { location: (job_id && one('SELECT location FROM jobs WHERE id = ?', job_id)?.location) || '' };
         const memo = memoKey ? JSON.parse(getKv(memoKey, '{}')) : null;
         try {
-          if (!memo) return reply(200, JSON.stringify(await resolve(fields, context)), 'application/json');
+          if (!memo) return reply(200, JSON.stringify(await resolve(fields, context, job)), 'application/json');
           const known = fields.filter((f) => memo[f.label] != null), rest = fields.filter((f) => memo[f.label] == null);
-          const r = rest.length ? await resolve(rest, context) : { answers: {}, unknown: [] };
+          const r = rest.length ? await resolve(rest, context, job) : { answers: {}, unknown: [] };
           for (const f of rest) if (r.answers[f.key] != null) memo[f.label] = r.answers[f.key];
           setKv(memoKey, JSON.stringify(memo));
           return reply(200, JSON.stringify({ ...r, answers: { ...r.answers, ...Object.fromEntries(known.map((f) => [f.key, memo[f.label]])) } }), 'application/json');

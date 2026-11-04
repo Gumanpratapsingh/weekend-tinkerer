@@ -90,7 +90,8 @@ function direct(label, m) {
   return null;
 }
 
-export async function resolve(items, context = '') {
+const NCR_CITY = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
+export async function resolve(items, context = '', { location = '' } = {}) {
   const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
   const answers = {};
   const pending = [];
@@ -116,6 +117,11 @@ export async function resolve(items, context = '') {
       if (hasCurrentBox && /^(end date |end )(month|year)$/.test(l)) continue;
       const v = /^(end date |end )month$/.test(l) ? lastDay.toLocaleString('en-US', { month: 'long' }) : /^(end date |end )year$/.test(l) ? String(lastDay.getFullYear()) : null;
       if (v && fits(v, it)) { answers[it.key] = coerce(v, it); continue; }
+    }
+    // Commuting depends on the job's city: Yes for NCR, the person's choice (2026-11-04). Elsewhere they are asked once per city, not once for every job.
+    if (/\bcommut/i.test(it.label) && location) {
+      if (NCR_CITY.test(location) && fits('Yes', it)) { answers[it.key] = coerce('Yes', it); continue; }
+      it.label = `${it.label} (${location.split(',')[0].trim()})`;
     }
     const d = direct(it.label, m0);
     if (d && fits(d, it)) { answers[it.key] = coerce(d, it); continue; }

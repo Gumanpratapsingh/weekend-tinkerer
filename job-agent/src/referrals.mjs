@@ -370,10 +370,14 @@ const approvedBudget = () => { const c = R(), n = sentCounts(false); return n.to
 const autoBudget = () => { const c = R(), n = sentCounts(true); return n.today < (c.auto_per_day || 6) && n.week < (c.auto_per_week || 30); };
 const nextGap = () => { const [a, b] = R().gap_min || [20, 40]; setKv('ref_next_at', now() + (a + Math.random() * (b - a)) * 60e3); };
 
+// The next one to go: a job in NCR first, the person's priority, then the longest waiting. Who has no job linked comes after.
+const nextUp = (where) => all(`SELECT r.*, j.location AS job_location FROM referrals r LEFT JOIN jobs j ON j.id = r.job_id WHERE ${where}`)
+  .sort((a, b) => NCR_RE.test(b.job_location || '') - NCR_RE.test(a.job_location || '') || a.updated_at - b.updated_at)[0];
+
 export async function send() {
   if (!windowOpen()) return;
   const mine = approvedBudget();
-  const fu = mine ? one("SELECT * FROM referrals WHERE stage = 'followup_approved' ORDER BY updated_at LIMIT 1") : null;
+  const fu = mine ? nextUp("r.stage = 'followup_approved'") : null;
   if (fu) {
     nextGap();
     try {
@@ -390,8 +394,8 @@ export async function send() {
     } catch (e) { set(fu.id, { stage: 'failed', reason: e.message.slice(0, 300) }); logError('referral follow-up', e, { id: fu.id }); }
     return;
   }
-  const r = (mine && one("SELECT * FROM referrals WHERE stage = 'approved' AND COALESCE(source, '') != 'auto' ORDER BY updated_at LIMIT 1"))
-    || (autoBudget() && one("SELECT * FROM referrals WHERE stage = 'approved' AND source = 'auto' ORDER BY updated_at LIMIT 1")) || null;
+  const r = (mine && nextUp("r.stage = 'approved' AND COALESCE(r.source, '') != 'auto'"))
+    || (autoBudget() && nextUp("r.stage = 'approved' AND r.source = 'auto'")) || null;
   if (!r) return;
   nextGap();
   try {
