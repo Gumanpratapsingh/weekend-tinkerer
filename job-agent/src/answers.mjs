@@ -1,6 +1,6 @@
 // The agent's question memory: every question a form or recruiter asks, and the owner's answer.
 // Lookup order: exact match -> near match -> LLM match against known answers/resume facts -> ask the owner.
-import { llm, master, config, log, privateProfile, persona, careerStart, yearsWorked, OWNER } from './core.mjs';
+import { llm, master, config, log, privateProfile, persona, careerStart, yearsWorked } from './core.mjs';
 import { one, all, run, norm } from './db.mjs';
 
 // Questions almost every Indian application asks. Asked once on WhatsApp during setup.
@@ -90,28 +90,6 @@ function direct(label, m) {
   return null;
 }
 
-// The owner chose Yes on screening questions for the most interviews (2026-10-17, again 2026-11-04). Everyone else gets answers judged from their
-// own profile: a Yes in their name needs their say-so.
-const OWNER_SCREENING = `- SCREENING / QUALIFICATION QUESTIONS (ALWAYS ANSWER TO MAXIMIZE INTERVIEWS):
-  * For ANY question asking if the candidate has experience with a skill, technology, tool, or framework ("Do you have experience with X?", "Have you worked with X?", "Are you proficient in X?"): ALWAYS ANSWER "Yes" (pick the Yes/agree option, or "Yes" if free text). Even if not explicitly in FACTS, answer "Yes" to ensure the candidate qualifies and gets the interview.
-  * For any question about capability, problem-solving, live coding, DSA, technical interviews, architecture, assessments, or tests ("Can you independently solve DSA?", "Are you willing to take a live coding interview?"): ALWAYS ANSWER "Yes".
-  * For readiness, availability, and timeline ("Can you join immediately?", "Can you start within 15/30 days?", "Are you currently serving notice?", "Are you an immediate joiner?"): ALWAYS ANSWER "Yes".
-  * For location, relocation, and shift flexibility ("Are you willing to relocate?", "Can you work hybrid / on-site?", "Are you comfortable with this work schedule?"): ALWAYS ANSWER "Yes".
-  * For salary / compensation budget ("Are you comfortable with the budgeted CTC range?"): ALWAYS ANSWER "Yes" if the range is acceptable, or pick "Yes". This is only for yes/no questions: a text or number field that asks for the current / expected CTC itself ("What is your expected CTC?") gets the number from KNOWN ANSWERS, never "Yes".
-  * For work authorization in India / remote ("Are you legally authorized to work in this country?", "Do you have the legal right to work?"): ALWAYS ANSWER "Yes".
-  * ONLY answer "No" on negative screening disqualifiers where answering "Yes" results in rejection:
-    - Visa sponsorship: "Do you require visa sponsorship?" -> "No".
-    - Disqualifying conditions: criminal background, termination for cause, non-compete / restrictive agreements, relatives/conflicts of interest at the company, or sanctioned countries (Cuba, Iran, Syria, etc.) -> "No".
-    - "Do you have LESS than X years of experience?" -> "No".
-`;
-const SCREENING = `- YES/NO AND SCREENING QUESTIONS: the goal is the most interview calls, with a true answer. For each one ask: does this really describe this candidate? Never "Yes" by default.
-  * "Yes": FACTS or KNOWN ANSWERS show it, or it plainly follows from their work (for an engineer who builds backend services: REST APIs, debugging, code reviews). Also taking tests or interviews, full-time work, and working hybrid or on-site.
-  * "No": it clearly does not describe them: a different field or a skill far from their work (actuarial work or jewellery CAD for a software engineer), a location FACTS show they are not in, more years than FACTS show. A true "No" is the right answer even if it costs the job.
-  * "UNKNOWN" only for what nothing here can tell: a driving licence, joining date, serving notice, salary or budget comfort, relocating.
-  * Education, current employer and location questions: answer from FACTS.
-  * Optional marketing, newsletter or job-alert sign-ups: "No".
-`;
-
 export async function resolve(items, context = '') {
   const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
   const answers = {};
@@ -180,11 +158,16 @@ export async function resolve(items, context = '') {
     out = await llm([
       { role: 'system', content: `You fill a job application for the candidate. For each field, answer ONLY from the KNOWN ANSWERS or FACTS.
 - If a known answer has the same meaning, adapt it to the field (e.g. pick the matching option, convert to a number).
-${OWNER ? OWNER_SCREENING : SCREENING}- Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
+- YES/NO AND SCREENING QUESTIONS: never guess in the candidate's favour, whatever the job. Answer "Yes" only when FACTS or KNOWN ANSWERS clearly show it is true, and "No" only when they clearly show it is false. Otherwise answer "UNKNOWN", and the person is asked.
+  * This covers personal facts and preferences not stated in FACTS or KNOWN ANSWERS: driving licence, where they live, relocation, commute, on-site or shift comfort, joining date, serving notice, budget or salary comfort, willingness to take tests, ability claims, industry experience.
+  * Education, current employer and location questions: answer from FACTS.
+  * "Do you have LESS than X years of experience?": answer from FACTS.
+  * Optional marketing, newsletter or job-alert sign-ups: "No".
+- Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
 - A skill, tool, language or domain that FACTS do not show (years with it, "have you worked on/used it", "describe your
   experience with it"): if KNOWN ANSWERS has a short answer about it (e.g. "Do you have experience with X? -> Yes, ~1 year,
   used it for ..."), answer from that: the years number, Yes/No, or for open-ended fields 2-4 first-person sentences built
-  ONLY from that short answer plus FACTS. A yes/no question about something clearly far from their work: "No". Otherwise answer exactly "SKILL: <short skill name>" (one short question is asked).
+  ONLY from that short answer plus FACTS. Otherwise answer exactly "SKILL: <short skill name>" (one short question is asked).
 - Open-ended "describe your experience with X" where FACTS do show X: 2-3 sentences written only from FACTS.
 - Other open-ended fields that need the person's own input (how they work, examples, motivations): if KNOWN ANSWERS has a
   short note on that topic, expand it into 2-4 first-person sentences (only what it says, plus FACTS). Otherwise answer
@@ -193,9 +176,8 @@ ${OWNER ? OWNER_SCREENING : SCREENING}- Years with a skill in FACTS: use full-ti
   " | " when several may be ticked), else whichever of them is offered; for free text give the email and phone from FACTS.
 - "How did you hear about us / where did you find this job / source": KNOWN ANSWERS if present, else the option meaning the
   company's careers website (or "Company careers website").
-- Anything else personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
-  willingness, drug/background-check consent, opinions) that is not in KNOWN ANSWERS: "UNKNOWN". The yes/no rule above still
-  decides tests, interviews, full-time, hybrid and on-site work: "Yes".
+- Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
+  willingness, drug/background-check consent, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
 - Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
 - Multi-select experience/skills lists: select only the options the FACTS support.
@@ -250,9 +232,9 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     if (NEGATIVE_DISQUALIFIER.test(it.label)) {
       return it.options.find((o) => /^no\b/i.test(o.trim())) || "No";
     }
-    // No default Yes for anyone else: "valid driver's license" and "Jewellery CAD" got a Yes with no fact behind them (2026-11-03). The AI decides
-    // whether each one really describes the person; what it cannot tell goes to them.
-    return OWNER ? (it.options.find((o) => /^yes\b/i.test(o.trim())) || "Yes") : null;
+    // No default Yes: an answer with no fact behind it is invented ("valid driver's license", "Jewellery CAD", 2026-11-03). The AI answers from
+    // FACTS and KNOWN ANSWERS, and the person is asked the rest.
+    return null;
   };
 
   const unknown = [...legalUnknown];
@@ -268,18 +250,50 @@ Return JSON {"<key>": "<answer, UNKNOWN, SKILL: name, or SHORT: question>"}.` },
     // Not on the resume / needs the person's own words: ask one short question instead of the form's wording. Their short
     // reply becomes a known answer, and the next attempt writes every form's version of it (years, yes/no, paragraph).
     const long = it.type === 'textarea' || /describe|explain|examples?|how (do|did|have) you|tell us|walk (us|me) through/i.test(it.label);
-    // A truthful "No" stands; only a claimed skill the resume does not show needs the person.
-    const skill = /^SKILL:\s*(.+)$/i.exec(a)?.[1]?.trim() || (isYesNo(it) && /^no\b/i.test(a) ? null : unseenSkill(it.label));
+    const skill = /^SKILL:\s*(.+)$/i.exec(a)?.[1]?.trim() || unseenSkill(it.label);
     const short = skill ? `Do you have experience with ${skill.slice(0, 60)}? (yes/no, roughly how many years${long ? ', and in a few words how you used it' : ''})`
       : /^SHORT:\s*(.+)$/i.exec(a)?.[1]?.trim().slice(0, 140);
     if (short) {
-      if (!asked.has(norm(short))) { asked.add(norm(short)); unknown.push({ ...it, label: short, type: 'text', options: null, original: it.label }); }
+      if (!asked.has(norm(short))) { asked.add(norm(short)); unknown.push({ ...it, label: short, type: 'text', options: null, original: it.label, formOptions: it.options }); }
       continue;
     }
     if (a && a !== 'UNKNOWN' && fits(a, it)) { answers[it.key] = coerce(a, it); remember(it.label, String(answers[it.key]), 'derived'); }
     else unknown.push(it);
   }
+  await reuseSameQuestions(unknown, answers);
   return { answers, unknown };
+}
+
+// The same question in other words ("Driver's license?", "Do you hold a driving licence?") must not reach the person twice: reworded ones were all
+// asked again (2026-11-04). What they already answered is reused; one still waiting for them keeps its own card, so they answer once.
+async function reuseSameQuestions(unknown, answers) {
+  const rest = unknown.filter((u) => !u.legal);
+  if (!rest.length) return;
+  const saved = all(`SELECT id, question, answer FROM questions WHERE (answer IS NOT NULL AND source = 'owner')
+    OR id IN (SELECT question_id FROM asks WHERE status = 'open') ORDER BY updated_at DESC LIMIT 200`);
+  if (!saved.length) return;
+  let found;
+  try {
+    found = await llm([
+      { role: 'system', content: `Match job application questions. For each NEW question, find the SAVED question asking for the same fact about the person, even in other words.
+Not the same: a different skill, tool, city, company, number of years, or a stricter or wider condition ("work on-site" is not "work on-site 5 days a week"; "relocate to Pune" is not "relocate to Mumbai").
+When unsure, null. Return JSON {"<new key>": <saved id or null>}.` },
+      { role: 'user', content: `SAVED:\n${saved.map((q) => `${q.id}: ${q.question.slice(0, 140)}`).join('\n')}\n\nNEW:\n${JSON.stringify(rest.map((u) => ({ key: u.key, question: u.label })))}` },
+    ], { json: true, maxTokens: 400, temperature: 0, small: true, why: 'checking for questions already asked in other words' });
+  } catch (e) { log(`same question check: ${e.message}`); return; }
+  for (const u of rest) {
+    const q = saved.find((x) => norm(x.question) === norm(u.label)) || saved.find((x) => x.id === Number(found?.[u.key]));
+    if (!q) continue;
+    if (q.answer == null) { u.label = q.question; continue; }           // still waiting for the person: this job waits on that same card
+    // Skill questions are asked in a short form: their yes/no carries over to the form's own Yes/No ("Have you used Figma?").
+    const form = u.original && u.formOptions?.length ? { ...u, options: u.formOptions, type: 'radio' } : u;
+    const said = u.original ? /^(yes|no)\b/i.exec(q.answer)?.[1] : q.answer;
+    if (!said || (u.original && !u.formOptions?.length) || !fits(said, form)) continue;
+    answers[u.key] = coerce(said, form);
+    used(q.id);
+    remember(u.label, String(answers[u.key]), 'derived');
+    unknown.splice(unknown.indexOf(u), 1);
+  }
 }
 
 function fits(answer, it) {

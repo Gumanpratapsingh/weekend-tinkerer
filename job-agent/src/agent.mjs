@@ -384,6 +384,10 @@ every(60, 'referral acceptances', async () => {
   setKv('ref_check_day', day);
   const { checkAccepted } = await import('./referrals.mjs'); await checkAccepted();
 }, { delay: 20 * 60e3 });
+every(60, 'referral job links', async () => {                 // a waiting message must not name a job that closed meanwhile
+  if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
+  const { recheckWaitingJobs } = await import('./referrals.mjs'); await recheckWaitingJobs();
+}, { delay: 5 * 60e3 });
 every(180, 'referral replies', async () => {                // who answered on LinkedIn, every 3 h in the daytime
   if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
   const { checkReplies } = await import('./referrals.mjs'); await checkReplies();

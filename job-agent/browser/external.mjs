@@ -199,7 +199,7 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         if (frameUrl) { await page.goto(frameUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(2500); continue; }
 
         const f = await formScore(page);
-        if (f.hasPassword && !f.hasFile) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
+        if (f.hasPassword) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
         if (f.hasFile || (f.hasEmail && f.hasName && f.n >= 3)) break;          // reached the application form
 
         // Let single-page career sites finish rendering; decline cookie banners (privacy-friendly) so they don't cover buttons.

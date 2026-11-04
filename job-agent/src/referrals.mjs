@@ -173,6 +173,7 @@ const NCR_RE = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaz
 const ENG_ROLE = /\b(software|developers?|engineers?|engineering|sde[-\d]*|se \d|sdet|programmer|full.?stack|back.?end|front.?end|devops|sre|architect|tech lead|technical lead|engineering manager|cto|qa|test lead|data scientist|machine learning|recruit\w*|talent acquisition)\b/i;
 const PRODUCT_ROLE = /\b(product manager|product owner|product lead|head of product|program manager|project manager|business analyst|scrum master)\b/i;
 const NEAR_ROLE = /\b(analyst|consultant|data|technical|tech|cloud|security)\b/i;
+const STACK = /\b(java|python|spring boot|angular|react|node\.?js|golang|kubernetes|microservices|\.net)(?![a-z])/i;
 const NOT_WORKING = /\b(student|aspiring|intern|internship|trainee|fresher|seeking|looking for|open to work|pursuing)\b/i;
 const OTHER_FIELD = /\b(accountant|accounts?|finance|sales|business development|marketing|seo|social media|content|producer|legal|compliance|admin|facilities|procurement|teacher|faculty)\b/i;
 const roleFits = (text, p, jobTitle) => !OTHER_FIELD.test(text) && (ENG_ROLE.test(text)
@@ -191,8 +192,12 @@ export function profileProblem(profile, r) {
   if (!now?.length) return 'no current job on their profile';
   const work = now.join(' | ');
   if (!work.toLowerCase().replace(/\s+/g, '').includes(nameWord(r.company))) return `works elsewhere (${work.slice(0, 80)})`;
-  if (NOT_WORKING.test(notPast(work)) || NOT_WORKING.test(notPast(profile.top || ''))) return 'student or not working now';
-  if (!roleFits(work, r, r.job_title || '')) return `role is not related (${work.slice(0, 80)})`;
+  // Above "About" only: an old About still said "4th Year B.Tech student" for a Senior Full Stack Engineer (2026-11-04).
+  if (NOT_WORKING.test(notPast(work)) || NOT_WORKING.test(notPast(String(profile.top || '').split(/\nAbout\b/)[0]))) return 'student or not working now';
+  // A bank's title says little ("Senior Associate"): their headline names the work ("at Morgan Stanley | Java | Spring Boot").
+  const h = String(r.headline || '');
+  const namedInHeadline = !OTHER_FIELD.test(work) && !OTHER_FIELD.test(h) && h.toLowerCase().replace(/\s+/g, '').includes(nameWord(r.company)) && (ENG_ROLE.test(h) || STACK.test(h));
+  if (!roleFits(work, r, r.job_title || '') && !namedInHeadline) return `role is not related (${work.slice(0, 80)})`;
   return null;
 }
 
@@ -306,6 +311,21 @@ export function decide(id, text) {
 // gone, put the next open job there, or none, and ask again: the person approved a message naming the old one.
 const linkOf = (r) => { const j = r.job_id ? one('SELECT company_url FROM jobs WHERE id = ?', r.job_id) : null; return /^https?:/.test(j?.company_url) ? j.company_url : r.job_url; };
 const isOpen = async (url) => (await browserTask('job_page_alive', { url }, 3 * 60e3).catch(() => ({ alive: true }))).alive !== false;
+// Already known closed: no page needs opening, and a job board's page can still look alive.
+const jobGone = async (r, link) => !!(r.job_id && one("SELECT 1 FROM jobs WHERE id = ? AND status = 'closed'", r.job_id)) || !!(link && !await isOpen(link));
+// Sends go out slowly, so a message can wait days after its job closed. Check the waiting ones ahead of time: a few per run, the ones checked longest ago first.
+export async function recheckWaitingJobs(limit = 5) {
+  const waiting = all("SELECT * FROM referrals WHERE stage IN ('followup_approved','approved') AND job_id IS NOT NULL AND (followup IS NOT NULL OR note IS NOT NULL) ORDER BY updated_at LIMIT 200");
+  const seen = new Set();
+  for (const r of waiting) {
+    const last = Number(getKv(`ref_job_ok:${r.job_id}`, 0));
+    if (seen.size >= limit) break;
+    if (now() - last < 24 * 3600e3 || seen.has(r.job_id)) continue;
+    seen.add(r.job_id);
+    if (await jobGone(r, linkOf(r))) for (const same of waiting.filter((x) => x.job_id === r.job_id)) await swapDeadJob(same);
+    else setKv(`ref_job_ok:${r.job_id}`, now());
+  }
+}
 async function swapDeadJob(r) {
   if (r.job_id) run("UPDATE jobs SET status = 'closed', status_note = 'posting gone (referral link check)' WHERE id = ? AND status NOT IN ('applied','interview')", r.job_id);
   let job = null;
@@ -353,8 +373,7 @@ export async function send() {
   if (fu) {
     nextGap();
     try {
-      const link = linkOf(fu);
-      if (link && !await isOpen(link)) return await swapDeadJob(fu);
+      if (await jobGone(fu, linkOf(fu))) return await swapDeadJob(fu);
       if (fu.email && (config().referrals?.email !== false)) {
         const { sendReferralEmail } = await import('./mail.mjs');
         await sendReferralEmail(fu.email, `Referral request: ${fu.job_title || 'Backend/AI Engineer'} at ${fu.company}`, fu.followup);
@@ -373,8 +392,7 @@ export async function send() {
   nextGap();
   try {
     // Read the whole profile first: headlines are vague and out of date.
-    const named = r.note && linkOf(r);
-    if (named && !await isOpen(named)) return await swapDeadJob(r);
+    if (r.note && await jobGone(r, linkOf(r))) return await swapDeadJob(r);
     const profile = await browserTask('linkedin_profile', { url: r.profile }, 5 * 60e3);
     if (profile.status !== 'ok') return;
     // Could not read it: not a verdict on them. To the back of the queue, not dropped, and never sent unread.

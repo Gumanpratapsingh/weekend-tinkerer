@@ -47,7 +47,16 @@ function describeFields(rootSel) {
       const l = p.querySelector('label, legend, .label, [class*="label"], [class*="question"]');
       if (l && !l.contains(el) && clean(l.innerText)) return clean(l.innerText);
     }
-    return clean(el.placeholder || el.name || el.id);
+    if (clean(el.placeholder)) return clean(el.placeholder);
+    // The question in plain text above the box (Rippling: <p>Years of Experience</p>, and the box's name is random: "CKHcQrgIMO" reached the person).
+    for (let n = el, k = 0; n && n !== root && k < 4; n = n.parentElement, k++) {
+      for (let s = n.previousElementSibling; s; s = s.previousElementSibling) {
+        if (s.querySelector('input, select, textarea') || s.matches('input, select, textarea')) return clean(el.name || el.id);
+        const t = clean(s.innerText);
+        if (t && t.length <= 200) return t;
+      }
+    }
+    return clean(el.name || el.id);
   };
   // Text just before an element (question heading above an option list), up to 3 levels up.
   const textBefore = (n) => { for (let k = 0; n && k < 3; k++, n = n.parentElement) {
@@ -327,9 +336,12 @@ export async function captchaVisible(page) {
 // error messages and links to some other form. They hand the job to the person instead of becoming a question.
 export const CAPTCHA_Q = /captcha|enter (all )?\d+ characters|characters? (exactly )?as shown|type the (text|characters|word)s? (you see|shown)|security check/i;
 export const NOT_A_QUESTION = /^(select|choose|please (select|choose)|--+)[\s.…-]*$|unable to process (this|the) file|please answer this to continue|forms\.gle|docs\.google\.com\/forms|fill (the|this) (google )?form/i;
+// A box's random internal name, not a question: "QJGjjLVmtI", "-ibDqAd62s".
+const randomName = (label) => /^[\w-]{8,40}$/.test(label) && (label.match(/(?=[a-z][A-Z]|[A-Z][a-z]|\d[a-zA-Z]|[a-zA-Z]\d)/g) || []).length >= 3;
 export function oddField(unknown) {
   const cap = unknown.find((u) => CAPTCHA_Q.test(u.label));
   if (cap) return { status: 'manual', reason: 'captcha (text CAPTCHA in the form)' };
+  if (unknown.some((u) => randomName(u.label.trim()))) return { status: 'manual', reason: 'form needs you: a box has no readable question' };
   const odd = unknown.find((u) => NOT_A_QUESTION.test(u.label));
   if (odd) return { status: 'manual', reason: `form needs you: "${odd.label.slice(0, 80)}"` };
   return null;
@@ -339,6 +351,8 @@ export function oddField(unknown) {
 export async function fillForm(page, job, { root = null, resume, dryRun, partial = false }) {
   let fields = await collect(page, root);
   if (fields.length < 3 && root) fields = [...fields, ...await collect(page, null)];   // root matched the wrong form: whole page
+  // A sign-in box beside the upload (BMC Helix): never ask for a password or type one. The person signs in or applies there.
+  if (fields.some((f) => f.type === 'password')) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, fields: fields.length, filled: [] };
   const { answers, unknown } = await resolveFields(fields, job);
   // A text CAPTCHA is a human check: never keep an answer for it (the AI typed "YES" into Zoho's), hand it to the person.
   for (const f of fields.filter((x) => x.type !== 'file' && CAPTCHA_Q.test(x.label))) {
