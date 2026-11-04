@@ -116,6 +116,12 @@ function note(person, job, company, alumni, colleagueOrg = null) {
   return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. ${job ? "I'm applying for" : "I'm looking for"} ${role} at ${company}. ${job ? 'Would you be open to referring me? Happy to share my resume.' : 'If something opens up, could you keep me in mind for a referral?'} Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
 }
 
+// The sender's points as bullets ("2+ years building X, plus LLM projects" is two points).
+function aboutMe(m, P) {
+  const points = [`${m.experience[0].title} at ${m.experience[0].org}`, ...String(P.followup_summary || '').split(/,\s*plus\s+/i).map((x) => x.trim().replace(/\.$/, '')).filter(Boolean)];
+  return `A bit about me:\n${points.map((x) => `• ${x[0].toUpperCase()}${x.slice(1)}`).join('\n')}\n\nResume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
+}
+
 function followupText(r) {
   const first = String(r.person).split(/\s+/)[0];
   const m = master();
@@ -126,11 +132,9 @@ function followupText(r) {
   const link = /^https?:/.test(job?.company_url) ? job.company_url : r.job_url;
   // No open role known: nothing to refer for today, so ask them to keep the person in mind instead of asking for "a role" as if one were named.
   if (!r.job_title) return `Hi ${first}, thanks for connecting!\n\nI'm looking for ${P.fallback_role || 'a new role'} and would love to work at ${r.company}. I don't see an opening that fits my experience right now, but if something comes up on your team or elsewhere at ${r.company}, could you please keep me in mind for a referral?\n\n`
-    + `A bit about me: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
-    + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
+    + aboutMe(m, P);
   return `Hi ${first}, thanks for connecting!\n\nI wanted to check whether you could refer me for ${r.job_title ? `the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role')} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
-    + `A bit about me: ${m.experience[0].title} at ${m.experience[0].org}${P.followup_summary ? `, ${P.followup_summary}` : ''}. `
-    + `Resume attached. Happy to answer anything. Thank you!\n– ${m.name}, ${m.contact.phone}`;
+    + aboutMe(m, P);
 }
 
 // 1) Find people at the next target company and queue drafts for approval (a few companies per run).
