@@ -15,6 +15,8 @@ import { isTopCompany } from './companies.mjs';
 import { linkedinPaused } from './liguard.mjs';
 
 const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats' };
+// A company-site job listed on LinkedIn starts on its LinkedIn page, which needs the LinkedIn login too: signed out, the Apply
+// button only opens a sign-in box (gowtham, 2026-11-05: 52 jobs ended as "could not find the application form").
 const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
 
 function appliedToday(bucket) {
@@ -86,7 +88,8 @@ function nextJob(dryRun) {
     const b = BUCKET[j.apply_type];
     return b && (smallLeft > 0 || top(j)) && !inFlight.has(laneFor(j)) && !busy.some((x) => x.company === j.company)
       && siteReady(b) && (dryRun || appliedToday(b) + busy.filter((x) => BUCKET[x.apply_type] === b).length < caps[b]) && companyToday(j.company) < caps.per_company
-      && (sessionReady[j.apply_type]?.() ?? true) && (j.attempts || 0) < 3 && !(ncrOn() && !ncrAuto() && isNcr(j) && !getKv(`ncrapply:${j.id}`));   // NCR: the person applies (or taps Queue / asks for it)
+      && (sessionReady[j.apply_type]?.() ?? true) && (!/linkedin\.com/.test(j.apply_url || '') || sessionReady.linkedin())
+      && (j.attempts || 0) < 3 && !(ncrOn() && !ncrAuto() && isNcr(j) && !getKv(`ncrapply:${j.id}`));   // NCR: the person applies (or taps Queue / asks for it)
   }) || null;
 }
 
