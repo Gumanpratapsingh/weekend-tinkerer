@@ -72,8 +72,8 @@ function nextJob(dryRun) {
   const focus = Number.isFinite(config().company_focus?.small_daily_cap) ? config().company_focus : null;
   const top = (j) => isTopCompany(j.company, focus?.top);
   const queued = all(`SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, score DESC, found_at LIMIT ${focus ? 2000 : 200}`);
-  // NCR first, the person's priority; then well-known companies. The small-company limit below still applies to NCR jobs.
-  queued.sort((a, b) => isNcr(b) - isNcr(a) || (focus ? top(b) - top(a) : 0));
+  // Well-known companies first (the owner's call, 2026-11-06), NCR first within each group. The small-company limit below still applies to NCR jobs.
+  queued.sort((a, b) => (focus ? top(b) - top(a) : 0) || isNcr(b) - isNcr(a));
   // config.exclude_companies: never apply here (the person's current employer, say).
   const excluded = (config().exclude_companies || []).map((c) => c.toLowerCase());
   for (let i = queued.length - 1; i >= 0; i--) {
