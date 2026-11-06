@@ -104,16 +104,19 @@ export function reqId(job) {
     || null;
 }
 
+// No open job to name: no note at all, just a plain connection request (the owner's rule, 2026-11-06: referral messages only
+// when there is a job to ask about).
 function note(person, job, company, alumni, colleagueOrg = null) {
+  if (!job) return '';
   const first = String(person).split(/\s+/)[0];
   const m = master();
   const P = persona();
   const org = colleagueOrg && m.experience.find((e) => e.org.toLowerCase().includes(colleagueOrg.toLowerCase().split(/\s+/)[0]))?.org.split(/\s+/)[0];
   const intro = org ? `we've both worked at ${org}` : alumni ? `fellow ${P.school_short || 'school'} alum here${P.alum_tag ? ` (${P.alum_tag})` : ''}` : (P.intro || `I'm a ${m.experience[0]?.title || 'professional'}`);
   const ref = job && reqId(job);
-  const role = job ? `the ${job.title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role there');
+  const role = `the ${job.title} role${ref ? ` (Job ID ${ref})` : ''}`;
   // LinkedIn invite notes are capped at 300 characters.
-  return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. ${job ? "I'm applying for" : "I'm looking for"} ${role} at ${company}. ${job ? 'Would you be open to referring me? Happy to share my resume.' : 'If something opens up, could you keep me in mind for a referral?'} Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
+  return `Hi ${first}, ${intro}. ${String(P.pitch || `I work as ${m.experience[0]?.title} at ${m.experience[0]?.org}`).replace(/\.$/, '')}. I'm applying for ${role} at ${company}. Would you be open to referring me? Happy to share my resume. Thanks! – ${m.name.split(' ')[0]}`.slice(0, 300);
 }
 
 // The sender's points as bullets ("2+ years building X, plus LLM projects" is two points).
@@ -130,10 +133,7 @@ function followupText(r) {
   const job = r.job_id ? one('SELECT description, company_url FROM jobs WHERE id = ?', r.job_id) : null;
   const ref = !/Job ID/i.test(r.job_title || '') && reqId(job);
   const link = /^https?:/.test(job?.company_url) ? job.company_url : r.job_url;
-  // No open role known: nothing to refer for today, so ask them to keep the person in mind instead of asking for "a role" as if one were named.
-  if (!r.job_title) return `Hi ${first}, thanks for connecting!\n\nI'm looking for ${P.fallback_role || 'a new role'} and would love to work at ${r.company}. I don't see an opening that fits my experience right now, but if something comes up on your team or elsewhere at ${r.company}, could you please keep me in mind for a referral?\n\n`
-    + aboutMe(m, P);
-  return `Hi ${first}, thanks for connecting!\n\nI wanted to check whether you could refer me for ${r.job_title ? `the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''}` : (P.fallback_role || 'a role')} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
+  return `Hi ${first}, thanks for connecting!\n\nI wanted to check whether you could refer me for the ${r.job_title} role${ref ? ` (Job ID ${ref})` : ''} at ${r.company}${link ? `: ${link}` : ''}.\n\n`
     + aboutMe(m, P);
 }
 
@@ -158,7 +158,7 @@ export async function prospect({ only, jobId } = {}) {
         VALUES(?,?,?,?,?,?,?,?,?,?,?)`, company, job?.id || null, job?.title || null, job?.url || null, p.name, p.headline, p.url, p.alumni ? 1 : 0, 'drafted', text, now());
       const id = one('SELECT id FROM referrals WHERE profile = ?', p.url).id;
       if (p.degree === '1st') { set(id, { stage: 'accepted', reason: 'already a connection' }); draftFollowup(id); continue; }
-      tell(`🤝 Referral request #${id}: ${p.name}${p.alumni ? ` (${persona().school_short || 'school'} alum)` : ''}\n${p.headline || ''}\n${p.url}\n\nNote:\n${text}\n\n— Send, Skip, or type your own note to send instead.`,
+      tell(`🤝 Referral request #${id}: ${p.name}${p.alumni ? ` (${persona().school_short || 'school'} alum)` : ''}\n${p.headline || ''}\n${p.url}\n\n${text ? `Note:\n${text}` : `Plain connection request, no note (no open job at ${company} to ask about yet).`}\n\n— Send, Skip, or type your own note to send instead.`,
         { refKind: 'referral', refId: id });
     }
   }
@@ -307,6 +307,7 @@ export function decide(id, text) {
   const custom = /^(ok|okay|yes|send|👍)$/i.test(t) ? null : t;
   if (followup) { set(id, { stage: 'followup_approved', ...(custom ? { followup: custom } : {}) }); return `✓ Follow-up to ${r.person} approved; it goes out shortly.`; }
   if (r.stage !== 'drafted') return `That request is already ${r.stage}.`;
+  if (!r.job_title) { set(id, { stage: 'approved', note: '' }); return `✓ Approved: a plain connection request to ${r.person} (no note: there is no open job at ${r.company} to ask about yet).`; }
   set(id, { stage: 'approved', ...(custom ? { note: custom.slice(0, 300) } : {}) });
   return `✓ Approved: invite to ${r.person} goes out within the next send slot.`;
 }
@@ -343,13 +344,14 @@ async function swapDeadJob(r) {
   const fields = { job_id: job?.id || null, job_title: job?.title || null, job_url: job?.url || null };
   const old = r.job_title || 'that job';
   if (r.stage === 'followup_approved') {
+    if (!job) { set(r.id, { ...fields, stage: 'accepted', reason: 'connected; no open job to ask about yet' }); return activity(`🤝 ${old} at ${r.company} has closed and no other job fits: no message to ${r.person}`); }
     const text = followupText({ ...r, ...fields });
     set(r.id, { ...fields, stage: 'followup_drafted', followup: text });
     tell(`🤝 ${old} at ${r.company} has closed, so I did not message ${r.person}. New message #${r.id}:\n\n${text}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
   } else {
     const text = note(r.person, job, r.company, r.alumni);
     set(r.id, { ...fields, stage: 'drafted', note: text });
-    tell(`🤝 ${old} at ${r.company} has closed, so I did not invite ${r.person}. New note #${r.id}:\n\n${text}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
+    tell(`🤝 ${old} at ${r.company} has closed, so I did not invite ${r.person}. ${text ? `New note #${r.id}:\n\n${text}` : `No other open job there: #${r.id} is now a plain connection request, no note.`}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
   }
 }
 
@@ -378,6 +380,8 @@ export async function send() {
   if (!windowOpen()) return;
   const mine = approvedBudget();
   const fu = mine ? nextUp("r.stage = 'followup_approved'") : null;
+  // Approved before the no-job rule: never sent, they stay plain connections.
+  if (fu && !fu.job_title) return set(fu.id, { stage: 'accepted', reason: 'connected; no open job to ask about yet' });
   if (fu) {
     nextGap();
     try {
@@ -407,7 +411,7 @@ export async function send() {
     if (profile.current == null) { set(r.id, {}); activity(`🤝 Could not read ${r.person}'s profile, trying later`); return; }
     const problem = profileProblem(profile, r);
     if (problem) { set(r.id, { stage: 'skipped', reason: `profile check: ${problem}`.slice(0, 300) }); activity(`🤝 Not inviting ${r.person} (${r.company}): ${problem}`); return; }
-    const res = await browserTask('linkedin_connect', { url: r.profile, note: r.note || '' }, 10 * 60e3);   // no note = a plain "Connect"
+    const res = await browserTask('linkedin_connect', { url: r.profile, note: r.job_title ? r.note || '' : '' }, 10 * 60e3);   // no note = a plain "Connect"
     if (res.status === 'limit') { setKv('ref_backoff_until', now() + 7 * 864e5); set(r.id, { stage: 'approved', reason: 'LinkedIn weekly invite limit: paused 7 days' });
       tell('🤝 LinkedIn says the weekly invitation limit is reached. Referral invites are paused for 7 days.'); return; }
     if (res.status === 'connected') { set(r.id, { stage: 'accepted', reason: 'already connected' }); return draftFollowup(r.id); }
@@ -425,6 +429,7 @@ async function resumeFor(r) {
 
 function draftFollowup(id) {
   const r = one('SELECT * FROM referrals WHERE id = ?', id);
+  if (!r.job_title) { set(id, { reason: 'connected; no open job to ask about yet' }); return activity(`🤝 ${r.person} (${r.company}) is connected; no message, there is no open job to ask about yet`); }
   const text = followupText(r);
   set(id, { stage: 'followup_drafted', followup: text });
   const j = r.job_id ? one('SELECT location FROM jobs WHERE id = ?', r.job_id) : null;
@@ -554,14 +559,14 @@ export async function scanPosts() {
     const first = p.author.split(/\s+/)[0];
     const P = persona();
     const role = pick ? `the ${pick.title} role${pick.job_id ? ` (Job ID ${pick.job_id})` : ''}${pick.location ? ` in ${pick.location}` : ''}`
-      : job ? `the ${job.title} role` : (P.post_fallback_role || P.fallback_role || 'a role there');
-    const text = `Hi ${first}, saw your post about referrals at ${company}. ${P.post_pitch || P.intro || ''}. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – ${master().name.split(' ')[0]}`.replace(/\.\. /, '. ').slice(0, 300);
+      : job ? `the ${job.title} role` : '';
+    const text = !pick && !job ? '' : `Hi ${first}, saw your post about referrals at ${company}. ${P.post_pitch || P.intro || ''}. I'd love to be considered for ${role}. Would you be open to referring me? Happy to share my resume. Thanks! – ${master().name.split(' ')[0]}`.replace(/\.\. /, '. ').slice(0, 300);
     run(`INSERT OR IGNORE INTO referrals(company, job_id, job_title, job_url, person, headline, profile, alumni, stage, note, source, post, created_at)
       VALUES(?,?,?,?,?,?,?,0,'drafted',?,'post',?,?)`, company, job?.id || null, pick ? `${pick.title}${pick.job_id ? ` (Job ID ${pick.job_id})` : ''}` : job?.title || null,
       job?.url || null, p.author, p.headline, p.profile, text, p.text.slice(0, 4000), now());
     const id = one('SELECT id FROM referrals WHERE profile = ?', p.profile).id;
     kept++;
-    tell(`🤝 Referral offer in a LinkedIn post (verified, ${company}) #${id}: ${p.author}\n${p.headline}\n${p.profile}\n\nTheir post: "${p.text.replace(/\s+/g, ' ').slice(0, 260)}…"\n\nYour note:\n${text}\n\n— Send, Skip, or type your own note.`,
+    tell(`🤝 Referral offer in a LinkedIn post (verified, ${company}) #${id}: ${p.author}\n${p.headline}\n${p.profile}\n\nTheir post: "${p.text.replace(/\s+/g, ' ').slice(0, 260)}…"\n\n${text ? `Your note:\n${text}` : `Plain connection request, no note (no open job at ${company} to ask about yet).`}\n\n— Send, Skip, or type your own note.`,
       { refKind: 'referral', refId: id });
   }
   activity(`🤝 Referral posts: ${posts.length} read, ${kept} kept · skipped: ${Object.entries(why).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}`);
