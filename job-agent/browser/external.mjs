@@ -8,8 +8,9 @@ import { isWorkday, applyWorkday } from './workday.mjs';
 import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 
 // Sites that require creating a candidate account before applying.
-const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs/i;
-const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit application|start application|apply online)$/i;
+const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs|idmsa\.apple\.com|talent\.cognizant\.com\/\d+\/login/i;
+// "Submit your application now" (Persistent) has no "apply" in it and was never clicked.
+const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit (your )?application( now)?|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submit?ted|applied)|your application is on (its|the) way|thanks? (you )?for submitting/i;
