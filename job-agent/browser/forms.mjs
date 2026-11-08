@@ -72,7 +72,9 @@ function describeFields(rootSel) {
     if (el.type !== 'file' && el.getAttribute('aria-hidden') === 'true') continue;
     if (el.getAttribute('role') !== 'combobox' && el.tabIndex === -1 && !el.id && el.type === 'text') continue;
     if (el.closest('.iti__dropdown-content') || el.classList.contains('iti__search-input')) continue;
-    const t = (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT') ? 'combobox' : (el.type || el.tagName).toLowerCase();
+    // LinkedIn's date picker is a plain text box: read as text it got "30 days from notice" and failed "This field is required".
+    const t = (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT') ? 'combobox'
+      : el.dataset.testid === 'date-picker-input' ? 'date' : (el.type || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(t)) continue;
     // "Autofill from resume" boxes (Ashby): an upload there re-renders the form and wipes our answers (NETGEAR: Email empty).
     if (t === 'file' && el.closest('[class*="autofill" i]')) continue;
@@ -198,8 +200,13 @@ export async function fill(page, fields, answers, { resume } = {}) {
         if (f.options.length <= 1) { if (saysYes(f, v)) await tick(el.first()); }   // a lone box has no option list
         else for (const w of wanted) await tick(page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first());
       } else if (f.type === 'date') {
-        const dt = new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
-        await el.fill(Number.isNaN(+dt) ? String(v) : dt.toISOString().slice(0, 10));
+        // "Immediately" / "30 days from notice" (a start date): that many days from today.
+        const rel = String(v).match(/(\d+)\s*(day|week|month)s?\b/i);
+        const dt = /^immediate/i.test(String(v)) ? new Date() : rel ? new Date() : new Date(/^\w+ \d{4}$/.test(String(v)) ? `1 ${v}` : String(v));
+        if (rel) dt.setDate(dt.getDate() + +rel[1] * { day: 1, week: 7, month: 30 }[rel[2].toLowerCase()]);
+        const native = await el.evaluate((e) => e.type === 'date').catch(() => true);
+        const mdy = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+        await el.fill(Number.isNaN(+dt) ? String(v) : native ? dt.toISOString().slice(0, 10) : mdy(dt));
       } else {
         const isPicker = PICKER.test(f.label);
         try {
