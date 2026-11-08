@@ -110,8 +110,9 @@ export async function resolve(items, context = '', { location = '' } = {}) {
     if (hasCurrentBox && currentBox(it)) { answers[it.key] = 'Yes'; continue; }
     // A lone "the information provided is accurate" box: true of a form filled from the resume (Talemexa: skipped 12 times, never sent).
     if (it.type === 'checkbox' && it.options?.length <= 1 && /\b(confirm|certify|declare|attest)\b.*\b(information|details)\b.*\b(accurate|true|correct)\b/.test(norm(it.label))) { answers[it.key] = 'Yes'; continue; }
-    // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it.
-    if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label)) continue;
+    // A lone option mistaken for a question ("2-4 years", "Kotlin"): never ask the owner about it. A lone consent box is a real
+    // question: skipped, Greenhouse's demographic-data consent stayed unticked and blocked Submit (WPP, Twilio: 6 failed 2026-11-06).
+    if (it.options?.length === 1 && norm(it.options[0]) === norm(it.label) && !/\b(consent|agree|acknowledg|accept)/i.test(it.label)) continue;
     if (asksWork && !asksStudy && onNotice) {
       const l = norm(it.label);
       if (hasCurrentBox && /^(end date |end )(month|year)$/.test(l)) continue;
@@ -167,6 +168,8 @@ export async function resolve(items, context = '', { location = '' } = {}) {
 - YES/NO AND SCREENING QUESTIONS: never guess in the candidate's favour, whatever the job. Answer "Yes" only when FACTS or KNOWN ANSWERS clearly show it is true, and "No" only when they clearly show it is false. Otherwise answer "UNKNOWN", and the person is asked.
   * This covers personal facts and preferences not stated in FACTS or KNOWN ANSWERS: driving licence, where they live, relocation, commute, on-site or shift comfort, joining date, serving notice, budget or salary comfort, willingness to take tests, ability claims, industry experience.
   * Education, current employer and location questions: answer from FACTS.
+  * "Which area of <city> do you live in" / "your location in <city>" when FACTS show another city: if KNOWN ANSWERS say
+    they are willing to relocate there, answer "I can relocate to <city>." (never "I live in X, not <city>"); else "UNKNOWN".
   * "Do you have LESS than X years of experience?": answer from FACTS.
   * Optional marketing, newsletter or job-alert sign-ups: "No".
 - Years with a skill in FACTS: use full-time years${careerStart() ? ` since ${careerStart().label}` : ''} (round down), unless a known answer says otherwise.
@@ -303,6 +306,7 @@ When unsure, null. Return JSON {"<new key>": <saved id or null>}.` },
 }
 
 function fits(answer, it) {
+  if (it.type === 'checkbox' && it.options?.length === 1 && /^(yes|true)$/i.test(String(answer).trim())) return true;   // tick the lone box
   if (it.options?.length) return it.options.some((o) => norm(o) === norm(answer)) || !!pickOption(answer, it.options);
   if (it.type === 'number') return !Number.isNaN(parseFloat(String(answer).replace(/[^0-9.]/g, '')));
   // A bare Yes/No is never a salary figure (LinkedIn answered "Yes" to "Expected CTC" and the form rejected it).
