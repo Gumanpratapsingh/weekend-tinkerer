@@ -840,7 +840,8 @@ createServer(async (req, res) => {
 }).listen(PORT, '127.0.0.1', () => log(`cupboard on 127.0.0.1:${PORT}`));
 
 // ---------- internal: services on this phone message the owner through the S20 bot ----------
-// POST /notify {title?, text, actions?: [{id, label, style?}], ref?, replyTo?, to?, agent?}
+// POST /notify {title?, text, actions?: [{id, label, style?}], ref?, replyTo?, to?, agent?, urgent?, urgentTitle?}
+//   urgentTitle: the phone notification's title for an urgent card (default: the NCR job wording).
 //   replyTo: a local URL (http://127.0.0.1:<port>/...) that receives {text|action, ref} when the owner answers.
 //   to: a username to message instead of the owner (a friend's own job agent); agent: that agent's local base URL,
 //       remembered so the person's free-text questions and attached files reach their agent.
@@ -887,7 +888,7 @@ createServer(async (req, res) => {
       const loud = b.urgent && day && !recentUrgent;
       if (loud) setKv(`urgent_push:${target.id}`, Date.now());
       const msg = await postMessage(convId, botId(), { kind: 'card', text, extra }, b.silent === true || !day || (b.urgent && !loud) ? { pushOnly: [] }
-        : loud ? { force: true, pushAs: { title: '🚨 URGENT · NCR job needs you', body: text.replace(/^\S+\s*/, '') } } : {});
+        : loud ? { force: true, pushAs: { title: String(b.urgentTitle || '🚨 URGENT · NCR job needs you').slice(0, 60), body: text.replace(/^\S+\s*/, '') } } : {});
       if ((typeof b.urgent === 'string' || typeof b.urgent === 'number') && b.silent !== true) setKv(`urgent:${msg.id}`, JSON.stringify({ uid: target.id, conv: convId, text: text.slice(0, 120), n: 0, job: typeof b.urgent === 'string' || typeof b.urgent === 'number' ? String(b.urgent) : null, agent: /^http:\/\/127\.0\.0\.1:\d+$/.test(b.urgentAgent || '') ? b.urgentAgent : null, next: nextDigest() }));   // digested until opened
       return send(res, 200, { id: msg.id, pushable: push.hasPush(target.id) });
     }
