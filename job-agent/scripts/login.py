@@ -1,6 +1,6 @@
 """Sign in to a job site in a real browser window on the Mac, then save the session for the phone.
 You type your password/OTP yourself; only the resulting cookies are saved (never the password).
-Usage: login.py linkedin|naukri [person]  -> writes data/sessions/<site>.json and <site>.ua next to this repo
+Usage: login.py linkedin|naukri|wellfound [person]  -> writes data/sessions/<site>.json and <site>.ua next to this repo
 (or people/<person>/data/sessions/ for someone else's agent; their browser profile is kept separate from the owner's)."""
 import json, pathlib, re, sys, time
 from playwright.sync_api import sync_playwright
@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 SITES = {
     "linkedin": ("https://www.linkedin.com/login", lambda u: "/feed" in u or "/in/" in u or "/jobs" in u),
     "naukri": ("https://www.naukri.com/nlogin/login", lambda u: "mnjuser" in u),
+    "wellfound": ("https://wellfound.com/login", lambda u: re.search(r"wellfound\.com/(jobs(?!/signup)|profile|u/)", u)),
 }
 site = sys.argv[1]
 person = sys.argv[2] if len(sys.argv) > 2 else ""

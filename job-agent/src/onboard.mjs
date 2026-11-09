@@ -156,7 +156,7 @@ function ask(step) {
   if (step === 'linkedin' || step === 'naukri') return signinCard(step);
 }
 
-const SITES = { linkedin: 'LinkedIn', naukri: 'Naukri' };
+const SITES = { linkedin: 'LinkedIn', naukri: 'Naukri', wellfound: 'Wellfound' };
 async function signinCard(site) {
   let link = null;
   try {
@@ -214,9 +214,9 @@ function hide(msgId) {
     body: JSON.stringify({ id: Number(msgId), text: '🔒 (hidden: saved securely)' }) }).catch(() => {});
 }
 
-/** "login linkedin" / "login naukri" / "login gmail" at any time. Returns true if handled. */
+/** "login linkedin" / "login naukri" / "login wellfound" / "login gmail" at any time. Returns true if handled. */
 export function loginCommand(text) {
-  const m = /^(?:login|sign ?in|connect)\s+(linkedin|naukri|gmail)$/i.exec(String(text).trim());
+  const m = /^(?:login|sign ?in|connect)\s+(linkedin|naukri|wellfound|gmail)$/i.exec(String(text).trim());
   if (!m) return false;
   const site = m[1].toLowerCase();
   if (site === 'gmail') ask(privateProfile().mailbox ? 'gmail' : 'mailbox'); else signinCard(site);

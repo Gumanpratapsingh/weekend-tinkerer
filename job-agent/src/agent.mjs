@@ -110,7 +110,7 @@ createServer((req, res) => {
       // Live sign-in page (Cupboard -> here -> browser worker): status, screen, taps/keys. Input bodies are never logged.
       if (url.pathname.startsWith('/internal/signin/') && !req.headers['x-visitor-ip']) {
         const site = url.searchParams.get('site') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').site;
-        if (!['linkedin', 'naukri', 'captcha'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
+        if (!['linkedin', 'naukri', 'wellfound', 'captcha'].includes(site)) return reply(400, '{"error":"bad site"}', 'application/json');
         const cjob = site === 'captcha' ? (url.searchParams.get('job') || JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').job) : null;
         const json = (x, code = 200) => reply(code, JSON.stringify(x), 'application/json');
         const health = await fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => ({}));
@@ -283,6 +283,7 @@ every(5, 'naukri refresh', async () => {
 
 every(180, 'discover aggregators', step('Searching Adzuna and Jooble (all of India)', () => discover('aggregators')), { delay: 270e3 });
 every(360, 'discover remotive', step('Searching Remotive', () => discover('remotive')), { delay: 240e3 });
+every(240, 'discover wellfound', step('Searching Wellfound (startups)', () => discover('wellfound')), { delay: 300e3 });
 every(10, 'score', step('Scoring new jobs against your resume', () => scoreNew(25)), { delay: 60e3 });
 every(60, 'watchdog', () => watchdog(), { delay: 10 * 60e3 });
 every(10, 'health', () => OWNER && health(), { delay: 4 * 60e3, always: true });   // laptop power, S20 standby, browser worker, AI (src/health.mjs)           // repeated failures -> one urgent alert; button-label answers deleted

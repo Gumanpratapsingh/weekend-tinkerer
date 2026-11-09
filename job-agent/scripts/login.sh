@@ -1,10 +1,10 @@
 #!/bin/sh
 # Sign in on the Mac and send the session to the phone.
-# Usage: ./scripts/login.sh linkedin|naukri [ssh-host]           (the owner)
+# Usage: ./scripts/login.sh linkedin|naukri|wellfound [ssh-host]           (the owner)
 #        PERSON=vertika ./scripts/login.sh naukri [ssh-host]     (someone else's agent: people/<person>/)
 # The person types their own password/OTP in the window; only the session cookies are saved.
 set -e
-SITE=${1:?usage: [PERSON=name] login.sh linkedin|naukri [ssh-host]}
+SITE=${1:?usage: [PERSON=name] login.sh linkedin|naukri|wellfound [ssh-host]}
 cd "$(dirname "$0")/.."
 HOST=${2:-$(cat .primary-host 2>/dev/null || echo s20phone)}   # where the agents run now (linux/switch-to-laptop.sh)
 D=data/sessions; [ -n "$PERSON" ] && D=people/$PERSON/data/sessions

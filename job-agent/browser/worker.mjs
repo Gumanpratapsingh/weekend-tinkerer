@@ -59,7 +59,7 @@ const tasks = {
 };
 
 // Site modules (naukri, linkedin, ats) add their own tasks.
-for (const mod of ['naukri', 'linkedin', 'ats', 'external', 'workday']) {
+for (const mod of ['naukri', 'linkedin', 'ats', 'external', 'workday', 'wellfound']) {
   const f = join(ROOT, 'browser', `${mod}.mjs`);
   if (existsSync(f)) Object.assign(tasks, (await import(f)).default);
 }
@@ -101,8 +101,8 @@ async function shoot(current) {
 // have a CAPTCHA to solve). One sign-in at a time on the phone.
 let signin = null;                                    // { who, site, page, browser }
 async function runSignin(w, site) {
-  const login = { linkedin: 'https://www.linkedin.com/login', naukri: 'https://www.naukri.com/nlogin/login' }[site];
-  const done = { linkedin: /linkedin\.com\/(feed|in\/|mynetwork|jobs|messaging)/, naukri: /naukri\.com\/(mnjuser|myapply)/ }[site];
+  const login = { linkedin: 'https://www.linkedin.com/login', naukri: 'https://www.naukri.com/nlogin/login', wellfound: 'https://wellfound.com/login' }[site];
+  const done = { linkedin: /linkedin\.com\/(feed|in\/|mynetwork|jobs|messaging)/, naukri: /naukri\.com\/(mnjuser|myapply)/, wellfound: /wellfound\.com\/(jobs(?!\/signup)|profile|u\/)/ }[site];
   const browser = await session.launchSeparate();
   signin = { who: w, site, page: null, browser };
   try {
@@ -280,7 +280,7 @@ createServer((req, res) => {
       let w, b;
       try { b = JSON.parse(raw || '{}'); w = whoOf(b); } catch (e) { return reply(400, { error: e.message }); }
       if (signin) return reply(409, { error: signin.who.person === w.person ? 'already open' : 'Someone else is signing in right now. Try again in a few minutes.' });
-      if (!['linkedin', 'naukri'].includes(b.site)) return reply(400, { error: 'bad site' });
+      if (!['linkedin', 'naukri', 'wellfound'].includes(b.site)) return reply(400, { error: 'bad site' });
       const limit = setTimeout(() => signin?.browser.close().catch(() => {}), 17 * 60e3);
       try { reply(200, await session.person.run(w, () => runSignin(w, b.site))); }
       catch (e) { console.error(`[${w.person}] signin`, e?.message); session.person.run(w, () => session.workerError('signin', e)); reply(500, { error: e?.message || String(e) }); }

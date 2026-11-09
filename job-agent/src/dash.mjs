@@ -12,7 +12,7 @@ const dayStart = () => Date.parse(`${new Date(Date.now() + 5.5 * 3600e3).toISOSt
 const n = (sql, ...p) => one(sql, ...p)?.n || 0;
 
 // Where a job was found, in the words people use. Anything that isn't a job site or a job board is a company's own career page.
-const BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok'];
+const BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok', 'wellfound'];
 const sourceGroup = (s) => (s === 'naukri' ? 'Naukri' : s === 'linkedin' ? 'LinkedIn' : BOARDS.includes(s) ? 'Job boards' : 'Company career sites');
 
 export function summary() {

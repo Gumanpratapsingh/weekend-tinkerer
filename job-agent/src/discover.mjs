@@ -10,10 +10,11 @@ import { fetchRemotive } from './sources/remotive.mjs';
 import { fetchFeeds, atsFromUrl } from './sources/feeds.mjs';
 import { fetchAggregators } from './sources/aggregators.mjs';
 import { fetchNaukri, fetchNaukriFresh } from './sources/naukri.mjs';
+import { fetchWellfound } from './sources/wellfound.mjs';
 import { scoreJob } from './score.mjs';
 import { fetchNcr, ncrOn, ncrAuto, isNcr, ncrMin, NCR_NOTE } from './ncr.mjs';
 
-export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators,
+export const SOURCES = { ats: fetchAts, linkedin: fetchLinkedin, remotive: fetchRemotive, naukri: fetchNaukri, feeds: fetchFeeds, aggregators: fetchAggregators, wellfound: fetchWellfound,
   fresh: async () => [...await fetchNaukriFresh(), ...await fetchLinkedin({ fresh: true })], ncr: fetchNcr, companies: fetchCompanyJobs };
 
 // Any Greenhouse/Lever/Ashby link seen in a feed adds that company's board to the list searched directly.

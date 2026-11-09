@@ -780,7 +780,7 @@ async function api(req, res, path, query) {
     }
     if (M === 'POST' && name === 'signin') {                 // connect LinkedIn/Naukri from the dashboard
       const b = await readJson(req, 200);
-      if (!/^(linkedin|naukri)$/.test(b.site || '')) throw err(400, 'Unknown site.');
+      if (!/^(linkedin|naukri|wellfound)$/.test(b.site || '')) throw err(400, 'Unknown site.');
       const token = randomBytes(16).toString('hex');
       setKv(`signin:${token}`, JSON.stringify({ uid: me.id, agent, site: b.site, exp: Date.now() + 2 * 3600e3 }));
       return send(res, 200, { path: `/signin/${token}` });
@@ -904,7 +904,7 @@ createServer(async (req, res) => {
     if (req.url === '/device-link') return send(res, 200, { path: deviceLink(o.id) });   // add-device.sh: when no trusted device is at hand
     if (req.url === '/signin') {                       // a job agent asks for a sign-in page link for one of its people
       const u = b.to ? one("SELECT * FROM users WHERE username = ? AND active = 1 AND role != 'bot'", String(b.to).toLowerCase()) : owner();   // no `to` = the owner's agent
-      if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri|captcha)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
+      if (!u || !/^http:\/\/127\.0\.0\.1:\d+$/.test(b.agent || '') || !/^(linkedin|naukri|wellfound|captcha)$/.test(b.site || '')) return send(res, 400, { error: 'bad request' });
       const token = randomBytes(16).toString('hex');
       setKv(`signin:${token}`, JSON.stringify({ uid: u.id, agent: b.agent, site: b.site, ...(b.site === 'captcha' ? { job: String(b.job || '').slice(0, 120) } : {}), exp: Date.now() + (b.site === 'captcha' ? 24 : 2) * 3600e3 }));
       return send(res, 200, { path: `/signin/${token}` });

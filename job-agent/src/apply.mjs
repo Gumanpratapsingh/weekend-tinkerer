@@ -14,10 +14,13 @@ import { ncrOn, ncrAuto, isNcr } from './ncr.mjs';
 import { isTopCompany } from './companies.mjs';
 import { linkedinPaused } from './liguard.mjs';
 
-const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats' };
+const BUCKET = { naukri: 'naukri', linkedin: 'linkedin', greenhouse: 'ats', lever: 'ats', ashby: 'ats', external: 'ats', workday: 'ats', wellfound: 'ats' };
 // A company-site job listed on LinkedIn starts on its LinkedIn page, which needs the LinkedIn login too: signed out, the Apply
 // button only opens a sign-in box (gowtham, 2026-11-05: 52 jobs ended as "could not find the application form").
-const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired' };
+const sessionReady = { naukri: () => hasSession('naukri') && getKv('session_naukri') !== 'expired', linkedin: () => hasSession('linkedin') && getKv('session_linkedin') !== 'expired',
+  wellfound: () => hasSession('wellfound') && getKv('session_wellfound') !== 'expired' };   // Wellfound jobs wait until the person signs in
+// These sites send the resume on the person's profile there: nothing to tailor or attach.
+const PROFILE_RESUME = new Set(['naukri', 'wellfound']);
 
 function appliedToday(bucket) {
   const since = Date.parse(`${istDate()}T00:00:00+05:30`);
@@ -126,8 +129,8 @@ export async function applyJob(job, { dryRun = false } = {}) {
     // update kept going out on every retry after it, since nothing ever invalidated the cache).
     if (resume && existsSync(resume) && statSync(resume).mtimeMs < statSync(join(PROFILE, 'master.json')).mtimeMs) resume = null;
     // config.original_resume_only: the person's own PDF on every application, never a generated one (their instruction).
-    if (config().original_resume_only) resume = job.apply_type === 'naukri' ? null : resumeFile();
-    else if (!resume && job.apply_type !== 'naukri') {  // Naukri sends the profile resume: no tailoring needed
+    if (config().original_resume_only) resume = PROFILE_RESUME.has(job.apply_type) ? null : resumeFile();
+    else if (!resume && !PROFILE_RESUME.has(job.apply_type)) {  // Naukri and Wellfound send the profile resume: no tailoring needed
       const t = (job.score || 0) >= (config().tailor_min_score || 0) ? await tailor(job) : await baseResume(job.track || 'backend');
       resume = t.pdf;
       run('UPDATE jobs SET resume_path = ?, track = ? WHERE id = ?', resume, t.track, job.id);
@@ -252,11 +255,11 @@ function settle(job, res) {
 function tellSent(job, res) {
   const lines = (res.filled || []).filter((f) => f.label && f.value).slice(0, 30)
     .map((f) => `• ${f.label.slice(0, 80)}: ${String(f.value).replace(/\s+/g, ' ').slice(0, 120)}`);
-  const resume = job.apply_type === 'naukri' ? 'your Naukri profile resume' : job.resume_path ? basename(job.resume_path) : null;
+  const resume = PROFILE_RESUME.has(job.apply_type) ? `your ${job.apply_type === 'naukri' ? 'Naukri' : 'Wellfound'} profile resume` : job.resume_path ? basename(job.resume_path) : null;
   tell([`✅ Applied: ${job.title} @ ${job.company}`, lines.length ? `What I sent:\n${lines.join('\n')}` : 'No questions beyond your profile.',
     resume ? `Resume: ${resume}` : ''].filter(Boolean).join('\n'),
   { images: [res.sent_shot].filter(Boolean), links: [{ label: 'Open job ↗', url: job.apply_url || job.url }].filter((l) => l.url), silent: true,
-    files: job.apply_type !== 'naukri' && job.resume_path ? [job.resume_path] : null });
+    files: !PROFILE_RESUME.has(job.apply_type) && job.resume_path ? [job.resume_path] : null });
 }
 
 export function todayStats() {

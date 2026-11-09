@@ -418,7 +418,7 @@ const screens = {
     let info;
     try { info = await api(base); } catch (e) { app.replaceChildren(h('div', { class: 'bar' }, h('h1', {}, 'Sign in')), h('div', { class: 'page' }, h('p', { class: 'lede' }, e.message))); return; }
     const captcha = info.site === 'captcha';
-    const site = captcha ? (info.title ? `${info.title.title} @ ${info.title.company}` : 'the application') : { linkedin: 'LinkedIn', naukri: 'Naukri' }[info.site];
+    const site = captcha ? (info.title ? `${info.title.title} @ ${info.title.company}` : 'the application') : { linkedin: 'LinkedIn', naukri: 'Naukri', wellfound: 'Wellfound' }[info.site];
     const back = h('a', { class: 'icon', href: '/', 'data-link': true, 'aria-label': 'Back' }, ic('back'));
     const status = h('p', { class: 'lede', id: 'sstatus' }, 'Starting the browser…');
     const img = h('img', { class: 'screen', alt: `${site} in the browser`, draggable: 'false' });
@@ -1454,9 +1454,9 @@ function qCard(q) {
   return box;
 }
 // Where a job was found, and where the application really happens.
-const JOB_BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok'];
-const sourceName = (s) => (s === 'naukri' ? 'Naukri' : s === 'linkedin' ? 'LinkedIn' : JOB_BOARDS.includes(s) ? 'Job board' : 'Company career site');
-const applyName = (t) => (t === 'naukri' ? 'on Naukri' : t === 'linkedin' ? 'on LinkedIn' : 'on the company\'s site');
+const JOB_BOARDS = ['himalayas', 'jobicy', 'remotive', 'adzuna', 'jooble', 'remoteok', 'wellfound'];
+const sourceName = (s) => (s === 'naukri' ? 'Naukri' : s === 'linkedin' ? 'LinkedIn' : s === 'wellfound' ? 'Wellfound' : JOB_BOARDS.includes(s) ? 'Job board' : 'Company career site');
+const applyName = (t) => (t === 'naukri' ? 'on Naukri' : t === 'linkedin' ? 'on LinkedIn' : t === 'wellfound' ? 'on Wellfound' : 'on the company\'s site');
 function jobRow(j) {
   const row = h('button', { class: 'jrow', type: 'button' },
     h('span', { class: `score${j.score >= 80 ? ' hi' : ''}` }, j.score != null ? `${j.score}` : '–'),
