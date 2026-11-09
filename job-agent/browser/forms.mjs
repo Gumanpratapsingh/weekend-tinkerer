@@ -72,6 +72,9 @@ function describeFields(rootSel) {
     if (el.type !== 'file' && el.getAttribute('aria-hidden') === 'true') continue;
     if (el.getAttribute('role') !== 'combobox' && el.tabIndex === -1 && !el.id && el.type === 'text') continue;
     if (el.closest('.iti__dropdown-content') || el.classList.contains('iti__search-input')) continue;
+    // A careers site's chat assistant is not the form: Quest Global's Phenom chatbot got a résumé summary typed into it.
+    // (Not <body>: Phenom marks the whole page "ph-chatbot-parent-body".)
+    if (el.closest(':not(html, body):is([id*="chatbot" i], [class*="chatbot" i])')) continue;
     // LinkedIn's date picker is a plain text box: read as text it got "30 days from notice" and failed "This field is required".
     const t = (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT') ? 'combobox'
       : el.dataset.testid === 'date-picker-input' ? 'date' : (el.type || el.tagName).toLowerCase();

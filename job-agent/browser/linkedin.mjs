@@ -403,6 +403,7 @@ export default {
 
       let lastStep = '', retriedStep = null;
       const steps = [], sent = [];                           // sent: every step's answers as read back, for "what I sent"
+      const past = new Map();                                // every field filled so far, with what went in
       for (let step = 0; step < 15; step++) {
         await page.waitForTimeout(1500 + Math.random() * 1000);
         await markRoot(page);                                // the panel re-renders between steps
@@ -435,6 +436,7 @@ export default {
         if (blocking.length) return await discard(page, { status: 'needs_answer', unknown: blocking, shot: await snap(page, 'li-question') });
         progress(`LinkedIn: ${fields.map((f) => `"${f.label.slice(0, 40)}"${f.type === 'radio' ? `[${f.options.join('/')}]` : ''} = ${answers[f.key] ?? (unknown.some((u) => u.key === f.key) ? '??' : '(prefilled)')}`).join(' · ').slice(0, 380)}`);
         await fill(page, fields, answers, {});
+        for (const f of fields) past.set(f.key, { f, v: answers[f.key] ?? f.value });
         // Read the step back before Next/Submit: an answer LinkedIn dropped or changed must never be sent.
         const check = await verifyFilled(page, fields, answers, {});
         if (check.reason) return await discard(page, { status: 'manual', reason: check.reason, filled: [...sent, ...check.sent], shot: await snap(page, 'li-check') });
@@ -465,16 +467,18 @@ export default {
           if (errs.length && retriedStep !== stepText) {
             retriedStep = stepText;
             const stripped = {};
-            for (const f of fields) {
-              const v = answers[f.key];
+            // Not just this pass's fields: one filled on the pass before is not collected again (GetixHealth: "2 years"
+            // on "What is your over all experience?" stayed Invalid input), so check every earlier one still on the page.
+            for (const { f, v } of past.values()) {
+              if (!await modal.locator(`[data-ja-key="${f.key}"]`).count()) continue;
               if (v == null || f.options?.length || !/\d/.test(String(v)) || !/[a-z]/i.test(String(v))) continue;
               if (!/ctc|salary|lpa|years?|experience|notice|tenure|age|days|months|number|how many|gpa|cgpa|percentage/i.test(f.label)) continue;
               const n = String(v).match(/\d+(\.\d+)?/)?.[0];
               if (n && n !== String(v)) stripped[f.key] = n;
             }
             if (Object.keys(stripped).length) {
-              progress(`LinkedIn: stuck (${errs.join(' | ').slice(0, 120)}) — retrying with numbers only: ${Object.entries(stripped).map(([k, v]) => `"${fields.find((f) => f.key === k)?.label.slice(0, 30)}"=${v}`).join(', ')}`);
-              await fill(page, fields.filter((f) => stripped[f.key] != null), stripped, {});
+              progress(`LinkedIn: stuck (${errs.join(' | ').slice(0, 120)}) — retrying with numbers only: ${Object.entries(stripped).map(([k, v]) => `"${past.get(k)?.f.label.slice(0, 30)}"=${v}`).join(', ')}`);
+              await fill(page, [...past.values()].map((p) => p.f).filter((f) => stripped[f.key] != null), stripped, {});
               await next.click();
               await page.waitForTimeout(2000);
               continue;
