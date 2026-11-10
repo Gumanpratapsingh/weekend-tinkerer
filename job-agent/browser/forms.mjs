@@ -308,7 +308,14 @@ export async function checkForm(page, fields, answers) {
   if (lost.length) {
     const again = await page.evaluate(describeFields, null).catch(() => []);
     const now = await page.evaluate(readValues, again.map((g) => g.key)).catch(() => ({}));
-    for (const f of lost) { const g = again.find((x) => norm(x.label) === norm(f.label) && (x.type === f.type || x.type === 'text')); if (g) vals[f.key] = now[g.key]; }
+    // Give the found box our key back: the refill and the second read only know the old key (TD Synnex's re-rendered form read
+    // as "nothing" in every box on the second pass, 2026-11-08).
+    for (const f of lost) {
+      const g = again.find((x) => norm(x.label) === norm(f.label) && (x.type === f.type || x.type === 'text'));
+      if (!g) continue;
+      vals[f.key] = now[g.key];
+      await page.evaluate(([from, to]) => document.querySelectorAll(`[data-ja-key="${from}"]`).forEach((e) => { e.dataset.jaKey = to; }), [g.key, f.key]).catch(() => {});
+    }
   }
   const show = (f, v) => f.type === 'select' ? String(v ?? '').split('\n')[0] : String(v ?? '');
   const sent = [...meant, ...shown].filter((f) => vals[f.key]).map((f) => ({ label: f.label, value: show(f, vals[f.key]).slice(0, 300) }));
