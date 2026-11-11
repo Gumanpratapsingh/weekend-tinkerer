@@ -217,6 +217,7 @@ function settle(job, res) {
       break;
     case 'closed':
       run("UPDATE jobs SET status = 'skipped', status_note = 'job closed' WHERE id = ?", job.id);
+      setKv(`last_${BUCKET[job.apply_type]}`, 0);      // nothing was submitted: the next job needn't wait out the gap (a long queue of old jobs wasted slots on dead ones)
       break;
     case 'site_limit': {                              // the site's daily apply quota for this account is used up: retry the job tomorrow
       const b = BUCKET[job.apply_type];

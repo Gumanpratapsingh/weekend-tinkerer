@@ -28,6 +28,9 @@ export function expireStale() {
   const cut = (d) => Date.now() - d * 864e5;
   const a = run("UPDATE jobs SET status = 'skipped', status_note = 'dropped: CAPTCHA not solved within 3 days, the job has probably closed' WHERE status = 'captcha' AND found_at < ?", cut(3)).changes;
   const b = run("UPDATE jobs SET status = 'skipped', status_note = 'dropped: no answer within 5 days, the job has probably closed' WHERE status = 'needs_answer' AND found_at < ?", cut(5)).changes;
+  // Queued for over a week: it has most likely closed, and the agent keeps finding fresh ones. Jobs the person queued or answered stay.
+  const c = run("UPDATE jobs SET status = 'skipped', status_note = 'dropped: queued over 7 days, the job has probably closed' WHERE status = 'queued' AND found_at < ? AND COALESCE(priority, 0) = 0 AND COALESCE(status_note, '') NOT IN ('queued by you', 'answers received')", cut(7)).changes;
+  if (c) log(`stale: dropped ${c} queued job(s) older than 7 days`);
   if (a || b) log(`stale: dropped ${a} CAPTCHA and ${b} waiting-for-answer job(s) that were too old to still be open`);
 }
 
