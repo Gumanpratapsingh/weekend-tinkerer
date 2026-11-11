@@ -1,6 +1,6 @@
 // Daily: ask the LLM for ~10 more well-known MNCs / good startups hiring engineers in India, send them to the owner in Cupboard,
 // and add the approved ones to the top-company list (kv top_extra, read by companies.mjs) so the apply queue serves them first.
-import { llm, activity, istDate } from './core.mjs';
+import { llm, activity, istDate, master, config } from './core.mjs';
 import { getKv, setKv } from './db.mjs';
 import { tell, cardDone } from './whatsapp.mjs';
 import { isTopCompany, approvedCompanies } from './companies.mjs';
@@ -8,10 +8,16 @@ import { isTopCompany, approvedCompanies } from './companies.mjs';
 const list = (k) => { try { return JSON.parse(getKv(k, '[]')); } catch { return []; } };
 const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+function roleLine() {
+  const m = master() || {};
+  const skills = Object.values(m.skills || {}).flat().slice(0, 12).join(', ');
+  return `${m.experience?.[0]?.title || 'professional'}, ${config().experience_years || 2}+ years${skills ? `, skills: ${skills}` : ''}`;
+}
+
 export async function suggestCompanies(n = 10) {
   const seen = [...list('top_extra'), ...list('top_rejected')];
   const out = await llm([
-    { role: 'system', content: 'You suggest employers for a software engineer in India (backend Java/Spring, full stack, some AI) who wants interviews. Only real, well-known companies that hire engineers in India: big MNCs, global product companies, GCCs, and well-funded or well-regarded startups. No staffing firms, no tiny unknown firms, no invented names. Return JSON: {"companies":["Name",...]}' },
+    { role: 'system', content: `You suggest employers for this person in India: ${roleLine()}. They want interviews. Only real, well-known companies that hire engineers in India: big MNCs, global product companies, GCCs, and well-funded or well-regarded startups. No staffing firms, no tiny unknown firms, no invented names. Return JSON: {"companies":["Name",...]}` },
     { role: 'user', content: `Suggest ${n * 2} companies. Do NOT repeat any of these: ${seen.slice(-200).join(', ')}.` },
   ], { json: true, maxTokens: 500, temperature: 0.8, why: 'suggesting top companies' });
   const names = [...new Set((out.companies || []).map((c) => String(c).trim()).filter((c) => c && c.length < 40))]
@@ -40,7 +46,7 @@ export function decideCompanies(id, text) {
   return add.length ? `✓ Added to the top list: ${add.join(', ')}.${rest.length ? ` Skipped: ${rest.join(', ')}.` : ''}` : '✓ Skipped them all; I won\'t suggest those again.';
 }
 
-// Once a day, late morning IST, owner only.
+// Once a day, late morning IST, for every agent (each person approves in their own Cupboard).
 export async function dailySuggest() {
   const h = new Date(Date.now() + 5.5 * 3600e3).getUTCHours();
   if (h < 11 || getKv('topco_day') === istDate()) return;
