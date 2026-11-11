@@ -1408,7 +1408,14 @@ const jobTabs = {
         send.addEventListener('click', async () => { send.disabled = true; try { const o = await act('ref_decide', r.id, text.value.trim() === orig.trim() ? 'ok' : text.value.trim()); toast(o.message || 'Sent'); go(location.pathname, true); } catch (e) { toast(e.message, true); send.disabled = false; } });
         skip.addEventListener('click', async () => { try { await act('ref_decide', r.id, 'skip'); go(location.pathname, true); } catch (e) { toast(e.message, true); } });
         kids.push(text, h('div', { class: 'btns' }, send, skip));
-      } else if (r.note) kids.push(h('p', { class: 'soft clip' }, r.note));
+      } else {
+        if (r.note) kids.push(h('p', { class: 'soft clip' }, r.note));
+        if (['approved', 'followup_approved'].includes(r.stage)) {      // approved but not yet sent: let the owner pull it back
+          const stop = h('button', { class: 'btn ghost sm', type: 'button' }, 'Stop');
+          stop.addEventListener('click', async () => { stop.disabled = true; try { const o = await act('ref_decide', r.id, 'skip'); toast(o.message || 'Stopped'); go(location.pathname, true); } catch (e) { toast(e.message, true); stop.disabled = false; } });
+          kids.push(h('div', { class: 'btns' }, stop));
+        }
+      }
       return h('div', { class: 'rcard' }, kids.filter(Boolean));
     };
     box.replaceChildren(sec('Referral requests', f ? h('p', {}, `Invited ${f.invited} · accepted ${f.accepted} · asked ${f.asked} · replied ${f.replied} · referred ${f.referred} · interviews at those companies ${f.interviews}`) : null, h('p', { class: 'soft' }, `Nothing is sent without your OK. Target companies: ${companies.length ? companies.join(', ') : 'companies where you are a strong match'}.`),

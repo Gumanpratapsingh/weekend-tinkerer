@@ -921,11 +921,14 @@ const pages = {
       send.addEventListener('click', busy(send, act({ action: 'ref_decide', id: r.id, answer: text.value.trim() === original ? 'ok' : text.value }, 'Approved')));
       const skip = h('button', { class: 'btn ghost small', type: 'button' }, 'Skip');
       skip.addEventListener('click', busy(skip, act({ action: 'ref_decide', id: r.id, answer: 'skip' }, 'Skipped')));
+      const stop = h('button', { class: 'btn ghost small', type: 'button' }, 'Stop');
+      stop.addEventListener('click', busy(stop, act({ action: 'ref_decide', id: r.id, answer: 'skip' }, 'Stopped')));
       return h('div', { class: 'item', style: 'display:block' },
         h('div', { class: 'main' }, h('a', { href: r.profile, target: '_blank', rel: 'noopener noreferrer' }, r.person),
           r.alumni ? h('span', { class: 'tag red' }, 'SRM alum') : null, h('span', { class: 'tag' }, STAGES[r.stage] || r.stage),
           h('small', {}, `${r.company}${r.job_title ? ` · ${r.job_title}` : ''}${r.headline ? ` · ${clip(r.headline, 90)}` : ''}${r.email ? ` · ${r.email}` : ''}${r.reason ? ` · ${r.reason}` : ''}`)),
-        waiting ? h('div', {}, text, h('div', { class: 'btns' }, send, skip)) : null);
+        waiting ? h('div', {}, text, h('div', { class: 'btns' }, send, skip))
+          : (r.stage === 'approved' || r.stage === 'followup_approved') ? h('div', { class: 'btns' }, stop) : null);
     };
     const s = d.byStage;
     return [

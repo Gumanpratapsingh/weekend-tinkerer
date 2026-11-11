@@ -184,8 +184,12 @@ const roleFits = (text, p, jobTitle) => !OTHER_FIELD.test(text) && (ENG_ROLE.tes
   || (/product|business analyst|project manager|analyst/i.test(jobTitle) && PRODUCT_ROLE.test(text)) || (!!(p.alumni || p.tag === 'alumni' || p.tag === 'colleague') && NEAR_ROLE.test(text)));
 const notPast = (s) => String(s).replace(/\b(former|ex)[- ][^|,@]*/gi, ' ');   // "Former iOS intern" is not an intern now
 const nameWord = (company) => String(company).toLowerCase().split(/[^a-z0-9]+/).find((w) => w.length >= 3) || String(company).toLowerCase();
+// Deloitte US-India Offices (USI) is a separate entity from Deloitte India: someone at "Deloitte India" cannot refer into a USI job (Mayank Rai, 2026-11-11).
+const USI = /\bUSI\b|\bUS[- ]?India\b/i;
+const wrongEntity = (company, text) => USI.test(company) && !USI.test(text) && /\bdeloitte\s+(india|touche)/i.test(text);
 export function usefulReferrer(p, company, jobTitle = '') {
   const h = String(p.headline || '');
+  if (wrongEntity(company, h)) return false;
   if (NOT_WORKING.test(notPast(h))) return false;
   if (/(\bat\b|@)\s*\S/i.test(h) && !h.toLowerCase().replace(/\s+/g, '').includes(nameWord(company))) return false;
   return roleFits(h, p, jobTitle);
@@ -195,6 +199,7 @@ export function profileProblem(profile, r) {
   const now = profile.current;
   if (!now?.length) return 'no current job on their profile';
   const work = now.join(' | ');
+  if (USI.test(r.company) && !USI.test(`${work} ${r.headline || ''}`)) return `not at the US-India offices (${work.slice(0, 80)})`;
   if (!work.toLowerCase().replace(/\s+/g, '').includes(nameWord(r.company))) return `works elsewhere (${work.slice(0, 80)})`;
   // Above "About" only: an old About still said "4th Year B.Tech student" for a Senior Full Stack Engineer (2026-11-04).
   if (NOT_WORKING.test(notPast(work)) || NOT_WORKING.test(notPast(String(profile.top || '').split(/\nAbout\b/)[0]))) return 'student or not working now';
