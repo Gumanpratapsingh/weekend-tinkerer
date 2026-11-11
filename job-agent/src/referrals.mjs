@@ -495,6 +495,38 @@ export async function checkReplies() {
   activity(`💬 LinkedIn inbox: ${res.rows.length} conversations read, ${found.length} new from others`);
 }
 
+// A referrer answered "sure / send the link / share the job ID": draft the reply with the best open job at their company and ask the
+// person to approve it in Cupboard (the same follow-up path as any message: ✓ Send goes out through send() below, nothing before that).
+const POSITIVE = /\b(sure|yes|yeah|ok(ay)?|share|send|forward|link|job ?id|req(uisition)?|ref(erence)? ?id|resume|cv|happy|can refer|will refer|let me know|go ahead|definitely)\b|👍/i;
+const NEGATIVE = /\b(no (opening|vacanc|job)|not hiring|can'?t|cannot|unable|sorry|no longer|don'?t (work|have)|not (able|possible))\b/i;
+const ASKS_CONTACT = /\b(mail|email|e-mail|phone|mobile|number|contact)\b/i;
+export async function draftReplies() {
+  const rows = all("SELECT * FROM referrals WHERE stage = 'replied' AND reply IS NOT NULL AND replied_at > ? ORDER BY replied_at", now() - 30 * 864e5);
+  const m = master();
+  for (const r of rows) {
+    const key = `refreply:${r.id}:${r.replied_at}`;
+    if (getKv(key)) continue;
+    setKv(key, '1');
+    const said = String(r.reply).replace(/^[^:]{1,40}:\s*/, '');
+    if (!POSITIVE.test(said) || NEGATIVE.test(said)) continue;
+    let job = r.job_id ? one("SELECT id, title, url, company_url FROM jobs WHERE id = ? AND status != 'closed'", r.job_id) : null;
+    if (!job || !await isOpen(/^https?:/.test(job.company_url) ? job.company_url : job.url)) job = null;
+    for (let i = 0; i < 3 && !job; i++) {
+      const next = jobAt(r.company);
+      if (!next) break;
+      if (await isOpen(/^https?:/.test(next.company_url) ? next.company_url : next.url)) job = next;
+      else run("UPDATE jobs SET status = 'closed', status_note = 'posting gone (referral reply check)' WHERE id = ? AND status NOT IN ('applied','interview')", next.id);
+    }
+    if (!job) { tell(`🤝 ${r.person} (${r.company}) said "${said.slice(0, 120)}", but there is no open job at ${r.company} that fits you right now, so I drafted nothing. Reply on LinkedIn if you know a role.`); continue; }
+    const first = String(r.person).split(/\s+/)[0], full = one('SELECT description, company_url FROM jobs WHERE id = ?', job.id);
+    const link = /^https?:/.test(full?.company_url) ? full.company_url : job.url, id = !/Job ID/i.test(job.title) && reqId(full);
+    const contact = ASKS_CONTACT.test(said) ? `\n\nMy email: ${m.contact.email}\nPhone: ${m.contact.phone}` : '';
+    const text = `Hi ${first}, thank you so much!\n\nThe role is ${job.title} at ${r.company}${id ? ` (Job ID ${id})` : ''}: ${link}${contact}\n\nMy resume is attached. Thanks again!\n– ${m.name}`;
+    set(r.id, { job_id: job.id, job_title: job.title, job_url: job.url, stage: 'followup_drafted', followup: text });
+    tell(`🤝 ${r.person} (${r.company}) replied "${said.slice(0, 120)}". Draft reply #${r.id}:\n\n${text}\n\n— Send, Skip, or type your own.`, { refKind: 'referral', refId: r.id });
+  }
+}
+
 // Stale drafts the owner never acted on: delete them (his choice, 2026-10-22) rather than let them pile up
 // as dead cards. Invited/accepted/followup_sent are real outreach already sent and stay.
 export function pruneOldDrafts(days = 5) {

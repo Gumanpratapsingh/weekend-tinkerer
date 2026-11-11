@@ -394,7 +394,7 @@ every(60, 'referral job links', async () => {                 // a waiting messa
 }, { delay: 5 * 60e3 });
 every(180, 'referral replies', async () => {                // who answered on LinkedIn, every 3 h in the daytime
   if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
-  const { checkReplies } = await import('./referrals.mjs'); await checkReplies();
+  const { checkReplies } = await import('./referrals.mjs'); await checkReplies(); const { draftReplies } = await import('./referrals.mjs'); await draftReplies();
 }, { delay: 30 * 60e3 });
 every(60, 'referral draft cleanup', async () => {               // drafts the owner never acted on: drop after 5 days
   const n = new Date(Date.now() + 5.5 * 3600e3), day = n.toISOString().slice(0, 10);
