@@ -1,5 +1,6 @@
 // Well-known employers, so the apply queue can go to them first (config.company_focus, src/apply.mjs). All confirmed interview invites up to
 // 2026-11-03 came from companies like these (3 of 129 applications, against 0 of 795 elsewhere). Add more per person in company_focus.top.
+import { getKv } from './db.mjs';
 const clean = (s) => ` ${String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()} `;
 
 // Distinctive names: matched as whole words anywhere in the company name.
@@ -21,10 +22,18 @@ const LEGAL = /\b(india|global|group|inc|incorporated|corp|corporation|company|c
 const WORDS = NAMES.map(clean);
 const WHOLE = new Set(SHORT.map((s) => clean(s).trim()));
 
+// Companies the owner approved in Cupboard (src/topcompanies.mjs), kept in the agent's own db so they survive deploys.
+let approvedRaw = '', approved = [];
+export function approvedCompanies() {
+  const raw = getKv('top_extra', '[]');
+  if (raw !== approvedRaw) { approvedRaw = raw; try { approved = JSON.parse(raw).map(clean); } catch { approved = []; } }
+  return approved;
+}
+
 export function isTopCompany(company, extra = []) {
   const c = clean(company);
   if (NOT.some((w) => c.includes(w))) return false;
-  return WORDS.some((w) => c.includes(w)) || WHOLE.has(c.replace(LEGAL, ' ').replace(/\s+/g, ' ').trim()) || extra.some((w) => c.includes(clean(w)));
+  return WORDS.some((w) => c.includes(w)) || WHOLE.has(c.replace(LEGAL, ' ').replace(/\s+/g, ' ').trim()) || extra.some((w) => c.includes(clean(w))) || approvedCompanies().some((w) => c.includes(w));
 }
 
 // One key for the spellings of a company: "Optum", "Optum India", "Optum Global Solutions (India) Private Limited".

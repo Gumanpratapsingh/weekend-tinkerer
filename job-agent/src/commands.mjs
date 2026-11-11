@@ -42,6 +42,7 @@ export async function handleOwner(text, ref) {
     cardDone('interview', ref.ref_id, '✓ Acknowledged');
     return;
   }
+  if (ref?.ref_kind === 'topco') { const { decideCompanies } = await import('./topcompanies.mjs'); return tell(decideCompanies(+ref.ref_id, t)); }
   if (ref?.ref_kind === 'question') return onAnswered(+ref.ref_id, t);
   if (ref?.ref_kind === 'referral') {
     const { decide } = await import('./referrals.mjs');

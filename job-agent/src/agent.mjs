@@ -366,6 +366,8 @@ every(30, 'housekeeping', async () => {
   log(`housekeeping: logs rotated if over 5 MB, ${removed} old screenshot(s) removed`);
 });
 
+if (OWNER) every(60, 'top company suggestions', async () => { const { dailySuggest } = await import('./topcompanies.mjs'); await dailySuggest(); }, { delay: 12 * 60e3 });
+
 // Referral outreach: find people + queue drafts hourly (daytime), send approved ones in spaced slots, check acceptances daily.
 every(60, 'referral prospecting', async () => {
   if (!linkedinHours() || linkedinPaused() || getKv('thermal_pause') === '1' || !hasSession('linkedin')) return;
