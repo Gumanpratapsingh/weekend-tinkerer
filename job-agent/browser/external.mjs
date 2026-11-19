@@ -8,7 +8,9 @@ import { isWorkday, applyWorkday } from './workday.mjs';
 import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 
 // Sites that require creating a candidate account before applying.
-const ACCOUNT_WALL = /taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs|idmsa\.apple\.com|talent\.cognizant\.com\/\d+\/login/i;
+// JobDiva's apply form is a login-only route; PeopleStrong shows "Please login to apply" (BMW Techworks' job list has one
+// "Register And Apply" per job: clicking each in turn ran out the 12-minute task limit, 4 times on 2026-11-18).
+const ACCOUNT_WALL = /jobdiva\.com|peoplestrong\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs|idmsa\.apple\.com|talent\.cognizant\.com\/\d+\/login/i;
 // "Submit your application now" (Persistent) has no "apply" in it and was never clicked.
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit (your )?application( now)?|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
@@ -222,9 +224,11 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         ranked.sort((a, b) => b.rank - a.rank);
         // LinkedIn's outbound links go through linkedin.com/safety/go?url=<company page>: the address is right there.
         const safetyUrl = (h) => { try { const u = new URL(h, page.url()); return /linkedin\.com\/safety\/go/.test(u.href) ? u.searchParams.get('url') : null; } catch { return null; } };
-        let clicked = false;
+        let clicked = false, tries = 0;
         for (const { el, text, href } of ranked) {
           if (!(await el.isVisible().catch(() => false))) continue;
+          // A job list with an Apply per row is not one job's page: past a few duds, stop rather than click every row.
+          if (++tries > 6) break;
           progress(`Company site: clicking "${text.slice(0, 40)}"`);
           const before = page.url();
           // Every tab the click opens (the company site, and often an ad-tracker tab too) is collected; once their real
