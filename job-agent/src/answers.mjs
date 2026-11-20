@@ -91,8 +91,11 @@ function direct(label, m) {
 }
 
 const NCR_CITY = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|ghaziabad|faridabad)\b/i;
+// A cover note or "why us" the AI wrote names the company it was written for: reused word for word, it told other companies
+// "eager to contribute to Bizaarambh" ("Cover letter" went out 25 times naming Euromonitor, 2026-11-19). It is rewritten per job instead.
+const PER_COMPANY = /cover(ing)? (letter|note)|why (do you want to |would you like to )?(join|work)|why (this|our|the) (role|company|position)|why us\b|motivat/i;
 export async function resolve(items, context = '', { location = '' } = {}) {
-  const known = all('SELECT id, question, answer FROM questions WHERE answer IS NOT NULL');
+  const known = all('SELECT id, question, answer, source FROM questions WHERE answer IS NOT NULL');
   const answers = {};
   const pending = [];
   const m0 = master();
@@ -135,7 +138,7 @@ export async function resolve(items, context = '', { location = '' } = {}) {
     }
     const exact = known.find((k) => norm(k.question) === norm(it.label));
     const near = exact || known.map((k) => [k, similarity(k.question, it.label)]).filter(([k, s]) => s >= 0.75 && sameMeaning(k.question, it.label)).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (near && fits(near.answer, it)) { answers[it.key] = coerce(near.answer, it); used(near.id); }
+    if (near && fits(near.answer, it) && !(near.source === 'derived' && PER_COMPANY.test(it.label))) { answers[it.key] = coerce(near.answer, it); used(near.id); }
     else pending.push(it);
   }
   const legalUnknown = items.filter((it) => it.legal);
@@ -188,6 +191,7 @@ export async function resolve(items, context = '', { location = '' } = {}) {
 - Anything personal (salary, notice, visa, relocation, demographics, address, references, current offers, shift or travel
   willingness, drug/background-check consent, opinions) that is not in KNOWN ANSWERS: "UNKNOWN".
 - "About yourself" / short introduction: 2-3 sentences written ONLY from FACTS (role, years, stack, one project).
+- Cover letter / cover note / "why join us": name only the company and role in CONTEXT, never a company from KNOWN ANSWERS.
 - Compensation / salary expectation questions: use the expected CTC from KNOWN ANSWERS (convert units if the field asks).
 - Multi-select experience/skills lists: select only the options the FACTS support.
 - Work authorization / legal right to work for roles in INDIA or remote-from-India ("Are you authorized to work?", "Do you have the legal right to work?"): authorized = Yes (Indian citizen), sponsorship = No.
