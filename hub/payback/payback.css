@@ -1,5 +1,5 @@
 
-/* Layout: one narrow column; summary of people first, then month-by-month ticklist. */
+/* Layout: one column on phones; on a laptop the page widens, the people cards spread out and the months sit side by side. */
 :root {
   --bg: #f5f7f6; --card: #ffffff; --fg: #17201d; --muted: #5d6b66; --line: #dfe5e2;
   --accent: #0f6b5c; --accent-soft: #e2f1ed; --gold: #c7840b; --gold-soft: #fbf0d9; --done: #0f6b5c;
@@ -76,3 +76,13 @@ footer { color: var(--muted); font-size: 0.82rem; display: flex; flex-direction:
 .for { font-weight: 500; color: var(--muted); font-size: 0.85em; }
 .tag-own { color: var(--accent); }
 .person.own .pill { background: var(--accent-soft); color: var(--accent); }
+/* Laptop and wider: use the screen instead of a phone-width column. */
+@media (min-width: 900px) {
+  .wrap { max-width: 1240px; gap: 32px; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 14px 32px; align-items: end; }
+  header .headline { justify-content: flex-end; }
+  header .next, header .status { grid-column: 1 / -1; }
+  .people { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .months { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); align-items: start; gap: 16px; }
+  .add .f { flex: 1 1 180px; }
+}
