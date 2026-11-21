@@ -11,11 +11,12 @@ import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 // JobDiva's apply form is a login-only route; PeopleStrong shows "Please login to apply" (BMW Techworks' job list has one
 // "Register And Apply" per job: clicking each in turn ran out the 12-minute task limit, 4 times on 2026-11-18).
 const ACCOUNT_WALL = /jobdiva\.com|peoplestrong\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs|idmsa\.apple\.com|talent\.cognizant\.com\/\d+\/login/i;
+const SIGNIN_WALL = /sign in to apply|sign in or create your (candidate )?(profile|account)|send (a )?login code|(log ?in|sign ?in) to apply|create an account to apply/i;
 // "Submit your application now" (Persistent) has no "apply" in it and was never clicked.
 const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit (your )?application( now)?|start application|apply online)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
-const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|successfully (submit?ted|applied)|your application is on (its|the) way|thanks? (you )?for submitting/i;
+const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|we('ve| have) got your (submission|application)|successfully (submit?ted|applied)|your application is on (its|the) way|thanks? (you )?for submitting/i;
 
 async function knownAts(url) {
   const m = /(?:boards|job-boards)\.greenhouse\.io\/([\w-]+)\/jobs\/(\d+)|greenhouse\.io\/embed\/job_app\?.*for=([\w-]+).*token=(\d+)/.exec(url);
@@ -287,6 +288,10 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         if (!clicked) {
           const mail = await emailApply(page, job);
           if (mail) { progress(`Company site: applications go by email to ${mail.email}`); return { status: 'email', email: mail.email, subject: mail.subject, shot: await snap('ext-email') }; }
+          // A passwordless sign-in page (an emailed login code, LinkedIn/Google sign-in) is an account wall too, not a missing form:
+          // VHire's "Sign in to Apply" (Bootminds), Fynd's "Continue to apply… Send login code", login.ibm.com (2026-11-20: 6 jobs).
+          if (SIGNIN_WALL.test((await page.innerText('body').catch(() => '')).slice(0, 3000)) || /\/\/login\.|\/candidate\/login\b/i.test(page.url()))
+            return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
           const seen = ranked.map((r) => r.text).slice(0, 8);
           progress(`Company site: no Apply control matched; candidates: ${JSON.stringify(seen).slice(0, 200)}`);
           return { status: 'manual', reason: 'could not find the application form', shot: await snap('ext-noform') };
