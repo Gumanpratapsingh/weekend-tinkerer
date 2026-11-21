@@ -10,6 +10,8 @@ trap 'rm -rf "$STAGE"' EXIT
 cp -R "$DIR/hub" "$DIR/server" "$STAGE/"
 V=$(cat "$DIR/hub/assets/hub.js" "$DIR/hub/assets/hub.css" | shasum | cut -c1-10)
 sed -i '' "s|/assets/hub.css\"|/assets/hub.css?v=$V\"|; s|/assets/hub.js\"|/assets/hub.js?v=$V\"|" "$STAGE/hub/index.html"
+PV=$(cat "$DIR/hub/payback/payback.js" "$DIR/hub/payback/payback.css" | shasum | cut -c1-10)
+sed -i '' "s|\"payback.css\"|\"payback.css?v=$PV\"|; s|\"payback.js\"|\"payback.js?v=$PV\"|" "$STAGE/hub/payback/index.html"
 for HOST in $HOSTS; do
   ssh -o ConnectTimeout=8 "$HOST" true 2>/dev/null || { echo "$HOST: unreachable, skipped"; continue; }
   ssh "$HOST" 'mkdir -p ~/tinker/hub ~/tinker/server/modules && chmod 700 ~/tinker'

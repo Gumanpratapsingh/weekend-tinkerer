@@ -22,11 +22,12 @@ import jobs from './modules/jobs.mjs';
 import laptop from './modules/laptop.mjs';
 import reels from './modules/reels.mjs';
 import wifi from './modules/wifi.mjs';
+import payback from './modules/payback.mjs';
 import { smsIngest } from './modules/banksms.mjs';
 import { guestCheck } from './modules/guest.mjs';
 
 const PORT = 8082;
-const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop, reels, wifi];
+const MODULES = [expenses, interview, linkedin, tamil, room, status, jobs, laptop, reels, wifi, payback];
 const routes = Object.assign({}, ...MODULES.map((m) => m.routes || {}));
 
 async function login(req, res, device) {
@@ -247,6 +248,8 @@ createServer(async (req, res) => {
     return send(res, 200, { ok: true }, id === device.id ? { 'Set-Cookie': deviceCookie('') } : {});
   }
 
+  // The payback plan is the owner's alone: no person's login sees it, even one with full access.
+  if (/ \/api\/payback$/.test(key) && who) return send(res, 404, { error: 'Not found' });
   if (key === 'GET /api/room/stream') return roomStream(req, res);   // long-lived SSE, owner-only like the rest
   const handler = routes[key];
   if (!handler) return send(res, 404, { error: 'Not found' });

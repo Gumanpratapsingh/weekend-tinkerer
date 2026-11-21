@@ -122,8 +122,8 @@ statusEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') go('/health
 const pages = {
   async '/'() {
     const month = today().slice(0, 7);
-    const [exp, iv, ta, room, li, st, jb, lp, wf] = await Promise.allSettled([
-      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'), api('/laptop'), limited() ? null : api('/wifi'),
+    const [exp, iv, ta, room, li, st, jb, lp, wf, pb] = await Promise.allSettled([
+      api(`/expenses?month=${month}`), api('/interview'), api('/tamil'), api('/room'), api('/linkedin'), refreshStatus(), api('/jobs'), api('/laptop'), limited() ? null : api('/wifi'), me?.who ? null : api('/payback'),
     ]).then((r) => r.map((x) => (x.status === 'fulfilled' ? x.value : null)));
     const hr = ist().getUTCHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -195,9 +195,25 @@ const pages = {
       h('div', { class: 'big' }, String(wf.online)),
       h('div', { class: 'sub' }, `devices online · ${wf.total} known`)) : null;
 
+    // Payback plan (owner only; a separate page, so a plain link, not data-link)
+    const pbPaid = (w) => (pb?.payments || []).filter((x) => x.who === w).reduce((n, x) => n + (typeof x.paid === 'number' ? x.paid : 0), 0);
+    const pbLeft = pb ? Object.keys(pb.owed || {}).reduce((n, w) => n + Math.max(0, pb.owed[w] - pbPaid(w)), 0) : 0;
+    // Next planned debt payment still needed (a debt already paid early or through someone else skips its planned rows).
+    const pbLeftOf = {}; for (const w of Object.keys(pb?.owed || {})) pbLeftOf[w] = Math.max(0, pb.owed[w] - pbPaid(w));
+    let pbNext = null;
+    for (const x of [...(pb?.payments || [])].sort((a, b) => a.month.localeCompare(b.month))) {
+      if (x.extra || x.paid || !(x.who in pbLeftOf)) continue;
+      const n = Math.min(x.amount, pbLeftOf[x.who]); pbLeftOf[x.who] -= n;
+      if (n > 0) { pbNext = { who: x.to && x.to !== x.who ? x.to : x.who, amount: n }; break; }
+    }
+    const paybackW = me?.who ? null : h('a', { class: 'w', href: '/payback/index.html' },
+      h('div', { class: 'label' }, h('span', {}, 'Payback plan')),
+      h('div', { class: 'big' }, pb && Object.keys(pb.owed || {}).length ? rupees(pbLeft) : 'Open'),
+      h('div', { class: 'sub' }, pb && Object.keys(pb.owed || {}).length ? (pbNext ? `still owed · next ${pbNext.who} ${rupees(pbNext.amount)}` : 'still owed') : 'paying people back + wedding'));
+
     return [
       h('div', { class: 'hello' }, h('h1', {}, `${greet}, ${me?.who ? ((await loadPeople()).find((x) => x.who === me.who)?.name || me.who).split(' ')[0] : 'Guman'}`), h('p', { class: 'lede' }, dateLine + up)),
-      h('div', { class: 'grid' }, money, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW, wifiW),
+      h('div', { class: 'grid' }, money, paybackW, roomW, jobsW, interview, tamil, linkedin, phoneW, laptopW, wifiW),
       quickAdd('250 swiggy dinner'),
     ];
   },
