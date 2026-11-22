@@ -178,6 +178,9 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         const bodyText = await page.innerText('body').catch(() => '');
+        // Listed as a company-site job, but its "Apply" applied on Naukri itself: the saveApply page ("Applied to …",
+        // multiApplyResp 200) is Naukri's own confirmation, not a missing form (SNM Technologies 2026-11-21, 4 since 11-12).
+        if (/naukri\.com\/myapply\/saveApply/i.test(url) && /^\s*Applied to\b/im.test(bodyText.slice(0, 3000))) return { status: 'applied', shot: await snap('ext-naukri-applied') };
         if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired/i.test(bodyText)) return { status: 'closed' };
         // Naukri silently bounces an expired/removed listing to its own generic search page (no "expired" text, just
         // a "<role>-jobs-in-<city>" URL instead of "job-listings-..."): the specific posting is gone either way.
@@ -333,6 +336,12 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
       if (DONE.test(body) || /thank|success|confirm/i.test(page.url())) return { status: 'applied', shot: await snap('ext-done'), filled: res.filled, sent_shot: shot };
       // The form filled was the site's job-alert sign-up, not an application (IDFC: "already subscribed for this job", tried 12 times).
       if (/already subscribed/i.test(body)) return { status: 'manual', reason: 'only a job-alert sign-up form found, not an application', shot: await snap('ext-alert') };
+      // The form only opens a mailto: draft ("Your email app should now open…"), so nothing was sent: apply by email instead
+      // (Smart Software Services 2026-11-21: 4 jobs ended "no confirmation seen").
+      if (/(email|mail) (app|client|program) (should|will) (now )?open/i.test(body)) {
+        const mail = await emailApply(page, job);
+        if (mail) { progress(`Company site: the form only opens an email draft; applications go by email to ${mail.email}`); return { status: 'email', email: mail.email, subject: mail.subject, shot: await snap('ext-email') }; }
+      }
       const errors = await page.locator('[class*="error"]:visible, [aria-invalid="true"]').allInnerTexts().catch(() => []);
       return { status: 'failed', reason: errors.filter(Boolean).slice(0, 4).join(' | ') || 'no confirmation seen', shot: await snap('ext-unsure') };
     } finally { if (!keepOpen) await ctx.close().catch(() => {}); }
