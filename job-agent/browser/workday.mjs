@@ -60,7 +60,8 @@ export async function applyWorkday({ job, resume, dryRun = false, keepOpen = fal
     }
 
     // 3. Wait for client-side React to load Account / Sign In inputs
-    const authInputSel = 'input[data-automation-id="email"], input[data-automation-id="password"]';
+    // Newer tenants show only "Sign in with email / Google / Apple" buttons, no inputs (Walmart's, 2026-11-22).
+    const authInputSel = 'input[data-automation-id="email"], input[data-automation-id="password"], [data-automation-id="SignInWithEmailButton"], [data-automation-id="signInContent"]';
     await page.waitForSelector(authInputSel, { timeout: 20000 }).catch(() => {});
 
     // A Create Account / Sign In page: only the person can do this one, and it ends here before the wizard.
