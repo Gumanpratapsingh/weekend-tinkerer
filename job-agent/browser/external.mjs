@@ -175,13 +175,17 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
           return applyWorkday({ job: { ...job, apply_url: url }, resume, dryRun, keepOpen });
         }
         if (ACCOUNT_WALL.test(url)) return { status: 'manual', reason: `needs an account on ${new URL(url).hostname}`, shot: await snap('ext-account') };
+        // Jobicy's "Apply Now" opens its sign-up gate (#jv-open-apply-auth) and the employer link sits behind it; its hidden
+        // resume-upload input made the page look like a form, ending in "no submit button found" (3 jobs 2026-11-23, 12 since 10-12).
+        if (/(^|\.)jobicy\.com$/i.test(new URL(url).hostname) && await page.locator('#jv-open-apply-auth').count().catch(() => 0))
+          return { status: 'manual', reason: 'needs an account on jobicy.com', shot: await snap('ext-account') };
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         const bodyText = await page.innerText('body').catch(() => '');
         // Listed as a company-site job, but its "Apply" applied on Naukri itself: the saveApply page ("Applied to …",
         // multiApplyResp 200) is Naukri's own confirmation, not a missing form (SNM Technologies 2026-11-21, 4 since 11-12).
         if (/naukri\.com\/myapply\/saveApply/i.test(url) && /^\s*Applied to\b/im.test(bodyText.slice(0, 3000))) return { status: 'applied', shot: await snap('ext-naukri-applied') };
-        if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired/i.test(bodyText)) return { status: 'closed' };
+        if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired|job you are looking for does not exist/i.test(bodyText)) return { status: 'closed' };
         // Naukri silently bounces an expired/removed listing to its own generic search page (no "expired" text, just
         // a "<role>-jobs-in-<city>" URL instead of "job-listings-..."): the specific posting is gone either way.
         if (/naukri\.com\/[a-z0-9-]+-jobs-in-[a-z-]+(\?|$)/i.test(url) && !/\/job-listings-/i.test(url)) return { status: 'closed' };
@@ -213,6 +217,10 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => {});
         await page.locator('button, a').filter({ hasText: /^\s*(reject all|decline|only (necessary|essential)|necessary only|accept necessary)/i }).first().click({ timeout: 2000 }).catch(() => {});
         await page.mouse.wheel(0, 900).catch(() => {}); await page.waitForTimeout(800); await page.mouse.wheel(0, -900).catch(() => {});
+        // The form may only have rendered now (Phenom's hvhapply at join.disneycareers.com, 2026-11-23): check again before hunting for Apply.
+        const late = await formScore(page);
+        if (late.hasPassword) return { status: 'manual', reason: `needs an account on ${new URL(page.url()).hostname}`, shot: await snap('ext-account') };
+        if (late.hasFile || (late.hasEmail && late.hasName && late.n >= 3)) break;
 
         // Click the most likely Apply control (best-ranked first); follow a popup if it opens one.
         const target = page.locator('a, button, [role="button"], input[type="submit"], input[type="button"]');
