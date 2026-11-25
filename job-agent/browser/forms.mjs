@@ -197,8 +197,11 @@ export async function fill(page, fields, answers, { resume } = {}) {
         }
       } else if (f.type === 'checkbox') {
         const wanted = String(v).split(/\s*[;|]\s*/);
+        // Semantic UI boxes (greytHR's "I agree to Terms") keep the label beside the hidden input, not linked to it: ticking the
+        // input alone shows checked but the site's model stays unticked ("Terms and Conditions field is required", 2026-11-24).
         const tick = async (loc) => { if (await loc.isChecked().catch(() => false)) return;
-          await loc.evaluate((e) => (e.labels?.[0] || e.closest('label') || e).click()).catch(() => {});
+          await loc.evaluate((e) => (e.labels?.[0] || e.closest('label')
+            || (e.parentElement?.querySelectorAll('input').length === 1 && e.parentElement.querySelector(':scope > label')) || e).click()).catch(() => {});
           if (!await loc.isChecked().catch(() => true)) await loc.check({ force: true }).catch(() => {}); };
         if (f.options.length <= 1) { if (saysYes(f, v)) await tick(el.first()); }   // a lone box has no option list
         else for (const w of wanted) await tick(page.locator(`[data-ja-key="${f.key}"][data-ja-opt="${w.replace(/"/g, '\\"')}"]`).first());
