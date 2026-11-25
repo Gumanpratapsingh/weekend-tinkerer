@@ -10,6 +10,9 @@ set -euo pipefail
 SRC=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$SRC/../../.." && pwd); G=/home/gpsingh; P=/home/prod
 id prod >/dev/null 2>&1 || useradd -m -d "$P" -s /usr/sbin/nologin prod
 chmod 750 "$P"
+# The one IP-wide 429 hold all agents share (src/holdoff.mjs): timestamps only, nothing private.
+groupadd -f jobshare && usermod -aG jobshare prod && usermod -aG jobshare gpsingh
+install -d -o root -g jobshare -m 2775 /var/lib/jobagent-shared
 install -d -o prod -g prod -m 700 "$P/jobagent" "$P/jobagent/data" "$P/jobagent/people" "$P/jobagent/profile" "$P/cupboard" "$P/cupboard/data" "$P/cupboard/server" "$P/.cache"
 
 install -m 755 "$SRC/jobprod-sync" /usr/local/sbin/jobprod-sync

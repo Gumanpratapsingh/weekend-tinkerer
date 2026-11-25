@@ -9,7 +9,7 @@ async function guarded(url, init) {
   const site = new URL(url).hostname.replace(/^www\./, '');
   if (held(site)) throw new Error(`429 holding off ${site}`);
   const r = await fetch(url, init);
-  if (r.status === 429) holdOff(site);
+  if (r.status === 429) holdOff(site, undefined, { shared: true });   // logged-out fetches are limited per IP: hold every agent
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return r;
 }

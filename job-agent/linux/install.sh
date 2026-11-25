@@ -8,6 +8,12 @@ J=$HOME/jobagent
 U=$(id -un)
 mkdir -p "$J/data"
 
+# One IP-wide 429 hold for every agent on this machine, owner, people and prod users alike (src/holdoff.mjs).
+sudo groupadd -f jobshare
+sudo usermod -aG jobshare "$U"
+id prod >/dev/null 2>&1 && sudo usermod -aG jobshare prod
+sudo install -d -o root -g jobshare -m 2775 /var/lib/jobagent-shared
+
 # The phone reaches each agent on its own port through phone-link's reverse forwards.
 FWD="-R 127.0.0.1:8083:127.0.0.1:8083 -R 127.0.0.1:8095:127.0.0.1:8095"   # 8095: laptop health API (laptop/server.mjs)
 # Cupboard's internal API (:8086): runs on the laptop unless the web stack is on standby here (~/STANDBY,
