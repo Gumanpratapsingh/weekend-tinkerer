@@ -114,13 +114,22 @@ function describeFields(rootSel) {
   return fields;
 }
 
+// Open a dropdown. An empty Angular Material select sits under its own floating label, which swallows the click (Stark's
+// "more than one year of exp?" never opened, 2026-11-25): then the click is sent to the box's own trigger.
+async function openBox(el, timeout) {
+  await el.click({ timeout }).catch(async () => {
+    await el.focus({ timeout: 2000 });
+    await el.evaluate((e) => (e.querySelector('[class*="trigger"]') || e).click());
+  });
+}
+
 export async function collect(page, rootSel = null) {
   const fields = await page.evaluate(describeFields, rootSel);
   // React comboboxes: open each to read its options.
   for (const f of fields.filter((x) => x.type === 'combobox')) {
     const el = page.locator(`[data-ja-key="${f.key}"]`);
     try {
-      await el.click({ timeout: 3000 });
+      await openBox(el, 3000);
       await page.waitForTimeout(400);
       // Only this combobox's open listbox (other widgets keep hidden option lists in the DOM).
       const owned = await el.getAttribute('aria-controls') || await el.getAttribute('aria-owns');
@@ -175,7 +184,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
       if (f.type === 'email' && !/^\S+@\S+\.\S+$/.test(String(v).trim())) { console.error(`fill ${f.key} "${f.label}": not an email, left empty`); continue; }
       if (f.type === 'select') { await el.selectOption({ label: v }).catch(() => el.selectOption(v)); }
       else if (f.type === 'combobox') {
-        await el.click(); await el.fill(String(v)).catch(() => page.keyboard.type(String(v)));
+        await openBox(el, 6000); await el.fill(String(v)).catch(() => page.keyboard.type(String(v)));
         await page.waitForTimeout(600);
         // Only this box's open list (the phone widget keeps hidden country options in the DOM, and "4" matched one of those),
         // the exact option first so "4" can't pick "14".
@@ -221,7 +230,7 @@ export async function fill(page, fields, answers, { resume } = {}) {
         } catch (e) {
           // Looks like a field but is a custom dropdown ("How did you hear…"): open it and pick the option by text.
           if (!/not an <input>|not editable/i.test(e.message)) throw e;
-          await el.click({ timeout: 5000 });
+          await openBox(el, 5000);
           await page.waitForTimeout(600);
           const opt = page.getByRole('option', { name: String(v), exact: false }).first();
           if (await opt.count()) await opt.click(); else await page.getByText(String(v), { exact: false }).first().click({ timeout: 4000 });

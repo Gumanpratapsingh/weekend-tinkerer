@@ -13,7 +13,7 @@ import { solveCaptcha, solverConfigured } from './captcha-solver.mjs';
 const ACCOUNT_WALL = /jobdiva\.com|peoplestrong\.com|taleo\.net|icims\.com|successfactors|oraclecloud\.com|brassring|jobvite\.com\/.*\/login|darwinbox|ultipro|paylocity|adp\.com|kenexa|phenompeople.*login|passport\.amazon\.jobs|idmsa\.apple\.com|talent\.cognizant\.com\/\d+\/login/i;
 const SIGNIN_WALL = /sign in to apply|sign in or create your (candidate )?(profile|account)|send (a )?login code|(log ?in|sign ?in) to apply|create an account to apply/i;
 // "Submit your application now" (Persistent) has no "apply" in it and was never clicked.
-const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit (your )?application( now)?|start application|apply online)$/i;
+const APPLY_TEXT = /^(apply( now| for this (job|position|role))?|apply on company (site|website)|easy apply|i'?m interested|submit (your )?application( now)?|start application|apply online|jetzt bewerben)$/i;
 // New tabs that are ad/analytics trackers, not the job page (e.g. a doubleclick tab opened by the Apply click).
 const TRACKER = /doubleclick\.net|googleadservices|googlesyndication|google-analytics|googletagmanager|facebook\.com\/tr|bat\.bing|linkedin\.com\/px|ads\.|adservice|analytics\./i;
 const DONE = /thank you for (applying|your (application|interest))|application (has been )?(submitted|received|sent)|we('ve| have) received your application|we('ve| have) got your (submission|application)|successfully (submit?ted|applied)|your application is on (its|the) way|thanks? (you )?for submitting/i;
@@ -186,6 +186,8 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         // multiApplyResp 200) is Naukri's own confirmation, not a missing form (SNM Technologies 2026-11-21, 4 since 11-12).
         if (/naukri\.com\/myapply\/saveApply/i.test(url) && /^\s*Applied to\b/im.test(bodyText.slice(0, 3000))) return { status: 'applied', shot: await snap('ext-naukri-applied') };
         if (/no longer (accepting|available)|not (currently )?accepting applications|applications? (are |is )?(now )?closed|position (has been )?(filled|closed)|job (is |has )?(closed|expired)|this job (posting )?(has )?expired|looking for (is|has) (been )?expired|job you are looking for does not exist/i.test(bodyText)) return { status: 'closed' };
+        // Greenhouse sends a removed job to its board with ?error=true.
+        if (/greenhouse\.io\/[^?#]*\?error=true/i.test(url)) return { status: 'closed' };
         // Naukri silently bounces an expired/removed listing to its own generic search page (no "expired" text, just
         // a "<role>-jobs-in-<city>" URL instead of "job-listings-..."): the specific posting is gone either way.
         if (/naukri\.com\/[a-z0-9-]+-jobs-in-[a-z-]+(\?|$)/i.test(url) && !/\/job-listings-/i.test(url)) return { status: 'closed' };
@@ -290,6 +292,9 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
           for (const pg of opened) if (pg !== p2 && !pg.isClosed() && TRACKER.test(pg.url())) await pg.close().catch(() => {});
           if (p2) { page = p2; await page.waitForLoadState('domcontentloaded').catch(() => {}); }
           await page.waitForTimeout(3500);
+          // Zoho Recruit asks "Fill Manually" or "Easy Apply" in a pop-up first (Royal Cyber 2026-11-25): the form is behind "Fill Manually".
+          const manually = page.locator('input[type="button"][value="Fill Manually" i]:visible').first();
+          if (await manually.count().catch(() => 0)) { await manually.click({ timeout: 5000 }).catch(() => {}); await page.waitForTimeout(4000); }
           const g = await formScore(page);
           // Nothing happened (same page, no form, no new tab): try the next-best Apply control.
           if (!p2 && !asked.length && page.url() === before && !g.hasFile && !(g.hasEmail && g.hasName)) continue;

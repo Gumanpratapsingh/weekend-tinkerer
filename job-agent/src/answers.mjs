@@ -94,6 +94,9 @@ const NCR_CITY = /\b(gurugram|gurgaon|noida|greater noida|delhi|new delhi|ncr|gh
 // A cover note or "why us" the AI wrote names the company it was written for: reused word for word, it told other companies
 // "eager to contribute to Bizaarambh" ("Cover letter" went out 25 times naming Euromonitor, 2026-11-19). It is rewritten per job instead.
 const PER_COMPANY = /cover(ing)? (letter|note)|why (do you want to |would you like to )?(join|work)|why (this|our|the) (role|company|position)|why us\b|motivat/i;
+// The same cover note also sits under plain labels ("Message": one naming Synconics was used 32 times, 2026-11-25), so the text is checked too.
+const NAMES_JOB = /\b(position|role|opportunity|opening) (at|with) |\b(excited|eager|writing|pleased|keen) to (apply|join|contribute|express)\b|\bexpress my interest\b|\binterest(ed)? in the\b.{0,60}\b(role|position)\b/i;
+const perCompany = (k) => k.source === 'derived' && (PER_COMPANY.test(k.question) || NAMES_JOB.test(k.answer));
 export async function resolve(items, context = '', { location = '' } = {}) {
   const known = all('SELECT id, question, answer, source FROM questions WHERE answer IS NOT NULL');
   const answers = {};
@@ -138,7 +141,7 @@ export async function resolve(items, context = '', { location = '' } = {}) {
     }
     const exact = known.find((k) => norm(k.question) === norm(it.label));
     const near = exact || known.map((k) => [k, similarity(k.question, it.label)]).filter(([k, s]) => s >= 0.75 && sameMeaning(k.question, it.label)).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (near && fits(near.answer, it) && !(near.source === 'derived' && PER_COMPANY.test(it.label))) { answers[it.key] = coerce(near.answer, it); used(near.id); }
+    if (near && fits(near.answer, it) && !perCompany(near)) { answers[it.key] = coerce(near.answer, it); used(near.id); }
     else pending.push(it);
   }
   const legalUnknown = items.filter((it) => it.legal);
@@ -159,7 +162,7 @@ export async function resolve(items, context = '', { location = '' } = {}) {
   // The answers sharing words with the questions asked, plus the core ones the rules above refer to (pay, notice, gender…).
   const CORE = /ctc|salary|compensation|notice|gender|pronoun|relocat|hear about|consent|authori[sz]|sponsor|visa|citizen|disab|veteran|communicat/i;
   const askWords = words(pending.map((p) => p.label).join(' '));
-  const scored = known.map((k) => [k, [...words(k.question)].filter((w) => askWords.has(w)).length]);
+  const scored = known.filter((k) => !perCompany(k)).map((k) => [k, [...words(k.question)].filter((w) => askWords.has(w)).length]);   // another company's note is never shown to copy
   let chars = 0;
   const prompted = [...scored.filter(([k]) => CORE.test(k.question)), ...scored.filter(([k, n]) => n > 0 && !CORE.test(k.question)).sort((a, b) => b[1] - a[1])]
     .map(([k]) => k).filter((k) => (chars += k.question.length + String(k.answer).length) < 7000).slice(0, 40);
