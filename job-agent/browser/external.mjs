@@ -238,7 +238,10 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         const target = page.locator('a, button, [role="button"], input[type="submit"], input[type="button"]');
         const ranked = [];
         for (const el of await settled(page, () => target.all())) {
-          const text = ((await el.innerText().catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || '').trim();
+          // An image-only link reads as its <img alt> (OpenCATS's "Apply to Position" is a broken-image link with no text:
+          // 10 "could not find the application form" on 2026-11-27, ats.mlopssol.com).
+          const text = ((await el.innerText().catch(() => '')) || (await el.getAttribute('value').catch(() => '')) || (await el.getAttribute('aria-label').catch(() => ''))
+            || (await el.evaluate((e) => e.querySelector('img[alt]')?.alt || '').catch(() => '')) || '').trim();
           const href = (await el.getAttribute('href').catch(() => '')) || '';
           if (/^mailto:/i.test(href)) continue;                      // email applications are handled below
           const rank = /^apply( now)?$/i.test(text) ? 3 : APPLY_TEXT.test(text) ? 2

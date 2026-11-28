@@ -31,6 +31,12 @@ export function expireStale() {
   // Queued for over a week: it has most likely closed, and the agent keeps finding fresh ones. Jobs the person queued or answered stay.
   const c = run("UPDATE jobs SET status = 'skipped', status_note = 'dropped: queued over 7 days, the job has probably closed' WHERE status = 'queued' AND found_at < ? AND COALESCE(priority, 0) = 0 AND COALESCE(status_note, '') NOT IN ('queued by you', 'answers received')", cut(7)).changes;
   if (c) log(`stale: dropped ${c} queued job(s) older than 7 days`);
+  // Questions only for jobs no longer waiting (dropped above, skipped, closed, applied) or for sent/discarded email drafts:
+  // they kept piling up in Cupboard (2026-11-28: 340 of 408 open questions were for skipped jobs). A requeued job asks again.
+  const d = run(`UPDATE asks SET status = 'dismissed' WHERE status = 'open' AND (
+    job_id IN (SELECT id FROM jobs WHERE status IN ('skipped','closed','applied','already_applied','interview','rejected','filtered'))
+    OR (thread_id LIKE 'draft:%' AND NOT EXISTS (SELECT 1 FROM drafts r WHERE 'draft:' || r.id = asks.thread_id AND r.status IN ('waiting','pending'))))`).changes;
+  if (d) log(`stale: dismissed ${d} open question(s) whose job or draft is no longer waiting`);
   if (a || b) log(`stale: dropped ${a} CAPTCHA and ${b} waiting-for-answer job(s) that were too old to still be open`);
 }
 
