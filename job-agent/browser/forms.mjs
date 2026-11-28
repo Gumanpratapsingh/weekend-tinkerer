@@ -123,6 +123,70 @@ async function openBox(el, timeout) {
   });
 }
 
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+// Every calendar day a date string can mean: "23-09-2002" (day first, as the profile keeps it), ISO, "Sep 23, 2002", "23 September 2002".
+// A numeric date with both parts <= 12 is ambiguous, so both readings are returned.
+function dayReadings(s) {
+  const t = String(s ?? '').trim(), out = [];
+  const add = (y, m, d) => { if (y > 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) out.push(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`); };
+  let m;
+  if ((m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/))) add(+m[1], +m[2], +m[3]);
+  else if ((m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/))) { add(+m[3], +m[2], +m[1]); add(+m[3], +m[1], +m[2]); }
+  else if ((m = t.match(/^([a-z]{3,})\.? (\d{1,2}),? (\d{4})$/i)) || (m = t.match(/^(\d{1,2}) ([a-z]{3,})\.?,? (\d{4})$/i))) {
+    const [name, d] = /^\d/.test(m[1]) ? [m[2], m[1]] : [m[1], m[2]];
+    const mi = MONTHS.findIndex((x) => x.startsWith(name.toLowerCase().slice(0, 3)));
+    if (mi >= 0) add(+m[3], mi + 1, +d);
+  }
+  return out;
+}
+const sameDay = (want, got) => { const w = dayReadings(want); return !!w.length && dayReadings(got).includes(w[0]); };
+
+// Read-only boxes that open a calendar dialog (react-day-picker: Akrivia HCM's "Date Of Birth", 3 forms not sent on 2026-11-27):
+// typing does nothing, so open it, go to the year and month, and click the day.
+async function isDayPicker(page, el) {
+  const [ro, pop] = await el.first().evaluate((e) => [e.readOnly, e.getAttribute('aria-haspopup')]).catch(() => []);
+  if (!ro || pop !== 'dialog') return false;
+  await openBox(el.first(), 4000);
+  await page.waitForTimeout(500);
+  const owned = await el.first().getAttribute('aria-controls').catch(() => null);    // only set while the dialog is open
+  if (owned && await page.locator(`[id="${owned}"] table[role="grid"]`).count().catch(() => 0)) return owned;
+  await page.keyboard.press('Escape').catch(() => {});
+  return false;
+}
+async function pickDay(page, owned, iso) {
+  const cal = page.locator(`[id="${owned}"]`);
+  const [y, mo] = iso.split('-').map(Number);
+  const shown = async () => {                     // the month grid's label, "November 2026"
+    const m = String(await cal.locator('table[role="grid"]').first().getAttribute('aria-label').catch(() => '')).match(/([a-z]+) (\d{4})/i);
+    return m ? +m[2] * 12 + MONTHS.indexOf(m[1].toLowerCase()) : null;
+  };
+  // A year view (caption "2026, Select year") saves hundreds of month clicks for a birth date: page to the year and pick it.
+  const yearBtn = cal.locator('[data-slot="calendar-caption-year"], button[aria-label$="Select year"]').first();
+  if (await yearBtn.count()) {
+    await yearBtn.click().catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      const pick = cal.locator('[role="gridcell"] button').filter({ hasText: new RegExp(`^\\s*${y}\\s*$`) }).first();
+      if (await pick.count()) { await pick.click(); break; }
+      const first = parseInt(await cal.locator('[role="gridcell"] button').first().innerText().catch(() => ''), 10);
+      const step = cal.locator(`button[aria-label="${first > y ? 'Previous' : 'Next'} years"]`).first();
+      if (!first || !await step.count()) break;
+      await step.click(); await page.waitForTimeout(150);
+    }
+    await page.waitForTimeout(300);
+    // Some pickers show a month grid next; others go straight back to the days.
+    const month = cal.locator('[role="gridcell"] button').filter({ hasText: new RegExp(`^\\s*${MONTHS[mo - 1].slice(0, 3)}`, 'i') }).first();
+    if (!await cal.locator('td[data-day]').count() && await month.count()) { await month.click(); await page.waitForTimeout(300); }
+  }
+  // Then month by month to the exact month (bounded: 100 years).
+  for (let i = 0; i < 1200; i++) {
+    const at = await shown();
+    if (at == null || at === y * 12 + mo - 1) break;
+    await cal.locator(`button[aria-label="${at > y * 12 + mo - 1 ? 'Previous' : 'Next'} month"]`).first().click();
+  }
+  await cal.locator(`td[data-day="${iso}"] button`).first().click();
+  await page.waitForTimeout(400);
+}
+
 export async function collect(page, rootSel = null) {
   const fields = await page.evaluate(describeFields, rootSel);
   // React comboboxes: open each to read its options.
@@ -182,6 +246,9 @@ export async function fill(page, fields, answers, { resume } = {}) {
       const v = answers[f.key];
       if (v == null || v === '') continue;
       if (f.type === 'email' && !/^\S+@\S+\.\S+$/.test(String(v).trim())) { console.error(`fill ${f.key} "${f.label}": not an email, left empty`); continue; }
+      const day = dayReadings(v)[0];
+      const owned = day && ['text', 'date', 'combobox'].includes(f.type) && await isDayPicker(page, el);
+      if (owned) { await pickDay(page, owned, day); continue; }
       if (f.type === 'select') { await el.selectOption({ label: v }).catch(() => el.selectOption(v)); }
       else if (f.type === 'combobox') {
         await openBox(el, 6000); await el.fill(String(v)).catch(() => page.keyboard.type(String(v)));
@@ -294,6 +361,7 @@ function sameValue(f, want, got) {
   const w = norm(want), g = norm(got);
   if (!g) return false;
   if (g === w || g.includes(w)) return true;
+  if (sameDay(want, got)) return true;                                  // "23-09-2002" shown as "23/09/2002" or "Sep 23, 2002"
   const digits = (s) => String(s).replace(/\D/g, '');
   // The same number, shown with the site's own formatting: "95712 42175", "₹15,00,000" (2 forms not sent on 2026-11-03).
   if (/^[\d\s+(),.-]+$/.test(String(want)) && digits(want).length >= 5 && digits(want) === digits(got)) return true;
