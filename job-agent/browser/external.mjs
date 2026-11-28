@@ -179,6 +179,16 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
         // resume-upload input made the page look like a form, ending in "no submit button found" (3 jobs 2026-11-23, 12 since 10-12).
         if (/(^|\.)jobicy\.com$/i.test(new URL(url).hostname) && await page.locator('#jv-open-apply-auth').count().catch(() => 0))
           return { status: 'manual', reason: 'needs an account on jobicy.com', shot: await snap('ext-account') };
+        // OpenCATS careers pages: "Apply to Position" is an image link (no text to rank), and its "registered before?" step
+        // only asks for an email; p=applyToJob opens the plain application form directly (ats.mlopssol.com: 12 jobs 2026-11-27).
+        if (/[?&]m=careers\b/i.test(url) && /[?&]p=(showJob|candidateRegistration)\b/i.test(url) && /[?&]ID=\d+/i.test(url)
+            && await page.locator('img[src*="CATS-powered"], #applyToPosition, form#register').count().catch(() => 0)) {
+          const u = new URL(url); u.searchParams.set('p', 'applyToJob');
+          progress('Company site: OpenCATS, opening its application form');
+          await page.goto(u.href, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+          await page.waitForTimeout(1500);
+          continue;
+        }
         const known = await knownAts(url);
         if (known) { await ctx.close(); return ats[known.task]({ job: { ...job, id: known.id, apply_url: known.apply_url }, resume, dryRun, keepOpen }); }
         const bodyText = await page.innerText('body').catch(() => '');
@@ -324,7 +334,9 @@ async function applyExternal({ job, resume, dryRun = false, keepOpen = false, se
       if (!res.fields) return { status: 'manual', reason: 'no fillable form found', shot };
 
       // Only a Submit the person could actually press (hidden duplicates made clicks time out).
-      const submit = page.locator('button[type="submit"]:visible, input[type="submit"]:visible, button:visible').filter({ hasText: /submit|apply|send application|send|start application/i }).last();
+      let submit = page.locator('button[type="submit"]:visible, input[type="submit"]:visible, button:visible').filter({ hasText: /submit|apply|send application|send|start application/i }).last();
+      // OpenCATS submits from an <img alt="Submit Application Now" onclick=…> with no button at all.
+      if (!await submit.count()) submit = page.locator('img#submitApplicationNow:visible, img[alt="Submit Application Now"]:visible').first();
       if (!await submit.count()) return { status: 'manual', reason: 'no submit button found', shot };
       // Submit stays disabled while a required field is empty: name the empty fields instead of clicking in vain.
       if (!await submit.isEnabled().catch(() => true)) {
